@@ -5,7 +5,7 @@ const ENV_GITHUB_REPO = process.env.GITHUB_REPO || "";
 const ENV_GITHUB_BRANCH = process.env.GITHUB_BRANCH || "main";
 const ENV_GITHUB_TOKEN = process.env.GITHUB_TOKEN || "";
 const LOCAL_DATA_ROOT = process.env.LOCAL_DATA_ROOT || "/tmp/step-gerencia-data";
-const GITHUB_CONFIG_PATH = "data/github-config.json";
+const GITHUB_CONFIG_PATH = "config/github-sync.json";
 
 function resolveProjectPath(relativePath) {
   return path.resolve(__dirname, "..", "..", relativePath);
@@ -94,14 +94,18 @@ async function getGithubConfig() {
   }
 
   try {
-    const saved = await readLocalJson(GITHUB_CONFIG_PATH, {});
-    if (saved?.repo && saved?.token) {
-      return {
-        repo: String(saved.repo),
-        branch: String(saved.branch || "main"),
-        token: String(saved.token),
-        source: "local",
-      };
+    const bundledPath = await resolveBundledLocalPath(GITHUB_CONFIG_PATH);
+    if (await pathExists(bundledPath)) {
+      const raw = await fs.readFile(bundledPath, "utf8");
+      const saved = JSON.parse(raw || "{}");
+      if (saved?.repo && saved?.token && !String(saved.token).includes("COLE_SEU_TOKEN_GITHUB_AQUI")) {
+        return {
+          repo: String(saved.repo),
+          branch: String(saved.branch || "main"),
+          token: String(saved.token),
+          source: "file",
+        };
+      }
     }
   } catch (_) {}
 
@@ -110,17 +114,21 @@ async function getGithubConfig() {
 
 async function saveGithubConfig(config = {}) {
   const payload = {
+    token: String(config.token || "").trim(),
     repo: String(config.repo || "").trim(),
     branch: String(config.branch || "main").trim() || "main",
-    token: String(config.token || "").trim(),
     updatedAt: new Date().toISOString(),
   };
-  await writeLocalRaw(GITHUB_CONFIG_PATH, JSON.stringify(payload, null, 2));
+  const bundledPath = await resolveBundledLocalPath(GITHUB_CONFIG_PATH);
+  await fs.mkdir(path.dirname(bundledPath), { recursive: true });
+  await fs.writeFile(bundledPath, JSON.stringify(payload, null, 2), "utf8");
   return payload;
 }
 
 async function clearGithubConfig() {
-  await writeLocalRaw(GITHUB_CONFIG_PATH, JSON.stringify({}, null, 2));
+  const bundledPath = await resolveBundledLocalPath(GITHUB_CONFIG_PATH);
+  await fs.mkdir(path.dirname(bundledPath), { recursive: true });
+  await fs.writeFile(bundledPath, JSON.stringify({}, null, 2), "utf8");
   return { ok: true };
 }
 

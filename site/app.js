@@ -75,13 +75,6 @@ const adminUserCancelEditEl = document.getElementById("admin-user-cancel-edit");
 const adminUserTogglePasswordEl = document.getElementById("admin-user-toggle-password");
 const adminUserIdEl = document.getElementById("admin-user-id");
 const adminUserSubmitLabelEl = document.getElementById("admin-user-submit-label");
-const adminGithubFormEl = document.getElementById("admin-github-form");
-const adminGithubTokenEl = document.getElementById("admin-github-token");
-const adminGithubRepoEl = document.getElementById("admin-github-repo");
-const adminGithubBranchEl = document.getElementById("admin-github-branch");
-const adminGithubFeedbackEl = document.getElementById("admin-github-feedback");
-const adminGithubToggleTokenEl = document.getElementById("admin-github-toggle-token");
-const adminGithubSyncEl = document.getElementById("admin-github-sync");
 
 const installAppButtonEl = document.getElementById("install-app-button");
 const connectionStatusEl = document.getElementById("connection-status");
@@ -1531,12 +1524,6 @@ if (adminUserCancelEditEl) {
 if (adminSyncButtonEl) {
   adminSyncButtonEl.addEventListener("click", syncAdminDataToGithub);
 }
-if (adminGithubSyncEl) {
-  adminGithubSyncEl.addEventListener("click", syncAdminDataToGithub);
-}
-if (adminGithubFormEl) {
-  adminGithubFormEl.addEventListener("submit", saveGithubAdminConfig);
-}
 
 if (adminAlertFormEl) {
   adminAlertFormEl.addEventListener("submit", handleAdminAlertSubmit);
@@ -1631,19 +1618,6 @@ function setupLoginPasswordToggle() {
   };
   toggleLoginPasswordEl.addEventListener("click", () => {
     loginPasswordEl.type = loginPasswordEl.type === "password" ? "text" : "password";
-    sync();
-  });
-  sync();
-}
-
-function setupAdminGithubTokenToggle() {
-  if (!adminGithubToggleTokenEl || !adminGithubTokenEl) return;
-  const sync = () => {
-    const visible = adminGithubTokenEl.type === "text";
-    adminGithubToggleTokenEl.textContent = visible ? "Ocultar" : "Mostrar";
-  };
-  adminGithubToggleTokenEl.addEventListener("click", () => {
-    adminGithubTokenEl.type = adminGithubTokenEl.type === "password" ? "text" : "password";
     sync();
   });
   sync();
@@ -1812,56 +1786,9 @@ function startEditUser(userId) {
   adminUserFeedbackEl.textContent = `Editando ${user.name || user.username}.`;
 }
 
-async function loadGithubAdminConfig() {
-  if (state.user?.role !== "admin" || !adminGithubFormEl) return;
-  try {
-    const response = await fetch("/api/admin-github-config", { credentials: "same-origin", cache: "no-store" });
-    const data = await response.json().catch(() => null);
-    if (!response.ok || !data?.ok) throw new Error(data?.error || "Falha ao carregar GitHub.");
-    if (adminGithubRepoEl) adminGithubRepoEl.value = data.repo || "stepmanus-boop/Step-Gerencia";
-    if (adminGithubBranchEl) adminGithubBranchEl.value = data.branch || "main";
-    if (adminGithubTokenEl) adminGithubTokenEl.value = "";
-    state.githubSyncEnabled = Boolean(data.configured);
-    if (adminGithubFeedbackEl) {
-      adminGithubFeedbackEl.textContent = data.configured
-        ? `Configuração carregada. Token salvo: ${data.tokenMasked || "configurado"}.`
-        : "GitHub ainda não configurado neste ambiente.";
-    }
-    updateSessionUi();
-  } catch (error) {
-    if (adminGithubFeedbackEl) adminGithubFeedbackEl.textContent = error.message || "Falha ao carregar configuração do GitHub.";
-  }
-}
-
-async function saveGithubAdminConfig(event) {
-  event?.preventDefault?.();
-  if (!adminGithubFeedbackEl) return;
-  adminGithubFeedbackEl.textContent = "Salvando configuração do GitHub...";
-  try {
-    const response = await fetch("/api/admin-github-config", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "save",
-        token: adminGithubTokenEl?.value || "",
-        repo: adminGithubRepoEl?.value || "",
-        branch: adminGithubBranchEl?.value || "main",
-      }),
-    });
-    const data = await response.json().catch(() => null);
-    if (!response.ok || !data?.ok) throw new Error(data?.error || "Falha ao salvar GitHub.");
-    state.githubSyncEnabled = Boolean(data.configured);
-    adminGithubFeedbackEl.textContent = `${data.message} ${data.tokenMasked ? `Token: ${data.tokenMasked}` : ""}`.trim();
-    updateSessionUi();
-  } catch (error) {
-    adminGithubFeedbackEl.textContent = error.message || "Falha ao salvar configuração do GitHub.";
-  }
-}
-
 async function syncAdminDataToGithub() {
-  if (!adminGithubFeedbackEl) return;
-  adminGithubFeedbackEl.textContent = "Sincronizando dados com o GitHub...";
+  if (!adminUserFeedbackEl) return;
+  adminUserFeedbackEl.textContent = "Sincronizando com o GitHub...";
   try {
     const response = await fetch("/api/admin-github-config", {
       method: "POST",
@@ -1870,14 +1797,15 @@ async function syncAdminDataToGithub() {
       body: JSON.stringify({ action: "sync" }),
     });
     const data = await response.json().catch(() => null);
-    if (!response.ok || !data?.ok) throw new Error(data?.error || "Falha ao sincronizar com o GitHub.");
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.error || "Falha ao sincronizar com o GitHub.");
+    }
     state.githubSyncEnabled = true;
-    adminGithubFeedbackEl.textContent = `${data.message} Arquivos: ${(data.files || []).join(", ")}`;
-    adminUserFeedbackEl.textContent = "Sincronizado com sucesso.";
+    adminUserFeedbackEl.textContent = "Sincronizado com sucesso com o GitHub.";
     updateSessionUi();
     await loadAdminData();
   } catch (error) {
-    adminGithubFeedbackEl.textContent = error.message || "Falha ao sincronizar com o GitHub.";
+    adminUserFeedbackEl.textContent = error.message || "Falha ao sincronizar com o GitHub.";
   }
 }
 
@@ -1976,7 +1904,6 @@ async function loadAdminData() {
     }
   }
   renderAdminAlertsList();
-  await loadGithubAdminConfig();
 }
 
 function openAdminModal() {
@@ -2161,7 +2088,6 @@ async function init() {
   bindEvents();
   setupLoginPasswordToggle();
   setupAdminPasswordToggle();
-  setupAdminGithubTokenToggle();
   resetAdminUserForm();
   const authenticated = await bootstrapSession();
   await loadProjects();

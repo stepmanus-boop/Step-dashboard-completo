@@ -1,27 +1,21 @@
-# Configuração rápida GitHub + Netlify
+CONFIGURAÇÃO DO GITHUB
 
-## Variáveis obrigatórias no Netlify
-- GITHUB_TOKEN
-- GITHUB_REPO=stepmanus-boop/Step-Gerencia
-- GITHUB_BRANCH=main
-- SESSION_SECRET
+1. Antes de publicar o projeto, abra a pasta config
+2. Edite o arquivo github-sync.json
+3. Preencha:
+   - token
+   - repo
+   - branch
 
-## API real Smartsheet
-- SMARTSHEET_TOKEN
-- SMARTSHEET_SHEET_NAME
-ou
-- SMARTSHEET_SHEET_ID
+Exemplo:
+{
+  "token": "SEU_TOKEN_AQUI",
+  "repo": "stepmanus-boop/Step-dashboard",
+  "branch": "main"
+}
 
-## Depois de salvar
-1. Deploys
-2. Trigger deploy
-3. Deploy site
-
-## Teste
-1. Entrar com admin / admin123
-2. Criar um usuário
-3. Atualizar a página
-4. Confirmar se o usuário continua salvo
-5. Fazer login com o usuário criado
-
-Se o GitHub estiver configurado, usuários e alertas ficam persistidos para todos os dispositivos.
+IMPORTANTE
+- O campo de token não aparece mais no painel admin
+- O botão "Subir pro GitHub" continua no admin
+- Depois do deploy, o sistema usa esse arquivo para sincronizar usuários e alertas
+- Se quiser trocar o token depois, altere o arquivo config/github-sync.json e publique novamente
