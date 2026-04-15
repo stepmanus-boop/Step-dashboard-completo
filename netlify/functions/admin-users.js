@@ -23,6 +23,31 @@ exports.handler = async (event) => {
     });
   }
 
+  if (event.httpMethod === "PATCH") {
+    try {
+      const body = JSON.parse(event.body || "{}");
+      const userId = String(body.userId || "").trim();
+      const nextRole = body.role === "admin" ? "admin" : "sector";
+      if (!userId) {
+        return jsonResponse(400, { ok: false, error: "Usuário não informado." });
+      }
+      const users = await readJson("data/users.json", []);
+      const index = users.findIndex((user) => user.id === userId);
+      if (index < 0) {
+        return jsonResponse(404, { ok: false, error: "Usuário não encontrado." });
+      }
+      if (users[index].id === admin.session.sub && nextRole !== "admin") {
+        return jsonResponse(400, { ok: false, error: "O admin atual não pode remover o próprio acesso." });
+      }
+      users[index].role = nextRole;
+      users[index].sector = nextRole === "admin" ? "all" : (users[index].sector && users[index].sector !== "all" ? users[index].sector : "producao");
+      await writeJson("data/users.json", users, `chore: atualiza perfil do usuário ${users[index].username}`);
+      return jsonResponse(200, { ok: true, user: { id: users[index].id, role: users[index].role, sector: users[index].sector } });
+    } catch (error) {
+      return jsonResponse(500, { ok: false, error: error.message || "Falha ao atualizar usuário." });
+    }
+  }
+
   if (event.httpMethod !== "POST") {
     return jsonResponse(405, { ok: false, error: "Método não permitido." });
   }

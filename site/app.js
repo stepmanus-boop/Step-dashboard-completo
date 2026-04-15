@@ -48,10 +48,12 @@ const loginFormEl = document.getElementById("login-form");
 const loginUsernameEl = document.getElementById("login-username");
 const loginPasswordEl = document.getElementById("login-password");
 const loginFeedbackEl = document.getElementById("login-feedback");
+const loginGuestCloseEl = document.getElementById("login-guest-close");
 const sessionUserNameEl = document.getElementById("session-user-name");
 const sessionUserMetaEl = document.getElementById("session-user-meta");
 const sessionStatusEl = document.getElementById("session-status");
 const logoutButtonEl = document.getElementById("logout-button");
+const openLoginButtonEl = document.getElementById("open-login-button");
 const openSectorAlertsEl = document.getElementById("open-sector-alerts");
 const sectorAlertsModalEl = document.getElementById("sector-alerts-modal");
 const sectorAlertsCloseEl = document.getElementById("sector-alerts-close");
@@ -1496,7 +1498,7 @@ function closeLoginModal() {
 
 function openLoginModal(message = "") {
   if (!loginModalEl) return;
-  if (loginFeedbackEl) loginFeedbackEl.textContent = message || "Login inicial: admin / admin123";
+  if (loginFeedbackEl) loginFeedbackEl.textContent = message || "Login opcional: entre com seu acesso setorial ou admin.";
   loginModalEl.classList.remove("hidden");
   loginModalEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("modal-open");
@@ -1506,11 +1508,12 @@ function openLoginModal(message = "") {
 function updateSessionUi() {
   const user = state.user;
   if (!user) {
-    sessionUserNameEl.textContent = "Não autenticado";
-    sessionUserMetaEl.textContent = "Faça login para liberar alertas por setor.";
-    sessionStatusEl.textContent = "offline";
+    sessionUserNameEl.textContent = "Visualização geral";
+    sessionUserMetaEl.textContent = "Sem login, você vê todas as informações. Entre apenas para alertas e direcionamento por setor.";
+    sessionStatusEl.textContent = "visitante";
     logoutButtonEl.classList.add("hidden");
     openAdminPanelEl.classList.add("hidden");
+    if (openLoginButtonEl) openLoginButtonEl.classList.remove("hidden");
     return;
   }
 
@@ -1518,6 +1521,7 @@ function updateSessionUi() {
   sessionUserMetaEl.textContent = `${user.role === "admin" ? "Administrador" : "Setor"} • ${sectorLabel(user.sector)}`;
   sessionStatusEl.textContent = "online";
   logoutButtonEl.classList.remove("hidden");
+  if (openLoginButtonEl) openLoginButtonEl.classList.add("hidden");
   if (user.role === "admin") {
     openAdminPanelEl.classList.remove("hidden");
   } else {
@@ -1533,10 +1537,9 @@ async function bootstrapSession() {
   try {
     const response = await fetch("/api/auth-me", { credentials: "same-origin", cache: "no-store" });
     const data = await response.json().catch(() => null);
-    if (!response.ok || !data?.authenticated) {
+    if (!data?.authenticated) {
       state.user = null;
       updateSessionUi();
-      openLoginModal();
       return false;
     }
     state.user = data.user;
@@ -1547,7 +1550,6 @@ async function bootstrapSession() {
   } catch {
     state.user = null;
     updateSessionUi();
-    openLoginModal("Falha ao validar a sessão.");
     return false;
   }
 }
@@ -1555,7 +1557,7 @@ async function bootstrapSession() {
 function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sectorAlertsContentEl) {
   if (!targetEl) return;
   if (!state.user) {
-    targetEl.innerHTML = '<div class="detail-placeholder">Faça login para visualizar alertas setoriais.</div>';
+    targetEl.innerHTML = '<div class="detail-placeholder">Faça login para visualizar alertas direcionados ao seu setor.</div>';
     return;
   }
 
@@ -1634,17 +1636,25 @@ function renderAdminUsersList(users = []) {
     adminUsersListEl.innerHTML = '<div class="empty-state">Nenhum usuário cadastrado.</div>';
     return;
   }
-  adminUsersListEl.innerHTML = users.map((user) => `
-    <article class="admin-list-item">
-      <strong>${escapeHtml(user.name)}</strong>
-      <div class="admin-list-item-meta">
-        <span>Login: ${escapeHtml(user.username)}</span>
-        <span>Perfil: ${escapeHtml(user.role === "admin" ? "Admin" : "Setor")}</span>
-        <span>Setor: ${escapeHtml(sectorLabel(user.sector))}</span>
-        <span>${user.active ? "Ativo" : "Inativo"}</span>
-      </div>
-    </article>
-  `).join("");
+  adminUsersListEl.innerHTML = users.map((user) => {
+    const isSelf = user.id === state.user?.id;
+    return `
+      <article class="admin-list-item">
+        <strong>${escapeHtml(user.name)}</strong>
+        <div class="admin-list-item-meta">
+          <span>Login: ${escapeHtml(user.username)}</span>
+          <span>Perfil: ${escapeHtml(user.role === "admin" ? "Admin notificações" : "Setor")}</span>
+          <span>Setor: ${escapeHtml(sectorLabel(user.sector))}</span>
+          <span>${user.active ? "Ativo" : "Inativo"}</span>
+        </div>
+        <div class="manual-alert-actions">
+          ${user.role === "admin"
+            ? `<button class="ghost-button ghost-button--compact" type="button" data-user-role="sector" data-user-id="${escapeHtml(user.id)}" ${isSelf ? 'disabled' : ''}>Remover permissão admin</button>`
+            : `<button class="primary-button" type="button" data-user-role="admin" data-user-id="${escapeHtml(user.id)}">Permitir como admin</button>`}
+        </div>
+      </article>
+    `;
+  }).join("");
 }
 
 function renderAdminAlertsList() {
@@ -1744,8 +1754,9 @@ async function handleLogout() {
   state.manualAlerts = [];
   window.clearInterval(state.pollTimer);
   updateSessionUi();
-  openLoginModal("Sessão encerrada.");
+  closeLoginModal();
 }
+
 
 async function handleAdminUserSubmit(event) {
   event.preventDefault();
@@ -1773,6 +1784,25 @@ async function handleAdminUserSubmit(event) {
     await loadAdminData();
   } catch (error) {
     adminUserFeedbackEl.textContent = error.message || "Falha ao criar usuário.";
+  }
+}
+
+
+async function updateUserRole(userId, role) {
+  try {
+    const response = await fetch("/api/admin-users", {
+      method: "PATCH",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, role }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.error || "Falha ao atualizar perfil.");
+    }
+    await loadAdminData();
+  } catch (error) {
+    adminUserFeedbackEl.textContent = error.message || "Falha ao atualizar perfil.";
   }
 }
 
@@ -1834,11 +1864,12 @@ async function init() {
   startClocks();
   bindEvents();
   const authenticated = await bootstrapSession();
-  if (!authenticated) return;
   await loadProjects();
-  await loadManualAlerts();
-  if (state.user?.role === "admin") {
-    await loadAdminData();
+  if (authenticated) {
+    await loadManualAlerts();
+    if (state.user?.role === "admin") {
+      await loadAdminData();
+    }
   }
   startPolling();
 }

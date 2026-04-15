@@ -6,17 +6,21 @@ const GITHUB_REPO = process.env.GITHUB_REPO || "";
 const GITHUB_BRANCH = process.env.GITHUB_BRANCH || "main";
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || "";
 
+function resolveProjectPath(relativePath) {
+  return path.resolve(__dirname, "..", "..", relativePath);
+}
+
 function isGithubConfigured() {
   return Boolean(GITHUB_REPO && GITHUB_TOKEN);
 }
 
 async function readLocalRaw(relativePath) {
-  const filePath = path.join(process.cwd(), relativePath);
+  const filePath = resolveProjectPath(relativePath);
   return fs.readFile(filePath, "utf8");
 }
 
 async function writeLocalRaw(relativePath, content) {
-  const filePath = path.join(process.cwd(), relativePath);
+  const filePath = resolveProjectPath(relativePath);
   await fs.writeFile(filePath, content, "utf8");
   return { mode: "local" };
 }

@@ -4,7 +4,7 @@ const { isGithubConfigured } = require("./_githubStore");
 exports.handler = async (event) => {
   const session = getSession(event);
   if (!session) {
-    return jsonResponse(401, { ok: false, authenticated: false });
+    return jsonResponse(200, { ok: true, authenticated: false, publicAccess: true, githubSyncEnabled: isGithubConfigured() });
   }
 
   return jsonResponse(200, {

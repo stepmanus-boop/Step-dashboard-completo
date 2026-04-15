@@ -187,3 +187,26 @@ Esta versão inclui:
 ### Instalação
 - Desktop/Android: use o botão **Instalar app** ou o menu do navegador.
 - iPhone/iPad: abra no Safari e use **Adicionar à Tela de Início**.
+
+
+## Ajustes desta versão
+
+- visualização pública liberada sem login
+- botão de login opcional para acesso setorial ou admin
+- admin pode promover outros usuários para admin
+- leitura dos arquivos locais (`data/*.json`) corrigida para deploy empacotado
+- API real do Smartsheet fica dentro do projeto em `netlify/functions/projects.js`
+- removida a token de teste embutida; agora a integração usa apenas `SMARTSHEET_TOKEN` configurado no ambiente
+
+### Importante sobre a API
+O projeto já vem com a API local integrada no próprio repositório:
+- `GET /api/projects` → leitura dos projetos
+- `POST /api/auth-login` → login
+- `GET /api/auth-me` → sessão
+- `GET/POST/PATCH /api/sector-alerts` → alertas por setor
+- `GET/POST/PATCH /api/admin-users` → usuários e promoção para admin
+
+Para usar a base real, configure no Netlify:
+- `SMARTSHEET_TOKEN`
+- `SMARTSHEET_SHEET_NAME`
+- opcionalmente `SMARTSHEET_SHEET_ID`

@@ -7,6 +7,10 @@ const SESSION_COOKIE_NAME = "step_session";
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 1000 * 60 * 60 * 24 * 7);
 const SESSION_SECRET = process.env.SESSION_SECRET || "step-dev-secret-change-me";
 
+function resolveProjectPath(relativePath) {
+  return path.resolve(__dirname, "..", "..", relativePath);
+}
+
 function jsonResponse(statusCode, data, extra = {}) {
   const headers = {
     "content-type": "application/json; charset=utf-8",
@@ -130,7 +134,7 @@ function verifyPassword(password, passwordHash) {
 }
 
 async function readLocalJson(relativePath, fallbackValue = []) {
-  const filePath = path.join(process.cwd(), relativePath);
+  const filePath = resolveProjectPath(relativePath);
   const raw = await fs.readFile(filePath, "utf8");
   return JSON.parse(raw || JSON.stringify(fallbackValue));
 }

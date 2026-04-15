@@ -33,9 +33,10 @@
               <span class="session-status" id="session-status">offline</span>
             </div>
             <strong id="session-user-name">Não autenticado</strong>
-            <span id="session-user-meta" class="session-user-meta">Faça login para liberar alertas por setor.</span>
+            <span id="session-user-meta" class="session-user-meta">Visualização livre ativa. Faça login para liberar alertas por setor e administração.</span>
             <div class="session-actions">
               <button id="install-app-button" class="ghost-button ghost-button--compact hidden" type="button">Instalar app</button>
+              <button id="open-login-button" class="ghost-button ghost-button--compact" type="button">Login</button>
               <button id="open-sector-alerts" class="ghost-button ghost-button--compact" type="button">Meus alertas</button>
               <button id="open-admin-panel" class="ghost-button ghost-button--compact hidden" type="button">Admin</button>
               <button id="logout-button" class="ghost-button ghost-button--compact hidden" type="button">Sair</button>
@@ -189,7 +190,7 @@
 
       <footer class="footer-bar">
         <span id="connection-status" class="connection-status">Online</span>
-        <span>Atualização automática por Netlify Functions + Smartsheet API</span>
+        <span>API local integrada ao projeto + sincronização Smartsheet</span>
         <span id="footer-version">Versão da sheet: --</span>
       </footer>
     </div>
@@ -229,14 +230,14 @@
     </div>
 
 
-<div id="login-modal" class="modal" aria-hidden="false">
+<div id="login-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-backdrop"></div>
   <div class="modal-dialog modal-dialog--login" role="dialog" aria-modal="true" aria-labelledby="login-title">
     <div class="modal-head">
       <div>
         <p class="modal-eyebrow">Acesso setorial</p>
-        <h3 id="login-title">Entrar no painel</h3>
-        <p class="modal-subtitle">Cada setor recebe apenas os alertas manuais destinados ao próprio login.</p>
+        <h3 id="login-title">Login opcional</h3>
+        <p class="modal-subtitle">Sem login o painel abre em modo geral. Entre apenas se quiser alertas e direcionamento por setor.</p>
       </div>
     </div>
     <div class="modal-content">
@@ -251,8 +252,9 @@
         </label>
         <div class="stack-actions">
           <button class="primary-button" type="submit">Entrar</button>
+          <button id="login-guest-close" class="ghost-button" type="button">Continuar sem login</button>
         </div>
-        <p id="login-feedback" class="inline-feedback">Login inicial: admin / admin123</p>
+        <p id="login-feedback" class="inline-feedback">Login opcional: use seu acesso setorial ou admin.</p>
       </form>
     </div>
   </div>
