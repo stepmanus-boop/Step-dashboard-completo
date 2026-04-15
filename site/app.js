@@ -48,6 +48,7 @@ const loginFormEl = document.getElementById("login-form");
 const loginUsernameEl = document.getElementById("login-username");
 const loginPasswordEl = document.getElementById("login-password");
 const loginFeedbackEl = document.getElementById("login-feedback");
+const toggleLoginPasswordEl = document.getElementById("toggle-login-password");
 const loginGuestCloseEl = document.getElementById("login-guest-close");
 const sessionUserNameEl = document.getElementById("session-user-name");
 const sessionUserMetaEl = document.getElementById("session-user-meta");
@@ -1505,6 +1506,20 @@ function openLoginModal(message = "") {
   window.setTimeout(() => loginUsernameEl?.focus(), 40);
 }
 
+function setupLoginPasswordToggle() {
+  if (!toggleLoginPasswordEl || !loginPasswordEl) return;
+  const sync = () => {
+    const visible = loginPasswordEl.type === "text";
+    toggleLoginPasswordEl.textContent = visible ? "Ocultar" : "Mostrar";
+    toggleLoginPasswordEl.setAttribute("aria-label", visible ? "Ocultar senha" : "Mostrar senha");
+  };
+  toggleLoginPasswordEl.addEventListener("click", () => {
+    loginPasswordEl.type = loginPasswordEl.type === "password" ? "text" : "password";
+    sync();
+  });
+  sync();
+}
+
 function updateSessionUi() {
   const user = state.user;
   if (!user) {
@@ -1863,6 +1878,7 @@ async function init() {
   registerServiceWorker();
   startClocks();
   bindEvents();
+  setupLoginPasswordToggle();
   const authenticated = await bootstrapSession();
   await loadProjects();
   if (authenticated) {

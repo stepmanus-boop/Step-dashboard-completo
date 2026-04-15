@@ -248,7 +248,10 @@
         </label>
         <label class="stack-field">
           <span>Senha</span>
-          <input id="login-password" type="password" autocomplete="current-password" placeholder="Digite a senha" />
+          <div class="password-field">
+            <input id="login-password" type="password" autocomplete="current-password" placeholder="Digite a senha" />
+            <button id="toggle-login-password" class="ghost-button ghost-button--compact password-toggle" type="button" aria-label="Mostrar senha">Mostrar</button>
+          </div>
         </label>
         <div class="stack-actions">
           <button class="primary-button" type="submit">Entrar</button>

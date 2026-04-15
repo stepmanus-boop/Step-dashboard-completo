@@ -14,13 +14,28 @@ function isGithubConfigured() {
   return Boolean(GITHUB_REPO && GITHUB_TOKEN);
 }
 
+async function resolveExistingLocalPath(relativePath) {
+  const candidates = [
+    resolveProjectPath(relativePath),
+    resolveProjectPath(relativePath.replace(/^data\//, "netlify/data/")),
+  ];
+  for (const filePath of candidates) {
+    try {
+      await fs.access(filePath);
+      return filePath;
+    } catch (_) {}
+  }
+  return candidates[0];
+}
+
 async function readLocalRaw(relativePath) {
-  const filePath = resolveProjectPath(relativePath);
+  const filePath = await resolveExistingLocalPath(relativePath);
   return fs.readFile(filePath, "utf8");
 }
 
 async function writeLocalRaw(relativePath, content) {
-  const filePath = resolveProjectPath(relativePath);
+  const filePath = await resolveExistingLocalPath(relativePath);
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, content, "utf8");
   return { mode: "local" };
 }

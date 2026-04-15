@@ -932,6 +932,24 @@ button.alert-badge {
   min-height: 108px;
 }
 
+
+.password-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.password-field input {
+  min-width: 0;
+}
+
+.password-toggle {
+  min-height: 44px;
+  padding-inline: 14px;
+  white-space: nowrap;
+}
+
 .stack-actions {
   display: flex;
   justify-content: flex-end;
