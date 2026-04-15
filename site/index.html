@@ -332,7 +332,31 @@
           </div>
           <p id="admin-user-feedback" class="inline-feedback"></p>
         </form>
-      </section>
+      
+</section>
+
+      <section class="admin-card">
+        <div class="admin-card-head">
+          <h4>Configuração GitHub</h4>
+        </div>
+        <form id="admin-github-form" class="stack-form">
+          <label class="stack-field"><span>Token GitHub</span>
+            <div class="password-inline">
+              <input id="admin-github-token" type="password" placeholder="Cole o token aqui" />
+              <button id="admin-github-toggle-token" class="ghost-button ghost-button--compact" type="button">Mostrar</button>
+            </div>
+          </label>
+          <div class="stack-two">
+            <label class="stack-field"><span>Repositório</span><input id="admin-github-repo" type="text" placeholder="stepmanus-boop/Step-Gerencia" /></label>
+            <label class="stack-field"><span>Branch</span><input id="admin-github-branch" type="text" placeholder="main" /></label>
+          </div>
+          <div class="stack-actions">
+            <button id="admin-github-save" class="primary-button" type="submit">Salvar GitHub</button>
+            <button id="admin-github-sync" class="ghost-button" type="button">Sincronizar agora</button>
+          </div>
+          <p id="admin-github-feedback" class="inline-feedback"></p>
+        </form>
+
 
       <section class="admin-card">
         <div class="admin-card-head">

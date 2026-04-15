@@ -10,7 +10,7 @@ exports.handler = async (event) => {
     const users = await readJson("data/users.json", []);
     return jsonResponse(200, {
       ok: true,
-      githubSyncEnabled: isGithubConfigured(),
+      githubSyncEnabled: await isGithubConfigured(),
       users: users.map((user) => ({
         id: user.id,
         name: user.name,

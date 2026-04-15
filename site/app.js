@@ -69,6 +69,18 @@ const adminAlertFeedbackEl = document.getElementById("admin-alert-feedback");
 const adminUsersListEl = document.getElementById("admin-users-list");
 const adminAlertsListEl = document.getElementById("admin-alerts-list");
 const githubSyncBadgeEl = document.getElementById("github-sync-badge");
+const adminSyncButtonEl = document.getElementById("admin-sync-button");
+const adminUserCancelEditEl = document.getElementById("admin-user-cancel-edit");
+const adminUserTogglePasswordEl = document.getElementById("admin-user-toggle-password");
+const adminUserIdEl = document.getElementById("admin-user-id");
+const adminUserSubmitLabelEl = document.getElementById("admin-user-submit-label");
+const adminGithubFormEl = document.getElementById("admin-github-form");
+const adminGithubTokenEl = document.getElementById("admin-github-token");
+const adminGithubRepoEl = document.getElementById("admin-github-repo");
+const adminGithubBranchEl = document.getElementById("admin-github-branch");
+const adminGithubFeedbackEl = document.getElementById("admin-github-feedback");
+const adminGithubToggleTokenEl = document.getElementById("admin-github-toggle-token");
+const adminGithubSyncEl = document.getElementById("admin-github-sync");
 
 const installAppButtonEl = document.getElementById("install-app-button");
 const connectionStatusEl = document.getElementById("connection-status");
@@ -158,6 +170,39 @@ function normalizeText(value) {
     .replace(/[^a-z0-9]+/g, "");
 }
 
+
+
+function normalizeLoginValue(value) {
+  return normalizeText(value || "");
+}
+
+function getLocalUsersStorageKey() {
+  return "step-admin-local-users";
+}
+
+function readLocalUsers() {
+  try {
+    const raw = window.localStorage.getItem(getLocalUsersStorageKey());
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalUsers(users) {
+  try {
+    window.localStorage.setItem(getLocalUsersStorageKey(), JSON.stringify(Array.isArray(users) ? users : []));
+  } catch {}
+}
+
+function upsertLocalUser(user) {
+  const users = readLocalUsers();
+  const key = normalizeLoginValue(user.username);
+  const next = users.filter((item) => normalizeLoginValue(item.username) !== key);
+  next.push(user);
+  writeLocalUsers(next);
+}
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -1463,6 +1508,12 @@ if (adminUserCancelEditEl) {
 if (adminSyncButtonEl) {
   adminSyncButtonEl.addEventListener("click", syncAdminDataToGithub);
 }
+if (adminGithubSyncEl) {
+  adminGithubSyncEl.addEventListener("click", syncAdminDataToGithub);
+}
+if (adminGithubFormEl) {
+  adminGithubFormEl.addEventListener("submit", saveGithubAdminConfig);
+}
 
 if (adminAlertFormEl) {
   adminAlertFormEl.addEventListener("submit", handleAdminAlertSubmit);
@@ -1556,6 +1607,19 @@ function setupLoginPasswordToggle() {
   };
   toggleLoginPasswordEl.addEventListener("click", () => {
     loginPasswordEl.type = loginPasswordEl.type === "password" ? "text" : "password";
+    sync();
+  });
+  sync();
+}
+
+function setupAdminGithubTokenToggle() {
+  if (!adminGithubToggleTokenEl || !adminGithubTokenEl) return;
+  const sync = () => {
+    const visible = adminGithubTokenEl.type === "text";
+    adminGithubToggleTokenEl.textContent = visible ? "Ocultar" : "Mostrar";
+  };
+  adminGithubToggleTokenEl.addEventListener("click", () => {
+    adminGithubTokenEl.type = adminGithubTokenEl.type === "password" ? "text" : "password";
     sync();
   });
   sync();
@@ -1701,8 +1765,101 @@ function closeSectorAlertsModal() {
   }
 }
 
+
+function resetAdminUserForm() {
+  if (adminUserFormEl) adminUserFormEl.reset();
+  if (adminUserIdEl) adminUserIdEl.value = "";
+  if (adminUserCancelEditEl) adminUserCancelEditEl.classList.add("hidden");
+  if (adminUserSubmitLabelEl) adminUserSubmitLabelEl.textContent = "Criar usuário";
+}
+
+function startEditUser(userId) {
+  const list = adminUsersListEl?._cachedUsers || [];
+  const user = list.find((item) => String(item.id) === String(userId));
+  if (!user) return;
+  document.getElementById("admin-user-name").value = user.name || "";
+  document.getElementById("admin-user-username").value = user.username || "";
+  document.getElementById("admin-user-password").value = "";
+  document.getElementById("admin-user-role").value = user.role === "admin" ? "admin" : "sector";
+  document.getElementById("admin-user-sector").value = user.sector && user.sector !== "all" ? user.sector : "pintura";
+  if (adminUserIdEl) adminUserIdEl.value = user.id || "";
+  if (adminUserCancelEditEl) adminUserCancelEditEl.classList.remove("hidden");
+  if (adminUserSubmitLabelEl) adminUserSubmitLabelEl.textContent = "Salvar usuário";
+  adminUserFeedbackEl.textContent = `Editando ${user.name || user.username}.`;
+}
+
+async function loadGithubAdminConfig() {
+  if (state.user?.role !== "admin" || !adminGithubFormEl) return;
+  try {
+    const response = await fetch("/api/admin-github-config", { credentials: "same-origin", cache: "no-store" });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || "Falha ao carregar GitHub.");
+    if (adminGithubRepoEl) adminGithubRepoEl.value = data.repo || "stepmanus-boop/Step-Gerencia";
+    if (adminGithubBranchEl) adminGithubBranchEl.value = data.branch || "main";
+    if (adminGithubTokenEl) adminGithubTokenEl.value = "";
+    state.githubSyncEnabled = Boolean(data.configured);
+    if (adminGithubFeedbackEl) {
+      adminGithubFeedbackEl.textContent = data.configured
+        ? `Configuração carregada. Token salvo: ${data.tokenMasked || "configurado"}.`
+        : "GitHub ainda não configurado neste ambiente.";
+    }
+    updateSessionUi();
+  } catch (error) {
+    if (adminGithubFeedbackEl) adminGithubFeedbackEl.textContent = error.message || "Falha ao carregar configuração do GitHub.";
+  }
+}
+
+async function saveGithubAdminConfig(event) {
+  event?.preventDefault?.();
+  if (!adminGithubFeedbackEl) return;
+  adminGithubFeedbackEl.textContent = "Salvando configuração do GitHub...";
+  try {
+    const response = await fetch("/api/admin-github-config", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "save",
+        token: adminGithubTokenEl?.value || "",
+        repo: adminGithubRepoEl?.value || "",
+        branch: adminGithubBranchEl?.value || "main",
+      }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || "Falha ao salvar GitHub.");
+    state.githubSyncEnabled = Boolean(data.configured);
+    adminGithubFeedbackEl.textContent = `${data.message} ${data.tokenMasked ? `Token: ${data.tokenMasked}` : ""}`.trim();
+    updateSessionUi();
+  } catch (error) {
+    adminGithubFeedbackEl.textContent = error.message || "Falha ao salvar configuração do GitHub.";
+  }
+}
+
+async function syncAdminDataToGithub() {
+  if (!adminGithubFeedbackEl) return;
+  adminGithubFeedbackEl.textContent = "Sincronizando dados com o GitHub...";
+  try {
+    const response = await fetch("/api/admin-github-config", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "sync" }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || "Falha ao sincronizar com o GitHub.");
+    state.githubSyncEnabled = true;
+    adminGithubFeedbackEl.textContent = `${data.message} Arquivos: ${(data.files || []).join(", ")}`;
+    adminUserFeedbackEl.textContent = "Sincronizado com sucesso.";
+    updateSessionUi();
+    await loadAdminData();
+  } catch (error) {
+    adminGithubFeedbackEl.textContent = error.message || "Falha ao sincronizar com o GitHub.";
+  }
+}
+
 function renderAdminUsersList(users = []) {
   if (!adminUsersListEl) return;
+  adminUsersListEl._cachedUsers = users;
   if (!users.length) {
     adminUsersListEl.innerHTML = '<div class="empty-state">Nenhum usuário cadastrado.</div>';
     return;
@@ -1719,6 +1876,7 @@ function renderAdminUsersList(users = []) {
           <span>${user.active ? "Ativo" : "Inativo"}</span>
         </div>
         <div class="manual-alert-actions">
+          <button class="ghost-button ghost-button--compact" type="button" data-user-edit="${escapeHtml(user.id)}">Editar</button>
           ${user.role === "admin"
             ? `<button class="ghost-button ghost-button--compact" type="button" data-user-role="sector" data-user-id="${escapeHtml(user.id)}" ${isSelf ? 'disabled' : ''}>Remover permissão admin</button>`
             : `<button class="primary-button" type="button" data-user-role="admin" data-user-id="${escapeHtml(user.id)}">Permitir como admin</button>`}
@@ -1794,6 +1952,7 @@ async function loadAdminData() {
     }
   }
   renderAdminAlertsList();
+  await loadGithubAdminConfig();
 }
 
 function openAdminModal() {
@@ -1862,9 +2021,11 @@ async function handleLogout() {
 
 async function handleAdminUserSubmit(event) {
   event.preventDefault();
-  adminUserFeedbackEl.textContent = "Criando usuário...";
+  const editingId = adminUserIdEl?.value || "";
+  adminUserFeedbackEl.textContent = editingId ? "Salvando usuário..." : "Criando usuário...";
   try {
     const payload = {
+      userId: editingId,
       name: document.getElementById("admin-user-name").value,
       username: document.getElementById("admin-user-username").value,
       password: document.getElementById("admin-user-password").value,
@@ -1872,23 +2033,32 @@ async function handleAdminUserSubmit(event) {
       sector: document.getElementById("admin-user-sector").value,
     };
     const response = await fetch("/api/admin-users", {
-      method: "POST",
+      method: editingId ? "PUT" : "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) {
-      throw new Error(data?.error || "Falha ao criar usuário.");
+      throw new Error(data?.error || (editingId ? "Falha ao editar usuário." : "Falha ao criar usuário."));
     }
-    adminUserFormEl.reset();
-    adminUserFeedbackEl.textContent = "Usuário criado com sucesso.";
+    const savedUser = data.user || {
+      id: editingId || `local-${Date.now()}`,
+      name: payload.name,
+      username: payload.username,
+      role: payload.role,
+      sector: payload.role === "admin" ? "all" : payload.sector,
+      active: true,
+      createdAt: new Date().toISOString(),
+    };
+    upsertLocalUser(savedUser);
+    resetAdminUserForm();
+    adminUserFeedbackEl.textContent = editingId ? "Usuário atualizado com sucesso." : "Usuário criado com sucesso.";
     await loadAdminData();
   } catch (error) {
-    adminUserFeedbackEl.textContent = error.message || "Falha ao criar usuário.";
+    adminUserFeedbackEl.textContent = error.message || (editingId ? "Falha ao editar usuário." : "Falha ao criar usuário.");
   }
 }
-
 
 async function updateUserRole(userId, role) {
   try {
@@ -1967,6 +2137,7 @@ async function init() {
   bindEvents();
   setupLoginPasswordToggle();
   setupAdminPasswordToggle();
+  setupAdminGithubTokenToggle();
   resetAdminUserForm();
   const authenticated = await bootstrapSession();
   await loadProjects();
