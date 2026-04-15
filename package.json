@@ -1,0 +1,17 @@
+{
+  "name": "step-progress-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TV dashboard for Smartsheet piping fabrication projects deployed on Netlify.",
+  "scripts": {
+    "dev": "netlify dev",
+    "lint": "node --check netlify/functions/projects.js",
+    "validate": "node scripts/validate-config.js"
+  },
+  "devDependencies": {
+    "netlify-cli": "^17.38.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

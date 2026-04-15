@@ -1,0 +1,26 @@
+{
+  "name": "STEP Gerência Operacional",
+  "short_name": "STEP Gerência",
+  "description": "Painel operacional STEP com login por setor, alertas e visualização mobile.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#041a2d",
+  "theme_color": "#041a2d",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "./assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
