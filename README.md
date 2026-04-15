@@ -210,3 +210,6 @@ Para usar a base real, configure no Netlify:
 - `SMARTSHEET_TOKEN`
 - `SMARTSHEET_SHEET_NAME`
 - opcionalmente `SMARTSHEET_SHEET_ID`
+
+## Configuração rápida
+Veja o arquivo `GUIA-CONFIGURACAO-GITHUB-NETLIFY.txt` para ativar persistência via GitHub e API real do Smartsheet.

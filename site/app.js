@@ -1718,9 +1718,40 @@ async function loadAdminData() {
     }
     state.githubSyncEnabled = Boolean(data.githubSyncEnabled ?? state.githubSyncEnabled);
     updateSessionUi();
-    renderAdminUsersList(data.users || []);
+    const remoteUsers = Array.isArray(data.users) ? data.users : [];
+    const localUsers = readLocalUsers().map((user) => ({
+      id: user.id,
+      name: user.name,
+      username: user.username,
+      role: user.role,
+      sector: user.sector,
+      active: user.active !== false,
+      createdAt: user.createdAt || null,
+    }));
+    const merged = [];
+    const seen = new Set();
+    for (const user of [...remoteUsers, ...localUsers]) {
+      const key = normalizeLoginValue(user.username);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(user);
+    }
+    renderAdminUsersList(merged);
   } catch (error) {
-    adminUsersListEl.innerHTML = `<div class="empty-state">${escapeHtml(error.message || "Falha ao carregar usuários.")}</div>`;
+    const localUsers = readLocalUsers().map((user) => ({
+      id: user.id,
+      name: user.name,
+      username: user.username,
+      role: user.role,
+      sector: user.sector,
+      active: user.active !== false,
+      createdAt: user.createdAt || null,
+    }));
+    if (localUsers.length) {
+      renderAdminUsersList(localUsers);
+    } else {
+      adminUsersListEl.innerHTML = `<div class="empty-state">${escapeHtml(error.message || "Falha ao carregar usuários.")}</div>`;
+    }
   }
   renderAdminAlertsList();
 }
