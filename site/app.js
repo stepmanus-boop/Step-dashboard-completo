@@ -659,11 +659,22 @@ function buildWeekOptions() {
 }
 
 function getActiveWeekLabel() {
-  return state.weekFilter || getCurrentProductionWeekLabel();
+  return state.weekFilter || "Todas as semanas";
+}
+
+function getTotalWeldedWeightAllProjects() {
+  return state.projects.reduce((total, project) => {
+    const spools = project.spools || [];
+    if (spools.length) {
+      return total + spools.reduce((spoolTotal, spool) => spoolTotal + (spool.weldedWeightKg || 0), 0);
+    }
+
+    return total + (project.weldedWeightKg || 0);
+  }, 0);
 }
 
 function getWeldedWeightForWeek(weekLabel) {
-  if (!weekLabel) return 0;
+  if (!weekLabel || weekLabel === "Todas as semanas") return getTotalWeldedWeightAllProjects();
   return state.projects.reduce((total, project) => {
     const spools = project.spools || [];
     if (spools.length) {
@@ -726,13 +737,18 @@ function formatBacklogItemText(project) {
 function renderStats() {
   if (!state.stats) return;
   const activeWeek = getActiveWeekLabel();
-  const weekWeight = getWeldedWeightForWeek(activeWeek);
+  const allProjectsWeldedWeight = getTotalWeldedWeightAllProjects();
+  const displayedWeldedWeight = getWeldedWeightForWeek(activeWeek);
   document.getElementById("stat-projects").textContent = formatNumber(state.stats.totalProjects);
-  document.getElementById("stat-spools").textContent = `${formatNumber(weekWeight, 0)} kg`;
+  document.getElementById("stat-spools").textContent = `${formatNumber(displayedWeldedWeight, 0)} kg`;
   document.getElementById("stat-total-weight").textContent = `${formatNumber(state.stats.totalWeightKg, 0)} kg`;
 
   const currentWeekEl = document.getElementById("stat-current-week");
-  if (currentWeekEl) currentWeekEl.textContent = activeWeek;
+  if (currentWeekEl) {
+    currentWeekEl.textContent = activeWeek === "Todas as semanas"
+      ? "Total de todos os projetos"
+      : `${activeWeek} • Total geral: ${formatNumber(allProjectsWeldedWeight, 0)} kg`;
+  }
 
   const setTags = (id, value) => {
     const el = document.getElementById(id);
