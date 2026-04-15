@@ -1453,8 +1453,33 @@ if (adminUserFormEl) {
   adminUserFormEl.addEventListener("submit", handleAdminUserSubmit);
 }
 
+if (adminUserCancelEditEl) {
+  adminUserCancelEditEl.addEventListener("click", () => {
+    resetAdminUserForm();
+    adminUserFeedbackEl.textContent = "";
+  });
+}
+
+if (adminSyncButtonEl) {
+  adminSyncButtonEl.addEventListener("click", syncAdminDataToGithub);
+}
+
 if (adminAlertFormEl) {
   adminAlertFormEl.addEventListener("submit", handleAdminAlertSubmit);
+}
+
+if (adminUsersListEl) {
+  adminUsersListEl.addEventListener("click", (event) => {
+    const roleButton = event.target.closest("[data-user-role][data-user-id]");
+    if (roleButton) {
+      updateUserRole(roleButton.dataset.userId, roleButton.dataset.userRole);
+      return;
+    }
+    const editButton = event.target.closest("[data-user-edit]");
+    if (editButton) {
+      startEditUser(editButton.dataset.userEdit);
+    }
+  });
 }
 
 
@@ -1531,6 +1556,21 @@ function setupLoginPasswordToggle() {
   };
   toggleLoginPasswordEl.addEventListener("click", () => {
     loginPasswordEl.type = loginPasswordEl.type === "password" ? "text" : "password";
+    sync();
+  });
+  sync();
+}
+
+function setupAdminPasswordToggle() {
+  const passwordEl = document.getElementById("admin-user-password");
+  if (!adminUserTogglePasswordEl || !passwordEl) return;
+  const sync = () => {
+    const visible = passwordEl.type === "text";
+    adminUserTogglePasswordEl.textContent = visible ? "Ocultar" : "Mostrar";
+    adminUserTogglePasswordEl.setAttribute("aria-label", visible ? "Ocultar senha do usuário" : "Mostrar senha do usuário");
+  };
+  adminUserTogglePasswordEl.addEventListener("click", () => {
+    passwordEl.type = passwordEl.type === "password" ? "text" : "password";
     sync();
   });
   sync();
@@ -1926,6 +1966,8 @@ async function init() {
   startClocks();
   bindEvents();
   setupLoginPasswordToggle();
+  setupAdminPasswordToggle();
+  resetAdminUserForm();
   const authenticated = await bootstrapSession();
   await loadProjects();
   if (authenticated) {

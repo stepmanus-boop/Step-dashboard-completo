@@ -102,14 +102,21 @@ async function readGithubFile(relativePath) {
 }
 
 async function writeGithubFile(relativePath, content, message) {
-  const current = await readGithubFile(relativePath);
+  let current = null;
+  try {
+    current = await readGithubFile(relativePath);
+  } catch (error) {
+    if (!String(error.message || "").includes("GitHub 404")) {
+      throw error;
+    }
+  }
   const url = `https://api.github.com/repos/${GITHUB_REPO}/contents/${relativePath}`;
   await githubFetch(url, {
     method: "PUT",
     body: JSON.stringify({
       message,
       content: Buffer.from(content, "utf8").toString("base64"),
-      sha: current.sha,
+      ...(current?.sha ? { sha: current.sha } : {}),
       branch: GITHUB_BRANCH,
     }),
   });

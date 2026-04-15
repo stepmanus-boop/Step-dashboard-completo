@@ -23,6 +23,70 @@ exports.handler = async (event) => {
     });
   }
 
+  if (event.httpMethod === "PUT") {
+    try {
+      const body = JSON.parse(event.body || "{}");
+      const userId = String(body.userId || "").trim();
+      if (!userId) {
+        return jsonResponse(400, { ok: false, error: "Usuário não informado." });
+      }
+
+      const users = await readJson("data/users.json", []);
+      const index = users.findIndex((user) => user.id === userId);
+      if (index < 0) {
+        return jsonResponse(404, { ok: false, error: "Usuário não encontrado." });
+      }
+
+      const name = String(body.name || "").trim();
+      const username = String(body.username || "").trim();
+      const password = String(body.password || "");
+      const role = body.role === "admin" ? "admin" : "sector";
+      const sector = role === "admin" ? "all" : String(body.sector || "").trim();
+
+      if (!name || !username) {
+        return jsonResponse(400, { ok: false, error: "Preencha nome e usuário." });
+      }
+
+      if (role !== "admin" && !sector) {
+        return jsonResponse(400, { ok: false, error: "Selecione o setor do usuário." });
+      }
+
+      const exists = users.some((user, userIndex) => userIndex !== index && normalizeText(user.username) === normalizeText(username));
+      if (exists) {
+        return jsonResponse(409, { ok: false, error: "Já existe um usuário com esse login." });
+      }
+
+      if (users[index].id === admin.session.sub && role !== "admin") {
+        return jsonResponse(400, { ok: false, error: "O admin atual não pode remover o próprio acesso." });
+      }
+
+      users[index].name = name;
+      users[index].username = username;
+      users[index].role = role;
+      users[index].sector = sector;
+      users[index].active = body.active === false ? false : true;
+      if (password) {
+        users[index].passwordHash = hashPassword(password);
+      }
+
+      await writeJson("data/users.json", users, `chore: edita usuário ${users[index].username}`);
+      return jsonResponse(200, {
+        ok: true,
+        user: {
+          id: users[index].id,
+          name: users[index].name,
+          username: users[index].username,
+          role: users[index].role,
+          sector: users[index].sector,
+          active: users[index].active,
+          createdAt: users[index].createdAt || null,
+        },
+      });
+    } catch (error) {
+      return jsonResponse(500, { ok: false, error: error.message || "Falha ao editar usuário." });
+    }
+  }
+
   if (event.httpMethod === "PATCH") {
     try {
       const body = JSON.parse(event.body || "{}");

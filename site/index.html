@@ -293,12 +293,21 @@
       <section class="admin-card">
         <div class="admin-card-head">
           <h4>Novo usuário</h4>
-          <span id="github-sync-badge" class="admin-badge">GitHub sync: offline</span>
+          <div class="admin-head-actions">
+            <span id="github-sync-badge" class="admin-badge">GitHub sync: offline</span>
+            <button id="admin-sync-button" class="ghost-button ghost-button--compact" type="button">Subir pro GitHub</button>
+          </div>
         </div>
         <form id="admin-user-form" class="stack-form">
+          <input id="admin-user-id" type="hidden" />
           <label class="stack-field"><span>Nome</span><input id="admin-user-name" type="text" placeholder="Nome do setor ou responsável" /></label>
           <label class="stack-field"><span>Usuário</span><input id="admin-user-username" type="text" placeholder="Ex.: pintura" /></label>
-          <label class="stack-field"><span>Senha</span><input id="admin-user-password" type="text" placeholder="Senha inicial" /></label>
+          <label class="stack-field"><span>Senha</span>
+            <div class="password-inline">
+              <input id="admin-user-password" type="password" placeholder="Senha inicial" />
+              <button id="admin-user-toggle-password" class="ghost-button ghost-button--compact" type="button">Mostrar</button>
+            </div>
+          </label>
           <div class="stack-two">
             <label class="stack-field">
               <span>Perfil</span>
@@ -318,7 +327,8 @@
             </label>
           </div>
           <div class="stack-actions">
-            <button class="primary-button" type="submit">Criar usuário</button>
+            <button class="primary-button" type="submit"><span id="admin-user-submit-label">Criar usuário</span></button>
+            <button id="admin-user-cancel-edit" class="ghost-button hidden" type="button">Cancelar edição</button>
           </div>
           <p id="admin-user-feedback" class="inline-feedback"></p>
         </form>

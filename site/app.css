@@ -1327,3 +1327,22 @@ button.alert-badge {
     width: 100%;
   }
 }
+
+
+.admin-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.password-inline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.password-inline .ghost-button {
+  min-height: 42px;
+}
