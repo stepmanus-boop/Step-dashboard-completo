@@ -1346,3 +1346,35 @@ button.alert-badge {
 .password-inline .ghost-button {
   min-height: 42px;
 }
+
+
+.modal-head--login {
+  align-items: center;
+}
+
+.login-brand-block {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.login-brand-logo {
+  width: 120px;
+  max-width: 32vw;
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 0 10px rgba(44, 172, 255, 0.12));
+}
+
+@media (max-width: 640px) {
+  .login-brand-block {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .login-brand-logo {
+    width: 96px;
+    max-width: 45vw;
+  }
+}

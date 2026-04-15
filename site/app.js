@@ -50,6 +50,7 @@ const loginPasswordEl = document.getElementById("login-password");
 const loginFeedbackEl = document.getElementById("login-feedback");
 const toggleLoginPasswordEl = document.getElementById("toggle-login-password");
 const loginGuestCloseEl = document.getElementById("login-guest-close");
+const loginCloseEl = document.getElementById("login-close");
 const sessionUserNameEl = document.getElementById("session-user-name");
 const sessionUserMetaEl = document.getElementById("session-user-meta");
 const sessionStatusEl = document.getElementById("session-status");
@@ -1444,6 +1445,28 @@ if (loginFormEl) {
   loginFormEl.addEventListener("submit", handleLoginSubmit);
 }
 
+if (openLoginButtonEl) {
+  openLoginButtonEl.addEventListener("click", () => {
+    openLoginModal();
+  });
+}
+
+if (loginGuestCloseEl) {
+  loginGuestCloseEl.addEventListener("click", closeLoginModal);
+}
+
+if (loginCloseEl) {
+  loginCloseEl.addEventListener("click", closeLoginModal);
+}
+
+if (loginModalEl) {
+  loginModalEl.addEventListener("click", (event) => {
+    if (event.target === loginModalEl || event.target.matches(".modal-backdrop")) {
+      closeLoginModal();
+    }
+  });
+}
+
 if (logoutButtonEl) {
   logoutButtonEl.addEventListener("click", handleLogout);
 }
@@ -1557,6 +1580,7 @@ if (adminUsersListEl) {
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     if (loginModalEl && !loginModalEl.classList.contains("hidden")) {
+      closeLoginModal();
       return;
     }
     if (adminModalEl && !adminModalEl.classList.contains("hidden")) {
