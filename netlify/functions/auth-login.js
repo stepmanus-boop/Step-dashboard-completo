@@ -1,5 +1,5 @@
 const { jsonResponse, createSessionCookie, normalizeText, normalizeSectorList, verifyPassword } = require("./_auth");
-const { readJson } = require("./_githubStore");
+const { readMergedJson } = require("./_githubStore");
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -14,7 +14,7 @@ exports.handler = async (event) => {
       return jsonResponse(400, { ok: false, error: "Informe usuário e senha." });
     }
 
-    const users = await readJson("data/users.json", []);
+    const users = await readMergedJson("data/users.json", []);
     const defaultAdmin = {
       id: "u_admin_001",
       name: "Administrador",

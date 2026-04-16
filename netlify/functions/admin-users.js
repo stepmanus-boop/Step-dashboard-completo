@@ -1,13 +1,13 @@
 const crypto = require("crypto");
-const { jsonResponse, requireAdmin, hashPassword, normalizeText, normalizeSectorList } = require("./_auth");
-const { readJson, writeJson, isGithubConfigured } = require("./_githubStore");
+const { jsonResponse, requireAdmin, hashPassword, normalizeText, normalizeSectorList, normalizeSectorValue } = require("./_auth");
+const { readMergedJson, writeLocalJson, isGithubConfigured } = require("./_githubStore");
 
 exports.handler = async (event) => {
   const admin = requireAdmin(event);
   if (!admin.ok) return admin.response;
 
   if (event.httpMethod === "GET") {
-    const users = await readJson("data/users.json", []);
+    const users = await readMergedJson("data/users.json", []);
     return jsonResponse(200, {
       ok: true,
       githubSyncEnabled: await isGithubConfigured(),
@@ -32,7 +32,7 @@ exports.handler = async (event) => {
         return jsonResponse(400, { ok: false, error: "Usuário não informado." });
       }
 
-      const users = await readJson("data/users.json", []);
+      const users = await readMergedJson("data/users.json", []);
       const index = users.findIndex((user) => user.id === userId);
       if (index < 0) {
         return jsonResponse(404, { ok: false, error: "Usuário não encontrado." });
@@ -42,7 +42,7 @@ exports.handler = async (event) => {
       const username = String(body.username || "").trim();
       const password = String(body.password || "");
       const role = body.role === "admin" ? "admin" : "sector";
-      const sector = role === "admin" ? "all" : String(body.sector || "").trim();
+      const sector = role === "admin" ? "all" : normalizeSectorValue(body.sector);
     const alertSectors = role === "admin" ? [] : normalizeSectorList(sector, body.alertSectors);
 
       if (!name || !username) {
@@ -72,7 +72,7 @@ exports.handler = async (event) => {
         users[index].passwordHash = hashPassword(password);
       }
 
-      await writeJson("data/users.json", users, `chore: edita usuário ${users[index].username}`);
+      await writeLocalJson("data/users.json", users);
       return jsonResponse(200, {
         ok: true,
         user: {
@@ -99,7 +99,7 @@ exports.handler = async (event) => {
       if (!userId) {
         return jsonResponse(400, { ok: false, error: "Usuário não informado." });
       }
-      const users = await readJson("data/users.json", []);
+      const users = await readMergedJson("data/users.json", []);
       const index = users.findIndex((user) => user.id === userId);
       if (index < 0) {
         return jsonResponse(404, { ok: false, error: "Usuário não encontrado." });
@@ -110,7 +110,7 @@ exports.handler = async (event) => {
       users[index].role = nextRole;
       users[index].sector = nextRole === "admin" ? "all" : (users[index].sector && users[index].sector !== "all" ? users[index].sector : "producao");
       users[index].alertSectors = nextRole === "admin" ? [] : normalizeSectorList(users[index].sector, users[index].alertSectors);
-      await writeJson("data/users.json", users, `chore: atualiza perfil do usuário ${users[index].username}`);
+      await writeLocalJson("data/users.json", users);
       return jsonResponse(200, { ok: true, user: { id: users[index].id, role: users[index].role, sector: users[index].sector, alertSectors: normalizeSectorList(users[index].sector, users[index].alertSectors) } });
     } catch (error) {
       return jsonResponse(500, { ok: false, error: error.message || "Falha ao atualizar usuário." });
@@ -127,7 +127,7 @@ exports.handler = async (event) => {
     const username = String(body.username || "").trim();
     const password = String(body.password || "");
     const role = body.role === "admin" ? "admin" : "sector";
-    const sector = role === "admin" ? "all" : String(body.sector || "").trim();
+    const sector = role === "admin" ? "all" : normalizeSectorValue(body.sector);
     const alertSectors = role === "admin" ? [] : normalizeSectorList(sector, body.alertSectors);
 
     if (!name || !username || !password) {
@@ -138,7 +138,7 @@ exports.handler = async (event) => {
       return jsonResponse(400, { ok: false, error: "Selecione o setor do usuário." });
     }
 
-    const users = await readJson("data/users.json", []);
+    const users = await readMergedJson("data/users.json", []);
     const exists = users.some((user) => normalizeText(user.username) === normalizeText(username));
     if (exists) {
       return jsonResponse(409, { ok: false, error: "Já existe um usuário com esse login." });
@@ -157,7 +157,7 @@ exports.handler = async (event) => {
     };
 
     users.push(nextUser);
-    await writeJson("data/users.json", users, `feat: adiciona usuário ${username}`);
+    await writeLocalJson("data/users.json", users);
 
     return jsonResponse(200, {
       ok: true,

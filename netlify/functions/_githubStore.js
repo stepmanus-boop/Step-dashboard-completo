@@ -214,6 +214,19 @@ async function writeJson(relativePath, value, message = "chore: atualiza dados")
   return writeLocalRaw(relativePath, content);
 }
 
+async function writeLocalJson(relativePath, value) {
+  return writeLocalRaw(relativePath, JSON.stringify(value, null, 2));
+}
+
+async function readMergedJson(relativePath, fallbackValue = []) {
+  const localValue = await readLocalJson(relativePath, fallbackValue);
+  if (!(await isGithubConfigured())) {
+    return localValue;
+  }
+  const remoteValue = await readGithubJsonIfExists(relativePath, fallbackValue);
+  return mergeStructuredValues(localValue, remoteValue, relativePath);
+}
+
 function normalizeMergeKey(value) {
   return String(value || "")
     .normalize("NFD")

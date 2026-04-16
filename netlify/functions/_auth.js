@@ -121,6 +121,28 @@ function normalizeText(value) {
     .toLowerCase();
 }
 
+function slugifySector(value) {
+  return normalizeText(value)
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_");
+}
+
+const SECTOR_ALIASES = {
+  pintura: "pintura",
+  inspecao: "inspecao",
+  pendente_envio: "pendente_envio",
+  pendente_de_envio: "pendente_envio",
+  envio: "pendente_envio",
+  producao: "producao",
+  calderaria: "calderaria",
+  solda: "solda",
+};
+
+function normalizeSectorValue(value) {
+  const slug = slugifySector(value);
+  return SECTOR_ALIASES[slug] || slug;
+}
 
 function normalizeSectorList(primarySector, alertSectors) {
   const seen = new Set();
@@ -129,7 +151,7 @@ function normalizeSectorList(primarySector, alertSectors) {
   if (primarySector && primarySector !== "all") values.push(primarySector);
   if (Array.isArray(alertSectors)) values.push(...alertSectors);
   for (const value of values) {
-    const item = normalizeText(value);
+    const item = normalizeSectorValue(value);
     if (!item || item === "all" || seen.has(item)) continue;
     seen.add(item);
     normalized.push(item);
@@ -157,6 +179,7 @@ async function readLocalJson(relativePath, fallbackValue = []) {
 }
 
 module.exports = {
+  normalizeSectorValue,
   normalizeSectorList,
   SESSION_COOKIE_NAME,
   jsonResponse,
