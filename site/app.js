@@ -210,6 +210,25 @@ function normalizeText(value) {
 
 
 
+function normalizeCompactText(value) {
+  return normalizeText(value).replace(/[_ -]+/g, "");
+}
+
+function buildSearchIndex(parts) {
+  const values = (parts || []).filter(Boolean).map((item) => String(item));
+  const expanded = [];
+
+  values.forEach((value) => {
+    expanded.push(value);
+    const compact = normalizeCompactText(value);
+    if (compact) expanded.push(compact);
+    const digitsOnly = String(value).replace(/\D+/g, "");
+    if (digitsOnly) expanded.push(digitsOnly);
+  });
+
+  return normalizeText(expanded.join(" | "));
+}
+
 function normalizeLoginValue(value) {
   return normalizeText(value || "");
 }
@@ -749,7 +768,7 @@ function enrichProjects(projects) {
 
     return {
       ...project,
-      _searchText: normalizeText(searchParts.filter(Boolean).join(" | ")),
+      _searchText: buildSearchIndex(searchParts),
     };
   });
 }
