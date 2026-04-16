@@ -1,5 +1,5 @@
 const { jsonResponse, requireSession, requireAdmin, normalizeSectorList, normalizeText, normalizeSectorValue } = require('./_auth');
-const { listManualAlerts, listAcknowledgements, createManualAlert, addAcknowledgement, findAcknowledgement, isSupabaseConfigured } = require('./_supabase');
+const { listManualAlerts, listAcknowledgements, createManualAlert, addAcknowledgement, findAcknowledgement, isSupabaseConfigured, getUserById, getUserByUsername } = require('./_supabase');
 
 function alertVisibleToUser(alert, session) {
   if (!alert || alert.active === false) return false;
@@ -7,6 +7,27 @@ function alertVisibleToUser(alert, session) {
   const allowedSectors = normalizeSectorList(session.sector, session.alertSectors);
   const alertSector = normalizeSectorValue(alert.sector);
   return alertSector === 'all' || allowedSectors.includes(alertSector);
+}
+
+
+async function getEffectiveSession(session) {
+  if (!session || session.role === 'admin') return session;
+  try {
+    const freshUser = (session.sub && await getUserById(session.sub)) || (session.username && await getUserByUsername(session.username)) || null;
+    if (!freshUser) return session;
+    return {
+      ...session,
+      role: freshUser.role || session.role,
+      sector: normalizeSectorValue(freshUser.sector || session.sector),
+      alertSectors: normalizeSectorList(freshUser.sector || session.sector, freshUser.alertSectors || session.alertSectors),
+      name: freshUser.name || session.name,
+      username: freshUser.username || session.username,
+      sub: freshUser.id || session.sub,
+    };
+  } catch (error) {
+    console.warn('Falha ao recarregar dados atualizados do usuário para alertas. Usando sessão atual.', error);
+    return session;
+  }
 }
 
 function getUserAlertExpiration(acknowledgements, session, alert) {
@@ -29,6 +50,7 @@ exports.handler = async (event) => {
   if (event.httpMethod === 'GET') {
     const auth = requireSession(event);
     if (!auth.ok) return auth.response;
+    const effectiveSession = await getEffectiveSession(auth.session);
     const alerts = await listManualAlerts();
     let acks = [];
     try {
@@ -38,14 +60,14 @@ exports.handler = async (event) => {
       acks = [];
     }
     const visible = alerts
-      .filter((alert) => alertVisibleToUser(alert, auth.session))
+      .filter((alert) => alertVisibleToUser(alert, effectiveSession))
       .map((alert) => {
         const acknowledgements = acks
           .filter((item) => item.alertId === alert.id)
           .sort((a, b) => new Date(b.acknowledgedAt || 0).getTime() - new Date(a.acknowledgedAt || 0).getTime());
-        const acked = acknowledgements.some((item) => item.userId === auth.session.sub);
-        const expiresAt = getUserAlertExpiration(acknowledgements, auth.session, alert);
-        const expiredForUser = auth.session.role !== 'admin' && expiresAt ? new Date(expiresAt).getTime() <= Date.now() : false;
+        const acked = acknowledgements.some((item) => item.userId === effectiveSession.sub);
+        const expiresAt = getUserAlertExpiration(acknowledgements, effectiveSession, alert);
+        const expiredForUser = effectiveSession.role !== 'admin' && expiresAt ? new Date(expiresAt).getTime() <= Date.now() : false;
         return {
           ...alert,
           acknowledged: acked,
@@ -53,13 +75,13 @@ exports.handler = async (event) => {
           lastAckAt: acknowledgements[0]?.acknowledgedAt || null,
           expiresAt,
           expiredForUser,
-          acknowledgements: auth.session.role === 'admin' ? acknowledgements : undefined,
+          acknowledgements: effectiveSession.role === 'admin' ? acknowledgements : undefined,
         };
       })
-      .filter((alert) => auth.session.role === 'admin' || !alert.expiredForUser)
+      .filter((alert) => effectiveSession.role === 'admin' || !alert.expiredForUser)
       .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
-    return jsonResponse(200, { ok: true, githubSyncEnabled: true, alerts: visible });
+    return jsonResponse(200, { ok: true, githubSyncEnabled: true, alerts: visible, userSector: effectiveSession.sector, userAlertSectors: effectiveSession.alertSectors || [] });
   }
 
   if (event.httpMethod === 'POST') {
@@ -102,7 +124,8 @@ exports.handler = async (event) => {
         return jsonResponse(400, { ok: false, error: 'Alerta não informado.' });
       }
 
-      const alerts = await listManualAlerts();
+      const effectiveSession = await getEffectiveSession(auth.session);
+    const alerts = await listManualAlerts();
       const alert = alerts.find((item) => item.id === alertId);
       if (!alert || !alertVisibleToUser(alert, auth.session)) {
         return jsonResponse(404, { ok: false, error: 'Alerta não encontrado.' });
