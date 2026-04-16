@@ -912,9 +912,10 @@ function formatBacklogItemText(project) {
 function renderStats() {
   if (!state.stats) return;
   const totalFinishedWeight = getTotalFinishedWeightAllProjects();
-  const totalBacklogWelding = Math.max(0, Number(state.stats.totalWeightKg || 0) - Number(totalFinishedWeight || 0));
+  const totalWeldedWeight = Number(state.stats.totalWeldedWeightKg || 0);
+  const totalBacklogWelding = Math.max(0, Number(state.stats.totalWeightKg || 0) - totalWeldedWeight);
   document.getElementById("stat-projects").textContent = formatNumber(state.stats.totalProjects);
-  document.getElementById("stat-spools").textContent = `${formatNumber(totalFinishedWeight, 0)} kg`;
+  document.getElementById("stat-spools").textContent = `${formatNumber(totalWeldedWeight, 0)} kg`;
   document.getElementById("stat-total-weight").textContent = `${formatNumber(state.stats.totalWeightKg, 0)} kg`;
   const backlogWeldingEl = document.getElementById("stat-backlog-welding");
   if (backlogWeldingEl) backlogWeldingEl.textContent = `${formatNumber(totalBacklogWelding, 0)} kg`;
