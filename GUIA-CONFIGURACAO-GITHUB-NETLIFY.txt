@@ -5,9 +5,9 @@ Não é mais necessário mostrar token no painel.
 
 CADASTRE NO NETLIFY:
 GITHUB_TOKEN=SEU_TOKEN
-GITHUB_REPO=stepmanus-boop/Step-dashboard-completo
+GITHUB_REPO=SEU_USUARIO/SEU_REPOSITORIO
 GITHUB_BRANCH=main
-SESSION_SECRET=step-gerencia-2026-admin-login-seguro-874512
+SESSION_SECRET=UMA_CHAVE_FORTE_E_UNICA
 
 DEPOIS:
 1. Faça novo deploy
