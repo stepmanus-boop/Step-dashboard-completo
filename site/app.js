@@ -840,6 +840,14 @@ function getTotalWeldedWeightAllProjects() {
   }, 0);
 }
 
+function getTotalFinishedWeightAllProjects() {
+  return state.projects.reduce((total, project) => {
+    const isFinished = Boolean(project?.finished) || normalizeText(project?.projectStatus).includes("project finished") || normalizeText(project?.jobProcessStatus).includes("project finished");
+    if (!isFinished) return total;
+    return total + Number(project?.kilos || 0);
+  }, 0);
+}
+
 function getWeldedWeightForWeek(weekLabel) {
   if (!weekLabel || weekLabel === "Todas as semanas") return getTotalWeldedWeightAllProjects();
   return state.projects.reduce((total, project) => {
@@ -903,19 +911,17 @@ function formatBacklogItemText(project) {
 
 function renderStats() {
   if (!state.stats) return;
-  const activeWeek = getActiveWeekLabel();
-  const allProjectsWeldedWeight = getTotalWeldedWeightAllProjects();
-  const displayedWeldedWeight = getWeldedWeightForWeek(activeWeek);
-  const totalBacklogWelding = Math.max(0, Number(state.stats.totalWeightKg || 0) - Number(allProjectsWeldedWeight || 0));
+  const totalFinishedWeight = getTotalFinishedWeightAllProjects();
+  const totalBacklogWelding = Math.max(0, Number(state.stats.totalWeightKg || 0) - Number(totalFinishedWeight || 0));
   document.getElementById("stat-projects").textContent = formatNumber(state.stats.totalProjects);
-  document.getElementById("stat-spools").textContent = `${formatNumber(displayedWeldedWeight, 0)} kg`;
+  document.getElementById("stat-spools").textContent = `${formatNumber(totalFinishedWeight, 0)} kg`;
   document.getElementById("stat-total-weight").textContent = `${formatNumber(state.stats.totalWeightKg, 0)} kg`;
   const backlogWeldingEl = document.getElementById("stat-backlog-welding");
   if (backlogWeldingEl) backlogWeldingEl.textContent = `${formatNumber(totalBacklogWelding, 0)} kg`;
 
   const currentWeekEl = document.getElementById("stat-current-week");
   if (currentWeekEl) {
-    currentWeekEl.textContent = `Total enviado ${formatNumber(allProjectsWeldedWeight, 0)} kg`;
+    currentWeekEl.textContent = `Total enviado ${formatNumber(totalFinishedWeight, 0)} kg`;
   }
 
   const setTags = (id, value) => {
