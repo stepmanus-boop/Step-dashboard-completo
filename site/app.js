@@ -486,6 +486,16 @@ function getAlertSeverity(alert) {
   return "medium";
 }
 
+function normalizeAlertSectorFilterValue(value) {
+  const normalized = normalizeCompactText(value);
+  if (!normalized) return "";
+  if (["envio", "pendenteenvio", "pendentedeenvio", "awaitingshipment", "pendingshipment", "shipping", "logistica", "logistics", "expedicao"].includes(normalized)) {
+    return "envio";
+  }
+  if (["inspecao", "inspection"].includes(normalized)) return "inspecao";
+  return normalized;
+}
+
 function getFilteredAlerts() {
   let alerts = [...state.alerts];
   const clientQuery = normalizeText(state.alertClientQuery).trim();
@@ -497,7 +507,7 @@ function getFilteredAlerts() {
   }
 
   if (state.alertSectorFilter && state.alertSectorFilter !== "all") {
-    alerts = alerts.filter((alert) => normalizeText(alert.sector) === state.alertSectorFilter);
+    alerts = alerts.filter((alert) => normalizeAlertSectorFilterValue(alert.sector) === state.alertSectorFilter);
   }
 
   if (clientQuery) {
@@ -1252,7 +1262,7 @@ function renderAlertModal() {
   const sectorCounts = Object.fromEntries(
     sectorButtons.map((button) => [
       button.key,
-      state.alerts.filter((alert) => button.match.some((label) => normalizeText(alert.sector) === normalizeText(label))).length,
+      state.alerts.filter((alert) => normalizeAlertSectorFilterValue(alert.sector) === button.key).length,
     ])
   );
   const filteredAlerts = getFilteredAlerts();
