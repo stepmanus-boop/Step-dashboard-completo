@@ -78,8 +78,9 @@
           <span class="summary-subtext" id="stat-current-week">Total enviado -- kg</span>
           <strong id="stat-spools">--</strong>
         </article>
-        <article class="summary-card">
+        <article class="summary-card summary-card--warning-soft">
           <span class="summary-label">Total pendente de solda</span>
+          <span class="summary-subtext">Total programado - enviado</span>
           <strong id="stat-backlog-welding">--</strong>
         </article>
         <article class="summary-card summary-card--danger">
@@ -309,11 +310,12 @@
     </div>
     <div class="modal-content admin-modal-shell">
       <div class="admin-tabs" role="tablist" aria-label="Abas do admin">
-        <button class="admin-tab is-active" type="button" data-admin-tab-trigger="gestao" aria-selected="true">Gestão</button>
+        <button class="admin-tab is-active" type="button" data-admin-tab-trigger="usuario" aria-selected="true">Novo usuário</button>
         <button class="admin-tab" type="button" data-admin-tab-trigger="historico" aria-selected="false">Histórico operacional</button>
+        <button class="admin-tab" type="button" data-admin-tab-trigger="alerta" aria-selected="false">Novo alerta operacional</button>
       </div>
 
-      <div class="admin-tab-panel is-active" data-admin-tab-panel="gestao">
+      <div class="admin-tab-panel is-active" data-admin-tab-panel="usuario">
         <div class="admin-grid">
       <section class="admin-card">
         <div class="admin-card-head">
@@ -372,7 +374,20 @@
         </form>
       
 </section>
-      <section class="admin-card">
+
+      <section class="admin-card admin-card--wide">
+        <div class="admin-card-head">
+          <h4>Usuários cadastrados</h4>
+        </div>
+        <div id="admin-users-list" class="admin-list empty-state">Nenhum usuário carregado.</div>
+      </section>
+
+        </div>
+      </div>
+
+      <div class="admin-tab-panel" data-admin-tab-panel="alerta" hidden>
+        <div class="admin-grid">
+      <section class="admin-card admin-card--wide">
         <div class="admin-card-head">
           <h4>Novo alerta operacional</h4>
         </div>
@@ -408,14 +423,6 @@
           <p id="admin-alert-feedback" class="inline-feedback"></p>
         </form>
       </section>
-
-      <section class="admin-card admin-card--wide">
-        <div class="admin-card-head">
-          <h4>Usuários cadastrados</h4>
-        </div>
-        <div id="admin-users-list" class="admin-list empty-state">Nenhum usuário carregado.</div>
-      </section>
-
         </div>
       </div>
 

@@ -13,7 +13,7 @@
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; }
+html, body { min-height: 100%; }
 body {
   margin: 0;
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -21,14 +21,16 @@ body {
     radial-gradient(circle at top center, rgba(0, 123, 255, 0.08), transparent 28%),
     linear-gradient(180deg, #01070d, #02101c 40%, #01070d 100%);
   color: var(--text);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
+
 body.modal-open { overflow: hidden; }
 
 .page-shell {
-  height: 100vh;
+  min-height: 100vh;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto auto;
   gap: 10px;
   padding: 12px;
 }
@@ -109,8 +111,10 @@ body.modal-open { overflow: hidden; }
   justify-items: center;
   gap: 6px;
   min-width: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
+
 
 .clock-head {
   display: inline-flex;
@@ -204,23 +208,26 @@ body.modal-open { overflow: hidden; }
 .content-grid {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(360px, 0.85fr);
+  grid-template-columns: minmax(0, 1.75fr) minmax(320px, 0.75fr);
   gap: 12px;
+  align-items: start;
 }
 
 .panel {
   min-width: 0;
   min-height: 0;
   display: grid;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
+
 
 .panel--table,
 .panel--detail {
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
-.panel--detail { grid-template-rows: auto minmax(0, 1fr); }
+.panel--detail { grid-template-rows: auto minmax(0, 1fr); min-height: 520px; }
 
 .panel-head {
   display: flex;
