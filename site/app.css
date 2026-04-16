@@ -1090,6 +1090,29 @@ button.alert-badge {
   gap: 10px;
 }
 
+
+.manual-alert-item--operational {
+  border-color: rgba(255, 122, 89, 0.42);
+  background: linear-gradient(135deg, rgba(52, 18, 12, 0.92), rgba(22, 16, 38, 0.94));
+  box-shadow: 0 0 0 1px rgba(255, 122, 89, 0.10) inset, 0 16px 28px rgba(0, 0, 0, 0.22);
+}
+
+.manual-alert-item--operational .manual-alert-actions {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.manual-alert-item--operational strong {
+  color: #fff3eb;
+}
+
+.manual-alert-item--operational .manual-alert-tag:not(.manual-alert-tag--urgent):not(.manual-alert-tag--high):not(.manual-alert-tag--normal):not(.manual-alert-tag--low) {
+  background: rgba(72, 30, 23, 0.86);
+  border-color: rgba(255, 122, 89, 0.30);
+  color: #ffd7c8;
+}
+
 .manual-alert-item--automatic {
   border-color: rgba(255, 210, 77, 0.24);
 }

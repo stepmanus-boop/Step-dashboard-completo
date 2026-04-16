@@ -2053,7 +2053,7 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
         </div>
         <div class="manual-alert-section-list">
           ${manualAlerts.map((alert) => `
-            <article class="manual-alert-item">
+            <article class="manual-alert-item manual-alert-item--operational">
               <div class="admin-list-item-meta">
                 <span class="manual-alert-tag manual-alert-tag--${escapeHtml(alert.priority || "normal")}">${escapeHtml(priorityLabel(alert.priority))}</span>
                 <span class="manual-alert-tag">${escapeHtml(sectorLabel(alert.sector))}</span>
