@@ -7,7 +7,9 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { username, password } = JSON.parse(event.body || "{}");
+    const body = JSON.parse(event.body || "{}");
+    const username = String(body.username || "").trim();
+    const password = String(body.password || "").trim();
     if (!username || !password) {
       return jsonResponse(400, { ok: false, error: "Informe usuário e senha." });
     }

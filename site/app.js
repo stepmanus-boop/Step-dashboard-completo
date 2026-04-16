@@ -80,11 +80,6 @@ const installAppButtonEl = document.getElementById("install-app-button");
 const connectionStatusEl = document.getElementById("connection-status");
 let deferredInstallPrompt = null;
 
-function isElementHidden(el) {
-  return !el || el.classList.contains("hidden");
-}
-
-
 function isIosDevice() {
   return /iphone|ipad|ipod/i.test(window.navigator.userAgent || "");
 }
@@ -605,10 +600,8 @@ function setClock(targetTimeId, targetDateId, locale, timeZone) {
     timeZone,
   }).format(now);
 
-  const timeEl = document.getElementById(targetTimeId);
-  const dateEl = document.getElementById(targetDateId);
-  if (timeEl) timeEl.textContent = timeText;
-  if (dateEl) dateEl.textContent = dateText;
+  document.getElementById(targetTimeId).textContent = timeText;
+  document.getElementById(targetDateId).textContent = dateText;
 }
 
 
@@ -1445,8 +1438,27 @@ if (loginFormEl) {
   loginFormEl.addEventListener("submit", handleLoginSubmit);
 }
 
-bindCriticalUiEvents();
+if (openLoginButtonEl) {
+  openLoginButtonEl.addEventListener("click", () => {
+    openLoginModal();
+  });
+}
 
+if (loginGuestCloseEl) {
+  loginGuestCloseEl.addEventListener("click", closeLoginModal);
+}
+
+if (loginCloseEl) {
+  loginCloseEl.addEventListener("click", closeLoginModal);
+}
+
+if (loginModalEl) {
+  loginModalEl.addEventListener("click", (event) => {
+    if (event.target === loginModalEl || event.target.matches(".modal-backdrop")) {
+      closeLoginModal();
+    }
+  });
+}
 
 if (logoutButtonEl) {
   logoutButtonEl.addEventListener("click", handleLogout);
@@ -1574,43 +1586,15 @@ if (adminUsersListEl) {
   });
 }
 
-function bindCriticalUiEvents() {
-  if (openLoginButtonEl && !openLoginButtonEl.dataset.boundLoginOpen) {
-    openLoginButtonEl.dataset.boundLoginOpen = "true";
-    openLoginButtonEl.addEventListener("click", () => {
-      openLoginModal();
-    });
-  }
-
-  if (loginGuestCloseEl && !loginGuestCloseEl.dataset.boundLoginClose) {
-    loginGuestCloseEl.dataset.boundLoginClose = "true";
-    loginGuestCloseEl.addEventListener("click", closeLoginModal);
-  }
-
-  if (loginCloseEl && !loginCloseEl.dataset.boundLoginClose) {
-    loginCloseEl.dataset.boundLoginClose = "true";
-    loginCloseEl.addEventListener("click", closeLoginModal);
-  }
-
-  if (loginModalEl && !loginModalEl.dataset.boundLoginBackdrop) {
-    loginModalEl.dataset.boundLoginBackdrop = "true";
-    loginModalEl.addEventListener("click", (event) => {
-      if (event.target === loginModalEl || event.target.matches?.(".modal-backdrop")) {
-        closeLoginModal();
-      }
-    });
-  }
-}
-
 function closeLoginModal() {
   if (!loginModalEl) return;
   loginModalEl.classList.add("hidden");
   loginModalEl.setAttribute("aria-hidden", "true");
   if (
-    isElementHidden(modalEl) &&
-    isElementHidden(alertModalEl) &&
-    isElementHidden(sectorAlertsModalEl) &&
-    isElementHidden(adminModalEl)
+    modalEl.classList.contains("hidden") &&
+    alertModalEl.classList.contains("hidden") &&
+    sectorAlertsModalEl.classList.contains("hidden") &&
+    adminModalEl.classList.contains("hidden")
   ) {
     document.body.classList.remove("modal-open");
   }
@@ -1822,6 +1806,8 @@ async function syncAdminDataToGithub() {
     await loadAdminData();
   } catch (error) {
     adminUserFeedbackEl.textContent = error.message || "Falha ao sincronizar com o GitHub. Verifique GITHUB_TOKEN, GITHUB_REPO e GITHUB_BRANCH no Netlify.";
+    state.githubSyncEnabled = false;
+    updateSessionUi();
   }
 }
 
@@ -1885,6 +1871,10 @@ async function loadAdminData() {
     state.githubSyncEnabled = Boolean(data.githubSyncEnabled ?? state.githubSyncEnabled);
     updateSessionUi();
     const remoteUsers = Array.isArray(data.users) ? data.users : [];
+    if (state.githubSyncEnabled) {
+      renderAdminUsersList(remoteUsers);
+      return;
+    }
     const localUsers = readLocalUsers().map((user) => ({
       id: user.id,
       name: user.name,
@@ -1935,10 +1925,10 @@ function closeAdminModal() {
   adminModalEl.classList.add("hidden");
   adminModalEl.setAttribute("aria-hidden", "true");
   if (
-    isElementHidden(modalEl) &&
-    isElementHidden(alertModalEl) &&
-    isElementHidden(sectorAlertsModalEl) &&
-    isElementHidden(loginModalEl)
+    modalEl.classList.contains("hidden") &&
+    alertModalEl.classList.contains("hidden") &&
+    sectorAlertsModalEl.classList.contains("hidden") &&
+    loginModalEl.classList.contains("hidden")
   ) {
     document.body.classList.remove("modal-open");
   }
@@ -1954,8 +1944,8 @@ async function handleLoginSubmit(event) {
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        username: loginUsernameEl.value,
-        password: loginPasswordEl.value,
+        username: String(loginUsernameEl.value || "").trim(),
+        password: String(loginPasswordEl.value || "").trim(),
       }),
     });
     const data = await response.json().catch(() => null);
@@ -1994,8 +1984,8 @@ async function handleAdminUserSubmit(event) {
     const payload = {
       userId: editingId,
       name: document.getElementById("admin-user-name").value,
-      username: document.getElementById("admin-user-username").value,
-      password: document.getElementById("admin-user-password").value,
+      username: String(document.getElementById("admin-user-username").value || "").trim(),
+      password: String(document.getElementById("admin-user-password").value || "").trim(),
       role: document.getElementById("admin-user-role").value,
       sector: document.getElementById("admin-user-sector").value,
     };
@@ -2020,7 +2010,9 @@ async function handleAdminUserSubmit(event) {
     };
     upsertLocalUser(savedUser);
     resetAdminUserForm();
-    adminUserFeedbackEl.textContent = state.githubSyncEnabled ? (editingId ? "Usuário atualizado e salvo no GitHub." : "Usuário criado e salvo no GitHub.") : (editingId ? "Usuário atualizado com sucesso." : "Usuário criado com sucesso.");
+    adminUserFeedbackEl.textContent = state.githubSyncEnabled
+      ? (editingId ? "Usuário atualizado e salvo no GitHub." : "Usuário criado e salvo no GitHub.")
+      : (editingId ? "Usuário atualizado localmente. Para enviar ao GitHub, configure as variáveis GITHUB_TOKEN, GITHUB_REPO e GITHUB_BRANCH no Netlify e clique em 'Subir pro GitHub'." : "Usuário criado localmente. Para enviar ao GitHub, configure as variáveis GITHUB_TOKEN, GITHUB_REPO e GITHUB_BRANCH no Netlify e clique em 'Subir pro GitHub'.");
     await loadAdminData();
   } catch (error) {
     adminUserFeedbackEl.textContent = error.message || (editingId ? "Falha ao editar usuário." : "Falha ao criar usuário.");
@@ -2098,35 +2090,22 @@ async function init() {
   updateConnectionStatus();
   window.addEventListener("online", updateConnectionStatus);
   window.addEventListener("offline", updateConnectionStatus);
-
-  bindCriticalUiEvents();
+  setupInstallExperience();
+  registerServiceWorker();
+  startClocks();
+  bindEvents();
   setupLoginPasswordToggle();
   setupAdminPasswordToggle();
-
-  try {
-    setupInstallExperience();
-    registerServiceWorker();
-    startClocks();
-    bindEvents();
-    resetAdminUserForm();
-    const authenticated = await bootstrapSession();
-    await loadProjects();
-    if (authenticated) {
-      await loadManualAlerts();
-      if (state.user?.role === "admin") {
-        await loadAdminData();
-      }
-    }
-    startPolling();
-  } catch (error) {
-    console.error("Falha ao inicializar a aplicação.", error);
-    if (loginFeedbackEl) {
-      loginFeedbackEl.textContent = "O painel carregou com falha parcial, mas o login continua disponível.";
-    }
-    if (bodyEl && !bodyEl.children.length) {
-      bodyEl.innerHTML = `<tr><td colspan="17" class="loading-cell">Falha ao carregar dados. Recarregue a página.</td></tr>`;
+  resetAdminUserForm();
+  const authenticated = await bootstrapSession();
+  await loadProjects();
+  if (authenticated) {
+    await loadManualAlerts();
+    if (state.user?.role === "admin") {
+      await loadAdminData();
     }
   }
+  startPolling();
 }
 
 init();

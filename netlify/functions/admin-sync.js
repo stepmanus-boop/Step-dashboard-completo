@@ -10,7 +10,7 @@ exports.handler = async (event) => {
     return jsonResponse(405, { ok: false, error: "Método não permitido." });
   }
 
-  if (!isGithubConfigured()) {
+  if (!(await isGithubConfigured())) {
     return jsonResponse(400, { ok: false, error: "Configure GITHUB_TOKEN, GITHUB_REPO e GITHUB_BRANCH no Netlify antes de sincronizar." });
   }
 

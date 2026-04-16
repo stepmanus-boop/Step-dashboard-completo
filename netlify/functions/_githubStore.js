@@ -214,20 +214,86 @@ async function writeJson(relativePath, value, message = "chore: atualiza dados")
   return writeLocalRaw(relativePath, content);
 }
 
+function normalizeMergeKey(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function isObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value);
+}
+
+function mergeUsers(localUsers = [], remoteUsers = []) {
+  const merged = new Map();
+  for (const user of [...remoteUsers, ...localUsers]) {
+    if (!isObject(user)) continue;
+    const key = normalizeMergeKey(user.id || user.username);
+    if (!key) continue;
+    const existing = merged.get(key) || {};
+    merged.set(key, {
+      ...existing,
+      ...user,
+      passwordHash: user.passwordHash || existing.passwordHash || "",
+      active: user.active !== false,
+    });
+  }
+  return [...merged.values()];
+}
+
+function mergeById(localItems = [], remoteItems = []) {
+  const merged = new Map();
+  for (const item of [...remoteItems, ...localItems]) {
+    if (!isObject(item)) continue;
+    const key = normalizeMergeKey(item.id);
+    if (!key) continue;
+    merged.set(key, { ...(merged.get(key) || {}), ...item });
+  }
+  return [...merged.values()];
+}
+
+async function readGithubJsonIfExists(relativePath, fallbackValue = []) {
+  try {
+    const payload = await readGithubFile(relativePath);
+    return JSON.parse(String(payload?.content || "") || JSON.stringify(fallbackValue));
+  } catch (error) {
+    if (String(error.message || "").includes("GitHub 404")) {
+      return fallbackValue;
+    }
+    throw error;
+  }
+}
+
 async function syncLocalDataToGithub() {
   const cfg = await getGithubConfig();
   if (!cfg.repo || !cfg.token) {
-    throw new Error("GitHub não configurado nas variáveis do Netlify.");
+    throw new Error("GitHub não configurado. Defina GITHUB_TOKEN, GITHUB_REPO e GITHUB_BRANCH no Netlify para enviar ao repositório.");
   }
+
+  const localUsers = await readLocalJson("data/users.json", []);
+  const remoteUsers = await readGithubJsonIfExists("data/users.json", []);
+  const mergedUsers = mergeUsers(localUsers, remoteUsers);
+
+  const localAlerts = await readLocalJson("data/manual-alerts.json", []);
+  const remoteAlerts = await readGithubJsonIfExists("data/manual-alerts.json", []);
+  const mergedAlerts = mergeById(localAlerts, remoteAlerts);
+
+  const localAcks = await readLocalJson("data/alert-acks.json", []);
+  const remoteAcks = await readGithubJsonIfExists("data/alert-acks.json", []);
+  const mergedAcks = mergeById(localAcks, remoteAcks);
+
   const targets = [
-    { path: "data/users.json", message: "chore: sincroniza usuários" },
-    { path: "data/manual-alerts.json", message: "chore: sincroniza alertas manuais" },
-    { path: "data/alert-reads.json", message: "chore: sincroniza leituras de alerta" },
+    { path: "data/users.json", value: mergedUsers, message: "chore: sincroniza usuários" },
+    { path: "data/manual-alerts.json", value: mergedAlerts, message: "chore: sincroniza alertas manuais" },
+    { path: "data/alert-acks.json", value: mergedAcks, message: "chore: sincroniza confirmações de leitura" },
   ];
+
   const results = [];
   for (const target of targets) {
-    const raw = await readLocalRaw(target.path).catch(() => "[]");
-    await writeGithubFile(target.path, raw || "[]", target.message);
+    const raw = JSON.stringify(target.value, null, 2);
+    await writeGithubFile(target.path, raw, target.message);
     const confirm = await readGithubFile(target.path);
     results.push({
       path: target.path,
