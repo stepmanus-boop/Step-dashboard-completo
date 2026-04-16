@@ -1197,7 +1197,7 @@ function getAlertStorageKey() {
 }
 
 function getAlertSignature() {
-  return `${state.meta?.version || "no-version"}::${state.meta?.alertSignature || "no-alerts"}`;
+  return state.meta?.alertSignature || "no-alerts";
 }
 
 function shouldOpenAlertPopup() {
@@ -1205,10 +1205,10 @@ function shouldOpenAlertPopup() {
   try {
     const raw = window.localStorage.getItem(getAlertStorageKey());
     const saved = raw ? JSON.parse(raw) : null;
-    const signature = getAlertSignature();
-    if (!saved || saved.signature !== signature) return true;
-    const lastDismissedAt = Number(saved.dismissedAt || 0);
-    return (Date.now() - lastDismissedAt) >= 4 * 60 * 60 * 1000;
+    const lastDismissedAt = Number(saved?.dismissedAt || 0);
+    const withinCooldown = lastDismissedAt > 0 && (Date.now() - lastDismissedAt) < 4 * 60 * 60 * 1000;
+    if (withinCooldown) return false;
+    return true;
   } catch {
     return true;
   }
