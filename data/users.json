@@ -9,5 +9,19 @@
     "active": true,
     "createdAt": "2026-04-15T00:00:00.000Z",
     "alertSectors": []
+  },
+  {
+    "id": "u_55631eccac2a",
+    "name": "Bruna",
+    "username": "Bruna@logistica",
+    "passwordHash": "scrypt$0cb210a55edcd9b3113ef29a04daa7ee$e5ec03f20b04e34f5d36d4376760a30a60a5541cf07f0e4fcde02223638b0ea1",
+    "role": "sector",
+    "sector": "pendente_envio",
+    "alertSectors": [
+      "pendente_envio",
+      "pendenteenvio"
+    ],
+    "active": true,
+    "createdAt": "2026-04-16T08:37:07.558Z"
   }
 ]
