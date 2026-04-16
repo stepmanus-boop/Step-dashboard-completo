@@ -235,7 +235,7 @@ function normalizeSectorValue(value) {
     .replace(/__+/g, '_');
 
   if (!normalized) return "";
-  if (["envio", "pendente_envio", "pendente_de_envio", "pending_shipment", "awaiting_shipment", "logistica", "logistics", "expedicao", "shipping"].includes(normalized)) return "pendente_envio";
+  if (["envio", "pendenteenvio", "pendente_envio", "pendente_de_envio", "pending_shipment", "awaiting_shipment", "logistica", "logistics", "expedicao", "shipping"].includes(normalized)) return "pendente_envio";
   if (["inspecao", "inspection"].includes(normalized)) return "inspecao";
   if (["pintura", "painting", "coating"].includes(normalized)) return "pintura";
   if (["producao", "production"].includes(normalized)) return "producao";

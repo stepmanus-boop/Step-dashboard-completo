@@ -128,7 +128,7 @@ function normalizeSectorValue(value) {
     .replace(/__+/g, '_');
 
   if (!normalized) return '';
-  if (['envio', 'pendente_envio', 'pendente_de_envio', 'pending_shipment', 'awaiting_shipment', 'logistica', 'logistics', 'expedicao', 'shipping'].includes(normalized)) return 'pendente_envio';
+  if (['envio', 'pendenteenvio', 'pendente_envio', 'pendente_de_envio', 'pending_shipment', 'awaiting_shipment', 'logistica', 'logistics', 'expedicao', 'shipping'].includes(normalized)) return 'pendente_envio';
   if (['inspecao', 'inspeção', 'inspection'].includes(normalized)) return 'inspecao';
   if (['pintura', 'painting', 'coating'].includes(normalized)) return 'pintura';
   if (['producao', 'produção', 'production'].includes(normalized)) return 'producao';
@@ -142,7 +142,10 @@ function normalizeSectorList(primarySector, alertSectors) {
   const seen = new Set();
   const normalized = [];
   const explicit = Array.isArray(alertSectors) ? alertSectors : [];
-  const values = explicit.length ? explicit : (primarySector && primarySector !== "all" ? [primarySector] : []);
+  const values = [
+    ...(primarySector && primarySector !== "all" ? [primarySector] : []),
+    ...explicit,
+  ];
   for (const value of values) {
     const item = normalizeSectorValue(value);
     if (!item || item === "all" || seen.has(item)) continue;
