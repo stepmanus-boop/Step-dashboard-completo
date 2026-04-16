@@ -1567,6 +1567,19 @@ button.alert-badge {
   min-height: 122px;
 }
 
+
+.stack-field select option,
+.filter-box select option {
+  color: #0b1b2d;
+  background: #f7fbff;
+}
+
+.stack-field select optgroup,
+.filter-box select optgroup {
+  color: #0b1b2d;
+  background: #eaf4ff;
+}
+
 .stack-field input:focus,
 .stack-field select:focus,
 .stack-field textarea:focus {
