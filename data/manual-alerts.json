@@ -1,13 +1,1 @@
-[
-  {
-    "id": "a_986b322d31bd",
-    "sector": "pendente_envio",
-    "title": "Prioridade BSP 25-270",
-    "message": "Precisamos dar prioridade no envio",
-    "priority": "high",
-    "requiresAck": true,
-    "active": true,
-    "createdAt": "2026-04-16T11:35:23.941Z",
-    "createdBy": "admin"
-  }
-]
+[]

@@ -9,19 +9,5 @@
     "active": true,
     "createdAt": "2026-04-15T00:00:00.000Z",
     "alertSectors": []
-  },
-  {
-    "id": "u_1d64db725add",
-    "name": "Bruna",
-    "username": "bruna@logistica",
-    "passwordHash": "scrypt$76472c37d5c6fdaa245891587adeda62$1efc413c88583b1bf8baa6b520dae627cf120b449023a0eafc59b01b89ba714a",
-    "role": "sector",
-    "sector": "pintura",
-    "alertSectors": [
-      "pintura",
-      "pendenteenvio"
-    ],
-    "active": true,
-    "createdAt": "2026-04-16T11:30:39.558Z"
   }
 ]
