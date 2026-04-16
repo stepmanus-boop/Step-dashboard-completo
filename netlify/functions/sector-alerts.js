@@ -1,5 +1,6 @@
+const webpush = require('web-push');
 const { jsonResponse, requireSession, requireAdmin, normalizeSectorList, normalizeText, normalizeSectorValue } = require('./_auth');
-const { listManualAlerts, listAcknowledgements, createManualAlert, addAcknowledgement, findAcknowledgement, isSupabaseConfigured, getUserById, getUserByUsername } = require('./_supabase');
+const { listManualAlerts, listAcknowledgements, createManualAlert, addAcknowledgement, findAcknowledgement, isSupabaseConfigured, getUserById, getUserByUsername, listUsers, listPushSubscriptions, removePushSubscription } = require('./_supabase');
 
 function alertVisibleToUser(alert, session) {
   if (!alert || alert.active === false) return false;
@@ -9,6 +10,50 @@ function alertVisibleToUser(alert, session) {
   return alertSector === 'all' || allowedSectors.includes(alertSector);
 }
 
+
+
+function configureWebPush() {
+  const publicKey = String(process.env.VAPID_PUBLIC_KEY || '');
+  const privateKey = String(process.env.VAPID_PRIVATE_KEY || '');
+  const subject = String(process.env.VAPID_SUBJECT || 'mailto:admin@example.com');
+  if (!publicKey || !privateKey) return false;
+  webpush.setVapidDetails(subject, publicKey, privateKey);
+  return true;
+}
+
+async function notifySectorPushUsers(alert) {
+  if (!configureWebPush()) return { sent: 0, skipped: true };
+  const users = await listUsers();
+  const subs = await listPushSubscriptions();
+  if (!Array.isArray(users) || !Array.isArray(subs) || !subs.length) return { sent: 0 };
+
+  const recipients = new Set(
+    users
+      .filter((user) => user.role !== 'admin')
+      .filter((user) => normalizeSectorList(user.sector, user.alertSectors).includes(normalizeSectorValue(alert.sector)))
+      .map((user) => String(user.id))
+  );
+
+  const targetSubs = subs.filter((item) => recipients.has(String(item.user_id || item.userId || '')));
+  let sent = 0;
+  await Promise.all(targetSubs.map(async (item) => {
+    try {
+      await webpush.sendNotification(item.subscription_json || item.subscriptionJson || item.subscription, JSON.stringify({
+        title: alert.title || 'Novo alerta operacional',
+        body: alert.message || 'Você recebeu um novo alerta para o seu setor.',
+        tag: `manual-alert-${alert.id}`,
+        url: '/',
+      }));
+      sent += 1;
+    } catch (error) {
+      if (error?.statusCode === 404 || error?.statusCode === 410) {
+        try { await removePushSubscription(item.endpoint); } catch (_) {}
+      }
+      console.warn('Falha ao enviar web push', error?.message || error);
+    }
+  }));
+  return { sent };
+}
 
 async function getEffectiveSession(session) {
   if (!session || session.role === 'admin') return session;
@@ -108,7 +153,8 @@ exports.handler = async (event) => {
         createdBy: admin.session.username,
         expiresAfterReadHours: 24,
       });
-      return jsonResponse(200, { ok: true, alert });
+      const push = await notifySectorPushUsers(alert);
+      return jsonResponse(200, { ok: true, alert, push });
     } catch (error) {
       return jsonResponse(500, { ok: false, error: error.message || 'Falha ao criar alerta.' });
     }

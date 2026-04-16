@@ -1,4 +1,4 @@
-const DEFAULT_POLL_MS = 30000;
+const DEFAULT_POLL_MS = 10000;
 
 let adminResponsesPollTimer = null;
 
@@ -25,6 +25,10 @@ const state = {
   adminActiveTab: "usuario",
   alertResponses: [],
   selectedAlertForResponse: null,
+  manualAlertSignature: "",
+  automaticAlertSignature: "",
+  pushSupported: false,
+  pushSubscribed: false,
 };
 
 const bodyEl = document.getElementById("projects-body");
@@ -176,13 +180,98 @@ async function registerServiceWorker() {
       window.location.reload();
     });
 
-    const registration = await navigator.serviceWorker.register('./sw.js?v=4', { updateViaCache: 'none' });
+    const registration = await navigator.serviceWorker.register('./sw.js?v=5', { updateViaCache: 'none' });
     if (typeof registration.update === 'function') {
       registration.update().catch(() => {});
     }
   } catch (error) {
     console.warn('Falha ao registrar service worker.', error);
   }
+}
+
+
+function getAlertStorageKey(kind = 'manual', userId = '') {
+  return `step-last-alerts:${kind}:${userId || 'guest'}`;
+}
+
+function buildAlertSignature(list, mapper) {
+  return JSON.stringify((Array.isArray(list) ? list : []).map(mapper).sort());
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+}
+
+async function showBrowserNotification(title, body, tag) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (registration?.showNotification) {
+      await registration.showNotification(title, { body, tag, icon: '/assets/icon-192.png', badge: '/assets/icon-192.png', data: { url: '/' } });
+    } else {
+      new Notification(title, { body, tag });
+    }
+  } catch (error) {
+    console.warn('Falha ao exibir notificação.', error);
+  }
+}
+
+async function syncPushSubscription(forcePrompt = false) {
+  if (!state.user || !('serviceWorker' in navigator) || !('PushManager' in window)) return false;
+  state.pushSupported = true;
+  const registration = await navigator.serviceWorker.ready;
+  let permission = Notification.permission;
+  if (forcePrompt && permission === 'default') {
+    permission = await Notification.requestPermission();
+  }
+  if (permission !== 'granted') return false;
+  const statusRes = await fetch('/api/push-subscriptions', { credentials: 'same-origin', cache: 'no-store' }).catch(() => null);
+  const status = statusRes ? await statusRes.json().catch(() => null) : null;
+  const vapidPublicKey = status?.vapidPublicKey || '';
+  if (!vapidPublicKey) return false;
+  let subscription = await registration.pushManager.getSubscription();
+  if (!subscription) {
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+    });
+  }
+  await fetch('/api/push-subscriptions', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subscription }),
+  });
+  state.pushSubscribed = true;
+  return true;
+}
+
+function detectNewUserAlerts() {
+  if (!state.user || state.user.role === 'admin') return;
+  const manualAlerts = Array.isArray(state.manualAlerts) ? state.manualAlerts : [];
+  const automaticAlerts = getUserAutomaticAlerts();
+  const manualSignature = buildAlertSignature(manualAlerts, (item) => `${item.id}:${item.updatedAt || item.createdAt || ''}`);
+  const automaticSignature = buildAlertSignature(automaticAlerts, (item) => `${item.projectNumber || item.projectDisplay}:${item.sector}:${item.daysRemaining}`);
+  const manualKey = getAlertStorageKey('manual', state.user.sub || state.user.username);
+  const autoKey = getAlertStorageKey('automatic', state.user.sub || state.user.username);
+  const prevManual = window.localStorage.getItem(manualKey) || '';
+  const prevAuto = window.localStorage.getItem(autoKey) || '';
+
+  if (prevManual && prevManual !== manualSignature) {
+    const latest = manualAlerts[0];
+    if (latest) showBrowserNotification('Novo alerta operacional', latest.title || latest.message || 'Você recebeu um novo alerta.', `manual-${latest.id}`);
+  }
+  if (prevAuto && prevAuto !== automaticSignature) {
+    const latestAuto = automaticAlerts[0];
+    if (latestAuto) showBrowserNotification('Prazo em alerta', `${latestAuto.projectDisplay || latestAuto.projectNumber || 'Projeto'} requer atenção do seu setor.`, `auto-${latestAuto.projectNumber || latestAuto.projectDisplay}`);
+  }
+  window.localStorage.setItem(manualKey, manualSignature);
+  window.localStorage.setItem(autoKey, automaticSignature);
+  state.manualAlertSignature = manualSignature;
+  state.automaticAlertSignature = automaticSignature;
 }
 
 function formatNumber(value, fractionDigits = 0) {
@@ -1440,6 +1529,23 @@ function startPolling() {
 }
 
 function bindEvents() {
+  if (sectorAlertsContentEl) {
+    sectorAlertsContentEl.addEventListener('click', async (event) => {
+      const button = event.target.closest('[data-enable-push]');
+      if (!button) return;
+      button.disabled = true;
+      try {
+        const ok = await syncPushSubscription(true);
+        if (!ok) window.alert('Permita as notificações do navegador e instale o app para receber push no telefone.');
+        renderManualAlerts();
+      } catch (error) {
+        window.alert(error?.message || 'Falha ao ativar push.');
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+
   searchInputEl.addEventListener("input", (event) => {
     state.searchQuery = event.target.value;
     applyFilter();
@@ -1897,6 +2003,7 @@ async function bootstrapSession() {
     state.githubSyncEnabled = Boolean(data.githubSyncEnabled);
     updateSessionUi();
     closeLoginModal();
+    syncPushSubscription(false).catch(() => {});
     return true;
   } catch {
     state.user = null;
@@ -2047,6 +2154,7 @@ async function loadManualAlerts() {
     state.manualAlerts = data.alerts || [];
     updateSessionUi();
     renderManualAlerts();
+    detectNewUserAlerts();
     if (state.user?.role === "admin") {
       renderAdminAlertsList();
       renderAdminAlertResponses();
@@ -2657,6 +2765,7 @@ async function init() {
   const authenticated = await bootstrapSession();
   await loadProjects();
   if (authenticated) {
+    await syncPushSubscription(false).catch(() => {});
     await loadManualAlerts();
     if (state.user?.role === "admin") {
       await loadAdminData();

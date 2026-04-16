@@ -257,6 +257,45 @@ function userPasswordMatches(password, stored) {
   return String(password) === raw;
 }
 
+async function listPushSubscriptions(userId = '') {
+  const filter = String(userId || '').trim()
+    ? `&user_id=eq.${encodeURIComponent(String(userId || '').trim())}`
+    : '';
+  try {
+    const rows = await supabaseFetch(`/rest/v1/push_subscriptions?select=*&active=is.true&order=updated_at.desc${filter}`);
+    return Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    if (String(error.message || '').includes('push_subscriptions')) return [];
+    throw error;
+  }
+}
+
+async function upsertPushSubscription(input) {
+  const payload = {
+    user_id: input.userId,
+    username: input.username || '',
+    sector: input.sector || '',
+    endpoint: input.endpoint,
+    subscription_json: input.subscription,
+    active: input.active !== false,
+  };
+  const rows = await supabaseFetch('/rest/v1/push_subscriptions?on_conflict=endpoint&select=*', {
+    method: 'POST',
+    headers: getSupabaseHeaders('resolution=merge-duplicates,return=representation'),
+    body: JSON.stringify(payload),
+  });
+  return Array.isArray(rows) ? rows[0] : null;
+}
+
+async function removePushSubscription(endpoint) {
+  const q = encodeURIComponent(String(endpoint || '').trim());
+  await supabaseFetch(`/rest/v1/push_subscriptions?endpoint=eq.${q}`, {
+    method: 'DELETE',
+    headers: getSupabaseHeaders(),
+  });
+  return true;
+}
+
 module.exports = {
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
