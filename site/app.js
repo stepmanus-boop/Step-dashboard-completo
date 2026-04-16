@@ -1943,7 +1943,11 @@ async function loadManualAlerts() {
     }
   } catch (error) {
     state.manualAlerts = [];
-    renderManualAlerts([], sectorAlertsContentEl);
+    if (sectorAlertsContentEl) {
+      sectorAlertsContentEl.innerHTML = `<div class="detail-placeholder">${escapeHtml(error?.message || "Falha ao carregar alertas operacionais.")}</div>`;
+    } else {
+      renderManualAlerts([], sectorAlertsContentEl);
+    }
     console.warn(error);
   }
 }

@@ -4,8 +4,9 @@ const { listManualAlerts, listAcknowledgements, createManualAlert, addAcknowledg
 function alertVisibleToUser(alert, session) {
   if (!alert || alert.active === false) return false;
   if (session.role === 'admin') return true;
-  const allowedSectors = normalizeSectorList('', session.alertSectors);
-  return allowedSectors.includes(normalizeSectorValue(alert.sector));
+  const allowedSectors = normalizeSectorList(session.sector, session.alertSectors);
+  const alertSector = normalizeSectorValue(alert.sector);
+  return alertSector === 'all' || allowedSectors.includes(alertSector);
 }
 
 function getUserAlertExpiration(acknowledgements, session, alert) {
@@ -29,7 +30,13 @@ exports.handler = async (event) => {
     const auth = requireSession(event);
     if (!auth.ok) return auth.response;
     const alerts = await listManualAlerts();
-    const acks = await listAcknowledgements();
+    let acks = [];
+    try {
+      acks = await listAcknowledgements();
+    } catch (error) {
+      console.warn('Falha ao carregar confirmações de leitura dos alertas. Seguindo sem acknowledgements.', error);
+      acks = [];
+    }
     const visible = alerts
       .filter((alert) => alertVisibleToUser(alert, auth.session))
       .map((alert) => {
