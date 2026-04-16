@@ -415,9 +415,42 @@
         </div>
         <div id="admin-alerts-list" class="admin-list empty-state">Nenhum alerta manual carregado.</div>
       </section>
+
+      <section class="admin-card admin-card--wide">
+        <div class="admin-card-head">
+          <h4>Respostas dos alertas</h4>
+        </div>
+        <div id="admin-alert-responses-list" class="admin-list empty-state">Nenhuma resposta recebida ainda.</div>
+      </section>
     </div>
   </div>
 </div>
+
+<div id="alert-response-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-backdrop" data-close-alert-response="true"></div>
+  <div class="modal-dialog glass-card response-modal-dialog">
+    <div class="modal-head">
+      <div>
+        <p class="modal-eyebrow">Resposta do alerta</p>
+        <h3 id="alert-response-title">Responder alerta</h3>
+        <p id="alert-response-subtitle" class="modal-subtitle">Escreva sua devolutiva para o administrador.</p>
+      </div>
+      <button id="alert-response-close" class="modal-close" type="button" aria-label="Fechar">×</button>
+    </div>
+    <div class="modal-content">
+      <form id="alert-response-form" class="stack-form">
+        <input id="alert-response-alert-id" type="hidden" />
+        <label class="stack-field"><span>Sua resposta</span><textarea id="alert-response-text" rows="5" placeholder="Digite a resposta para o admin."></textarea></label>
+        <div class="stack-actions">
+          <button class="primary-button" type="submit">Enviar resposta</button>
+          <button id="alert-response-cancel" class="ghost-button" type="button">Cancelar</button>
+        </div>
+        <p id="alert-response-feedback" class="inline-feedback"></p>
+      </form>
+    </div>
+  </div>
+</div>
+
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
     <script src="./app.js"></script>

@@ -20,6 +20,8 @@ const state = {
   githubSyncEnabled: false,
   manualAlerts: [],
   adminAlertSearchQuery: "",
+  alertResponses: [],
+  selectedAlertForResponse: null,
 };
 
 const bodyEl = document.getElementById("projects-body");
@@ -61,6 +63,16 @@ const openSectorAlertsEl = document.getElementById("open-sector-alerts");
 const sectorAlertsModalEl = document.getElementById("sector-alerts-modal");
 const sectorAlertsCloseEl = document.getElementById("sector-alerts-close");
 const sectorAlertsContentEl = document.getElementById("sector-alerts-content");
+const alertResponseModalEl = document.getElementById("alert-response-modal");
+const alertResponseCloseEl = document.getElementById("alert-response-close");
+const alertResponseCancelEl = document.getElementById("alert-response-cancel");
+const alertResponseFormEl = document.getElementById("alert-response-form");
+const alertResponseAlertIdEl = document.getElementById("alert-response-alert-id");
+const alertResponseTitleEl = document.getElementById("alert-response-title");
+const alertResponseSubtitleEl = document.getElementById("alert-response-subtitle");
+const alertResponseTextEl = document.getElementById("alert-response-text");
+const alertResponseFeedbackEl = document.getElementById("alert-response-feedback");
+const adminAlertResponsesListEl = document.getElementById("admin-alert-responses-list");
 const openAdminPanelEl = document.getElementById("open-admin-panel");
 const adminModalEl = document.getElementById("admin-modal");
 const adminCloseEl = document.getElementById("admin-close");
@@ -1594,8 +1606,33 @@ if (sectorAlertsModalEl) {
     const button = event.target.closest("[data-ack-alert]");
     if (button) {
       acknowledgeManualAlert(button.dataset.ackAlert);
+      return;
+    }
+    const replyButton = event.target.closest("[data-reply-alert]");
+    if (replyButton) {
+      openAlertResponseModal(replyButton.dataset.replyAlert);
     }
   });
+}
+
+if (alertResponseCloseEl) {
+  alertResponseCloseEl.addEventListener("click", closeAlertResponseModal);
+}
+
+if (alertResponseCancelEl) {
+  alertResponseCancelEl.addEventListener("click", closeAlertResponseModal);
+}
+
+if (alertResponseModalEl) {
+  alertResponseModalEl.addEventListener("click", (event) => {
+    if (event.target.matches("[data-close-alert-response='true']")) {
+      closeAlertResponseModal();
+    }
+  });
+}
+
+if (alertResponseFormEl) {
+  alertResponseFormEl.addEventListener("submit", handleAlertResponseSubmit);
 }
 
 if (openAdminPanelEl) {
@@ -1686,6 +1723,10 @@ if (adminUsersListEl) {
     }
     if (adminModalEl && !adminModalEl.classList.contains("hidden")) {
       closeAdminModal();
+      return;
+    }
+    if (alertResponseModalEl && !alertResponseModalEl.classList.contains("hidden")) {
+      closeAlertResponseModal();
       return;
     }
     if (sectorAlertsModalEl && !sectorAlertsModalEl.classList.contains("hidden")) {
@@ -1857,7 +1898,13 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
                 ${alert.requiresAck && !alert.acknowledged
                   ? `<button class="primary-button" type="button" data-ack-alert="${escapeHtml(alert.id)}">Marcar como lido</button>`
                   : `<span class="manual-alert-tag">${alert.acknowledged ? "Confirmado" : "Informativo"}</span>`}
+                ${state.user?.role !== 'admin' ? `<button class="ghost-button" type="button" data-reply-alert="${escapeHtml(alert.id)}">Responder</button>` : ''}
               </div>
+              ${(() => {
+                const responses = getAlertResponsesForAlert(alert.id);
+                if (!responses.length) return '';
+                return `<div class="response-thread">${responses.map((response) => `<div class="response-bubble"><div class="admin-list-item-meta"><span>${escapeHtml(response.username || response.userEmail || 'Você')}</span><span>${escapeHtml(response.createdAt ? new Date(response.createdAt).toLocaleString('pt-BR') : '')}</span></div><p>${escapeHtml(response.responseText || '')}</p>${response.adminReply ? `<div class="response-bubble response-bubble--admin"><strong>Admin</strong><p>${escapeHtml(response.adminReply)}</p></div>` : ''}</div>`).join('')}</div>`;
+              })()}
             </article>
           `).join("")}
         </div>
@@ -1940,6 +1987,7 @@ async function loadManualAlerts() {
     renderManualAlerts();
     if (state.user?.role === "admin") {
       renderAdminAlertsList();
+      renderAdminAlertResponses();
     }
   } catch (error) {
     state.manualAlerts = [];
@@ -1974,6 +2022,113 @@ function closeSectorAlertsModal() {
   }
 }
 
+
+
+function getAlertResponsesForAlert(alertId) {
+  return (Array.isArray(state.alertResponses) ? state.alertResponses : []).filter((item) => String(item.alertId) === String(alertId));
+}
+
+function openAlertResponseModal(alertId) {
+  const alert = (Array.isArray(state.manualAlerts) ? state.manualAlerts : []).find((item) => String(item.id) === String(alertId));
+  if (!alert || !alertResponseModalEl) return;
+  state.selectedAlertForResponse = alert;
+  if (alertResponseAlertIdEl) alertResponseAlertIdEl.value = alert.id || '';
+  if (alertResponseTitleEl) alertResponseTitleEl.textContent = `Responder: ${alert.title || 'Alerta operacional'}`;
+  if (alertResponseSubtitleEl) alertResponseSubtitleEl.textContent = `Sua resposta será enviada ao admin para o alerta do setor ${sectorLabel(alert.sector)}.`;
+  if (alertResponseTextEl) alertResponseTextEl.value = '';
+  if (alertResponseFeedbackEl) alertResponseFeedbackEl.textContent = '';
+  alertResponseModalEl.classList.remove('hidden');
+  alertResponseModalEl.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('modal-open');
+  window.setTimeout(() => alertResponseTextEl?.focus(), 40);
+}
+
+function closeAlertResponseModal() {
+  if (!alertResponseModalEl) return;
+  alertResponseModalEl.classList.add('hidden');
+  alertResponseModalEl.setAttribute('aria-hidden', 'true');
+  state.selectedAlertForResponse = null;
+  if (
+    modalEl.classList.contains('hidden') &&
+    alertModalEl.classList.contains('hidden') &&
+    sectorAlertsModalEl.classList.contains('hidden') &&
+    adminModalEl.classList.contains('hidden') &&
+    loginModalEl.classList.contains('hidden')
+  ) {
+    document.body.classList.remove('modal-open');
+  }
+}
+
+async function handleAlertResponseSubmit(event) {
+  event.preventDefault();
+  if (!alertResponseFeedbackEl) return;
+  const alertId = String(alertResponseAlertIdEl?.value || '').trim();
+  const responseText = String(alertResponseTextEl?.value || '').trim();
+  if (!alertId || !responseText) {
+    alertResponseFeedbackEl.textContent = 'Digite a resposta antes de enviar.';
+    return;
+  }
+  alertResponseFeedbackEl.textContent = 'Enviando resposta...';
+  try {
+    const response = await fetch('/api/alert-responses', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alertId, responseText }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao enviar resposta.');
+    alertResponseFeedbackEl.textContent = 'Resposta enviada ao admin.';
+    await loadAlertResponses();
+    await loadManualAlerts();
+    window.setTimeout(closeAlertResponseModal, 500);
+  } catch (error) {
+    alertResponseFeedbackEl.textContent = error.message || 'Falha ao enviar resposta.';
+  }
+}
+
+async function loadAlertResponses() {
+  if (state.user?.role !== 'admin') {
+    state.alertResponses = [];
+    return;
+  }
+  try {
+    const response = await fetch('/api/alert-responses', { credentials: 'same-origin', cache: 'no-store' });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao carregar respostas dos alertas.');
+    state.alertResponses = Array.isArray(data.responses) ? data.responses : [];
+    renderAdminAlertResponses();
+  } catch (error) {
+    state.alertResponses = [];
+    if (adminAlertResponsesListEl) {
+      adminAlertResponsesListEl.innerHTML = `<div class="empty-state">${escapeHtml(error.message || 'Falha ao carregar respostas dos alertas.')}</div>`;
+    }
+  }
+}
+
+function renderAdminAlertResponses() {
+  if (!adminAlertResponsesListEl) return;
+  const responses = Array.isArray(state.alertResponses) ? state.alertResponses : [];
+  if (!responses.length) {
+    adminAlertResponsesListEl.innerHTML = '<div class="empty-state">Nenhuma resposta recebida ainda.</div>';
+    return;
+  }
+  adminAlertResponsesListEl.innerHTML = responses.map((item) => `
+    <article class="admin-list-item">
+      <strong>${escapeHtml(item.username || item.userEmail || 'Usuário')}</strong>
+      <div class="admin-list-item-meta">
+        <span>Setor: ${escapeHtml(sectorLabel(item.sector))}</span>
+        <span>Status: ${escapeHtml(item.status || 'enviado')}</span>
+        <span>${escapeHtml(item.createdAt ? new Date(item.createdAt).toLocaleString('pt-BR') : 'Sem data')}</span>
+      </div>
+      <p>${escapeHtml(item.responseText || '')}</p>
+      <div class="admin-list-item-meta">
+        <span>Alerta: ${escapeHtml(((state.manualAlerts || []).find((alert) => String(alert.id) === String(item.alertId))?.title) || item.alertId || 'Alerta')}</span>
+      </div>
+      ${item.adminReply ? `<div class="response-bubble response-bubble--admin"><strong>Resposta do admin</strong><p>${escapeHtml(item.adminReply)}</p></div>` : ''}
+    </article>
+  `).join('');
+}
 
 function resetAdminUserForm() {
   if (adminUserFormEl) adminUserFormEl.reset();
@@ -2192,6 +2347,7 @@ async function loadAdminData() {
     }
   }
   renderAdminAlertsList();
+  await loadAlertResponses();
 }
 
 function openAdminModal() {
@@ -2253,6 +2409,7 @@ async function handleLogout() {
   await fetch("/api/auth-logout", { credentials: "same-origin" });
   state.user = null;
   state.manualAlerts = [];
+  state.alertResponses = [];
   window.clearInterval(state.pollTimer);
   updateSessionUi();
   closeLoginModal();

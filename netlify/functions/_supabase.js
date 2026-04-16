@@ -84,6 +84,23 @@ function mapAck(row) {
   };
 }
 
+function mapResponse(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    alertId: row.alert_id,
+    userId: row.user_id,
+    username: row.username,
+    userEmail: row.user_email || '',
+    sector: normalizeSectorValue(row.sector),
+    responseText: row.response_text || '',
+    adminReply: row.admin_reply || '',
+    status: row.status || 'enviado',
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
 async function listUsers() {
   const rows = await supabaseFetch('/rest/v1/users?select=*&order=created_at.desc');
   return (Array.isArray(rows) ? rows : []).map(mapUser);
@@ -188,6 +205,51 @@ async function findAcknowledgement(alertId, userId) {
   return mapAck(Array.isArray(rows) ? rows[0] : null);
 }
 
+
+async function listAlertResponses(alertId = '') {
+  const filter = String(alertId || '').trim()
+    ? `&alert_id=eq.${encodeURIComponent(String(alertId || '').trim())}`
+    : '';
+  try {
+    const rows = await supabaseFetch(`/rest/v1/alert_responses?select=*&order=created_at.desc${filter}`);
+    return (Array.isArray(rows) ? rows : []).map(mapResponse);
+  } catch (error) {
+    if (String(error.message || '').includes('alert_responses')) return [];
+    throw error;
+  }
+}
+
+async function createAlertResponse(input) {
+  const payload = {
+    alert_id: input.alertId,
+    user_id: input.userId || null,
+    username: input.username || '',
+    user_email: input.userEmail || '',
+    sector: input.sector || '',
+    response_text: input.responseText || '',
+    status: input.status || 'enviado',
+  };
+  const rows = await supabaseFetch('/rest/v1/alert_responses?select=*', {
+    method: 'POST',
+    headers: getSupabaseHeaders('return=representation'),
+    body: JSON.stringify(payload),
+  });
+  return mapResponse(Array.isArray(rows) ? rows[0] : null);
+}
+
+async function updateAlertResponse(responseId, updates) {
+  const q = encodeURIComponent(String(responseId || '').trim());
+  const payload = {};
+  if ('adminReply' in updates) payload.admin_reply = updates.adminReply || '';
+  if ('status' in updates) payload.status = updates.status || 'enviado';
+  const rows = await supabaseFetch(`/rest/v1/alert_responses?id=eq.${q}&select=*`, {
+    method: 'PATCH',
+    headers: getSupabaseHeaders('return=representation'),
+    body: JSON.stringify(payload),
+  });
+  return mapResponse(Array.isArray(rows) ? rows[0] : null);
+}
+
 function userPasswordMatches(password, stored) {
   if (!stored) return false;
   const raw = String(stored);
@@ -209,10 +271,14 @@ module.exports = {
   listAcknowledgements,
   addAcknowledgement,
   findAcknowledgement,
+  listAlertResponses,
+  createAlertResponse,
+  updateAlertResponse,
   userPasswordMatches,
   mapUser,
   mapAlert,
   mapAck,
+  mapResponse,
   hashPassword,
   normalizeSectorList,
   normalizeText,
