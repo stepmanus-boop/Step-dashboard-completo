@@ -123,7 +123,19 @@ function normalizeText(value) {
 
 
 function normalizeSectorValue(value) {
-  return normalizeText(value);
+  const normalized = normalizeText(value)
+    .replace(/[\s-]+/g, '_')
+    .replace(/__+/g, '_');
+
+  if (!normalized) return '';
+  if (['envio', 'pendente_envio', 'pendente_de_envio', 'pending_shipment', 'awaiting_shipment'].includes(normalized)) return 'pendente_envio';
+  if (['inspecao', 'inspeção', 'inspection'].includes(normalized)) return 'inspecao';
+  if (['pintura', 'painting', 'coating'].includes(normalized)) return 'pintura';
+  if (['producao', 'produção', 'production'].includes(normalized)) return 'producao';
+  if (['calderaria', 'boilermaker', 'fabrication'].includes(normalized)) return 'calderaria';
+  if (['solda', 'welding'].includes(normalized)) return 'solda';
+  if (normalized == 'all') return 'all';
+  return normalized;
 }
 
 function normalizeSectorList(primarySector, alertSectors) {
