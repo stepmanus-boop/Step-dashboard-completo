@@ -1,5 +1,5 @@
 
-const { jsonResponse, requireAdmin } = require("./_auth");
+const { jsonResponse, requireAdmin, normalizeSectorList } = require("./_auth");
 const { isGithubConfigured, writeJson } = require("./_githubStore");
 
 exports.handler = async (event) => {
@@ -26,6 +26,7 @@ exports.handler = async (event) => {
       passwordHash: String(user.passwordHash || ""),
       role: user.role === "admin" ? "admin" : "sector",
       sector: user.role === "admin" ? "all" : String(user.sector || "producao").trim(),
+      alertSectors: user.role === "admin" ? [] : normalizeSectorList(user.sector || "producao", user.alertSectors),
       active: user.active !== false,
       createdAt: user.createdAt || new Date().toISOString(),
     })).filter((user) => user.id && user.name && user.username);

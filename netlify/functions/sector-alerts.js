@@ -1,11 +1,25 @@
 const crypto = require("crypto");
-const { jsonResponse, requireSession, requireAdmin } = require("./_auth");
+const { jsonResponse, requireSession, requireAdmin, normalizeSectorList, normalizeText } = require("./_auth");
 const { readJson, writeJson, isGithubConfigured } = require("./_githubStore");
+
+const ALERT_ACK_VISIBILITY_MS = 24 * 60 * 60 * 1000;
 
 function alertVisibleToUser(alert, session) {
   if (!alert || alert.active === false) return false;
   if (session.role === "admin") return true;
-  return String(alert.sector || "").toLowerCase() === String(session.sector || "").toLowerCase();
+  const allowedSectors = normalizeSectorList(session.sector, session.alertSectors);
+  return allowedSectors.includes(normalizeText(alert.sector));
+}
+
+function getUserAlertExpiration(acknowledgements, session) {
+  if (!Array.isArray(acknowledgements) || !session || session.role === "admin") return null;
+  const selfAck = acknowledgements
+    .filter((item) => item.userId === session.sub)
+    .sort((a, b) => new Date(b.acknowledgedAt || 0).getTime() - new Date(a.acknowledgedAt || 0).getTime())[0];
+  if (!selfAck?.acknowledgedAt) return null;
+  const ackTime = new Date(selfAck.acknowledgedAt).getTime();
+  if (!Number.isFinite(ackTime)) return null;
+  return new Date(ackTime + ALERT_ACK_VISIBILITY_MS).toISOString();
 }
 
 exports.handler = async (event) => {
@@ -28,14 +42,21 @@ exports.handler = async (event) => {
             acknowledgedAt: item.acknowledgedAt,
           }));
         const acked = acknowledgements.some((item) => item.userId === auth.session.sub);
+        const expiresAt = getUserAlertExpiration(acknowledgements, auth.session);
+        const expiredForUser = auth.session.role !== "admin" && expiresAt
+          ? new Date(expiresAt).getTime() <= Date.now()
+          : false;
         return {
           ...alert,
           acknowledged: acked,
           ackCount: acknowledgements.length,
           lastAckAt: acknowledgements[0]?.acknowledgedAt || null,
+          expiresAt,
+          expiredForUser,
           acknowledgements: auth.session.role === "admin" ? acknowledgements : undefined,
         };
       })
+      .filter((alert) => auth.session.role === "admin" || !alert.expiredForUser)
       .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
     return jsonResponse(200, {
@@ -106,6 +127,7 @@ exports.handler = async (event) => {
           userId: auth.session.sub,
           username: auth.session.username,
           sector: auth.session.sector,
+          targetSector: alert.sector,
           acknowledgedAt: new Date().toISOString(),
         });
         await writeJson("data/alert-acks.json", acks, `chore: confirma leitura do alerta ${alertId}`);

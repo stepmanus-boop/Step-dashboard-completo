@@ -68,6 +68,7 @@ function createSessionCookie(user) {
     username: user.username,
     role: user.role,
     sector: user.sector,
+    alertSectors: normalizeSectorList(user.sector, user.alertSectors),
     name: user.name,
     exp: Date.now() + SESSION_TTL_MS,
   };
@@ -120,6 +121,22 @@ function normalizeText(value) {
     .toLowerCase();
 }
 
+
+function normalizeSectorList(primarySector, alertSectors) {
+  const seen = new Set();
+  const normalized = [];
+  const values = [];
+  if (primarySector && primarySector !== "all") values.push(primarySector);
+  if (Array.isArray(alertSectors)) values.push(...alertSectors);
+  for (const value of values) {
+    const item = normalizeText(value);
+    if (!item || item === "all" || seen.has(item)) continue;
+    seen.add(item);
+    normalized.push(item);
+  }
+  return normalized;
+}
+
 function hashPassword(password, saltHex) {
   const salt = saltHex ? Buffer.from(saltHex, "hex") : crypto.randomBytes(16);
   const derived = crypto.scryptSync(String(password), salt, 32);
@@ -140,6 +157,7 @@ async function readLocalJson(relativePath, fallbackValue = []) {
 }
 
 module.exports = {
+  normalizeSectorList,
   SESSION_COOKIE_NAME,
   jsonResponse,
   createSessionCookie,

@@ -19,6 +19,7 @@ const state = {
   user: null,
   githubSyncEnabled: false,
   manualAlerts: [],
+  adminAlertSearchQuery: "",
 };
 
 const bodyEl = document.getElementById("projects-body");
@@ -69,6 +70,7 @@ const adminAlertFormEl = document.getElementById("admin-alert-form");
 const adminAlertFeedbackEl = document.getElementById("admin-alert-feedback");
 const adminUsersListEl = document.getElementById("admin-users-list");
 const adminAlertsListEl = document.getElementById("admin-alerts-list");
+const adminAlertSearchEl = document.getElementById("admin-alert-search");
 const githubSyncBadgeEl = document.getElementById("github-sync-badge");
 const adminSyncButtonEl = document.getElementById("admin-sync-button");
 const adminUserCancelEditEl = document.getElementById("admin-user-cancel-edit");
@@ -217,12 +219,65 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+
+const AVAILABLE_SECTORS = [
+  { value: "pintura", label: "Pintura" },
+  { value: "inspecao", label: "Inspeção" },
+  { value: "pendente_envio", label: "Pendente de envio" },
+  { value: "producao", label: "Produção" },
+  { value: "calderaria", label: "Calderaria" },
+  { value: "solda", label: "Solda" },
+];
+
+function normalizeSectorValue(value) {
+  return normalizeText(value);
+}
+
+function getUserAlertSectors(user = state.user) {
+  if (!user) return [];
+  const values = [];
+  if (user.sector && user.sector !== "all") values.push(user.sector);
+  if (Array.isArray(user.alertSectors)) values.push(...user.alertSectors);
+  const seen = new Set();
+  return values.map((item) => normalizeSectorValue(item)).filter((item) => item && item !== "all" && !seen.has(item) && seen.add(item));
+}
+
+function formatSectorList(values = []) {
+  const labels = getUniqueSectorLabels(values);
+  return labels.length ? labels.join(", ") : "—";
+}
+
+function getUniqueSectorLabels(values = []) {
+  const seen = new Set();
+  const labels = [];
+  for (const value of values) {
+    const normalized = normalizeSectorValue(value);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    labels.push(sectorLabel(normalized));
+  }
+  return labels;
+}
+
+function getSelectedAdminAlertSectors() {
+  return Array.from(document.querySelectorAll('[data-admin-alert-sector-option]:checked')).map((input) => normalizeSectorValue(input.value));
+}
+
+function setSelectedAdminAlertSectors(values = []) {
+  const allowed = new Set((Array.isArray(values) ? values : []).map((item) => normalizeSectorValue(item)));
+  document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
+    input.checked = allowed.has(normalizeSectorValue(input.value));
+  });
+}
+
 function sectorLabel(value) {
   const normalized = String(value || "").toLowerCase();
   if (normalized === "pintura") return "Pintura";
   if (normalized === "inspecao") return "Inspeção";
   if (normalized === "pendente_envio") return "Pendente de envio";
   if (normalized === "producao") return "Produção";
+  if (normalized === "calderaria") return "Calderaria";
+  if (normalized === "solda") return "Solda";
   if (normalized === "all") return "Todos";
   return value || "—";
 }
@@ -1465,6 +1520,28 @@ if (loginCloseEl) {
   loginCloseEl.addEventListener("click", closeLoginModal);
 }
 
+const adminUserSectorEl = document.getElementById("admin-user-sector");
+const adminUserRoleEl = document.getElementById("admin-user-role");
+if (adminUserSectorEl) {
+  adminUserSectorEl.addEventListener("change", (event) => {
+    const next = normalizeSectorValue(event.target.value);
+    const selected = new Set(getSelectedAdminAlertSectors());
+    if (next) {
+      selected.add(next);
+      setSelectedAdminAlertSectors([...selected]);
+    }
+  });
+}
+
+if (adminUserRoleEl) {
+  adminUserRoleEl.addEventListener("change", (event) => {
+    const disabled = event.target.value === "admin";
+    document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
+      input.disabled = disabled;
+    });
+  });
+}
+
 if (loginModalEl) {
   loginModalEl.addEventListener("click", (event) => {
     if (event.target === loginModalEl || event.target.matches(".modal-backdrop")) {
@@ -1540,6 +1617,13 @@ if (adminSyncButtonEl) {
 
 if (adminAlertFormEl) {
   adminAlertFormEl.addEventListener("submit", handleAdminAlertSubmit);
+}
+
+if (adminAlertSearchEl) {
+  adminAlertSearchEl.addEventListener("input", (event) => {
+    state.adminAlertSearchQuery = String(event.target.value || "");
+    renderAdminAlertsList();
+  });
 }
 
 if (adminUsersListEl) {
@@ -1664,7 +1748,8 @@ function updateSessionUi() {
   }
 
   sessionUserNameEl.textContent = user.name || user.username;
-  sessionUserMetaEl.textContent = `${user.role === "admin" ? "Administrador" : "Setor"} • ${sectorLabel(user.sector)}`;
+  const linkedSectors = getUserAlertSectors(user);
+  sessionUserMetaEl.textContent = `${user.role === "admin" ? "Administrador" : "Setor"} • ${sectorLabel(user.sector)}${user.role !== "admin" && linkedSectors.length > 1 ? ` • Alertas: ${formatSectorList(linkedSectors)}` : ""}`;
   sessionStatusEl.textContent = "online";
   logoutButtonEl.classList.remove("hidden");
   if (openLoginButtonEl) openLoginButtonEl.classList.add("hidden");
@@ -1706,9 +1791,9 @@ function getUserAutomaticAlerts() {
     return Array.isArray(state.alerts) ? [...state.alerts] : [];
   }
 
-  const userSector = normalizeText(state.user.sector);
+  const allowedSectors = new Set(getUserAlertSectors(state.user));
   return (Array.isArray(state.alerts) ? state.alerts : [])
-    .filter((alert) => normalizeText(alert?.sector) === userSector)
+    .filter((alert) => allowedSectors.has(normalizeText(alert?.sector)))
     .sort((a, b) => {
       if ((a?.daysRemaining ?? 0) !== (b?.daysRemaining ?? 0)) {
         return (a?.daysRemaining ?? 0) - (b?.daysRemaining ?? 0);
@@ -1736,7 +1821,7 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
     ? `
       <section class="manual-alert-section">
         <div class="admin-list-item-meta">
-          <span class="manual-alert-tag">Manuais</span>
+          <span class="manual-alert-tag">Alerta Operacional</span>
           <span>${manualAlerts.length} alerta(s)</span>
         </div>
         <div class="manual-alert-section-list">
@@ -1747,6 +1832,7 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
                 <span class="manual-alert-tag">${escapeHtml(sectorLabel(alert.sector))}</span>
                 <span>${escapeHtml(new Date(alert.createdAt).toLocaleString("pt-BR"))}</span>
                 <span>${alert.acknowledged ? "Lido" : "Pendente de leitura"}</span>
+                ${alert.acknowledged && alert.expiresAt ? `<span class="manual-alert-note">Após a leitura, este alerta fica disponível por até 24h.</span>` : ""}
               </div>
               <strong>${escapeHtml(alert.title || "Alerta Operacional")}</strong>
               <p>${escapeHtml(alert.message || "")}</p>
@@ -1763,7 +1849,7 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
     : `
       <section class="manual-alert-section">
         <div class="admin-list-item-meta">
-          <span class="manual-alert-tag">Manuais</span>
+          <span class="manual-alert-tag">Alerta Operacional</span>
           <span>Nenhum alerta operacional para o seu setor.</span>
         </div>
       </section>
@@ -1774,7 +1860,7 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
       <section class="manual-alert-section">
         <div class="admin-list-item-meta">
           <span class="manual-alert-tag manual-alert-tag--high">Automáticos</span>
-          <span>${automaticAlerts.length} alerta(s) de prazo do setor ${escapeHtml(sectorLabel(state.user.sector))}</span>
+          <span>${automaticAlerts.length} alerta(s) de prazo para ${escapeHtml(formatSectorList(getUserAlertSectors(state.user)))}</span>
         </div>
         <div class="manual-alert-section-list">
           ${automaticAlerts.map((alert) => {
@@ -1814,7 +1900,8 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
 
   targetEl.innerHTML = `
     <div class="manual-alert-summary">
-      <span class="manual-alert-tag">Meu setor: ${escapeHtml(sectorLabel(state.user.sector))}</span>
+      <span class="manual-alert-tag">Setor principal: ${escapeHtml(sectorLabel(state.user.sector))}</span>
+      <span class="manual-alert-tag">Recebe alertas de: ${escapeHtml(formatSectorList(getUserAlertSectors(state.user)))}</span>
       <span class="manual-alert-tag">Total: ${manualAlerts.length + automaticAlerts.length} alerta(s)</span>
     </div>
     ${manualHtml}
@@ -1872,6 +1959,7 @@ function resetAdminUserForm() {
   if (adminUserIdEl) adminUserIdEl.value = "";
   if (adminUserCancelEditEl) adminUserCancelEditEl.classList.add("hidden");
   if (adminUserSubmitLabelEl) adminUserSubmitLabelEl.textContent = "Criar usuário";
+  setSelectedAdminAlertSectors([document.getElementById("admin-user-sector")?.value || "pintura"]);
 }
 
 function startEditUser(userId) {
@@ -1883,6 +1971,7 @@ function startEditUser(userId) {
   document.getElementById("admin-user-password").value = "";
   document.getElementById("admin-user-role").value = user.role === "admin" ? "admin" : "sector";
   document.getElementById("admin-user-sector").value = user.sector && user.sector !== "all" ? user.sector : "pintura";
+  setSelectedAdminAlertSectors(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]);
   if (adminUserIdEl) adminUserIdEl.value = user.id || "";
   if (adminUserCancelEditEl) adminUserCancelEditEl.classList.remove("hidden");
   if (adminUserSubmitLabelEl) adminUserSubmitLabelEl.textContent = "Salvar usuário";
@@ -1929,7 +2018,8 @@ function renderAdminUsersList(users = []) {
         <div class="admin-list-item-meta">
           <span>Login: ${escapeHtml(user.username)}</span>
           <span>Perfil: ${escapeHtml(user.role === "admin" ? "Admin notificações" : "Setor")}</span>
-          <span>Setor: ${escapeHtml(sectorLabel(user.sector))}</span>
+          <span>Setor principal: ${escapeHtml(sectorLabel(user.sector))}</span>
+          <span>Recebe alertas de: ${escapeHtml(formatSectorList(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]))}</span>
           <span>${user.active ? "Ativo" : "Inativo"}</span>
         </div>
         <div class="manual-alert-actions">
@@ -1943,19 +2033,39 @@ function renderAdminUsersList(users = []) {
   }).join("");
 }
 
+function getFilteredAdminAlerts() {
+  const baseAlerts = Array.isArray(state.manualAlerts) ? state.manualAlerts : [];
+  const query = normalizeText(state.adminAlertSearchQuery);
+  if (!query) return baseAlerts;
+  return baseAlerts.filter((alert) => {
+    const acknowledgements = Array.isArray(alert?.acknowledgements) ? alert.acknowledgements : [];
+    const haystack = [
+      alert?.title,
+      alert?.message,
+      sectorLabel(alert?.sector),
+      priorityLabel(alert?.priority),
+      alert?.createdBy,
+      alert?.createdAt ? new Date(alert.createdAt).toLocaleString("pt-BR") : "",
+      ...acknowledgements.flatMap((ack) => [ack?.username, ack?.userId, sectorLabel(ack?.sector), ack?.acknowledgedAt ? new Date(ack.acknowledgedAt).toLocaleString("pt-BR") : ""]),
+    ].join(" ");
+    return normalizeText(haystack).includes(query);
+  });
+}
+
 function renderAdminAlertsList() {
   if (!adminAlertsListEl) return;
-  if (!state.manualAlerts.length) {
-    adminAlertsListEl.innerHTML = '<div class="empty-state">Nenhum alerta operacional ativo.</div>';
+  const filteredAlerts = getFilteredAdminAlerts();
+  if (!filteredAlerts.length) {
+    adminAlertsListEl.innerHTML = `<div class="empty-state">${state.adminAlertSearchQuery ? "Nenhum alerta encontrado para a pesquisa informada." : "Nenhum alerta operacional registrado."}</div>`;
     return;
   }
-  adminAlertsListEl.innerHTML = state.manualAlerts.map((alert) => {
+  adminAlertsListEl.innerHTML = filteredAlerts.map((alert) => {
     const acknowledgements = Array.isArray(alert.acknowledgements) ? alert.acknowledgements : [];
     const ackHtml = alert.requiresAck
       ? (acknowledgements.length
         ? `
           <div class="admin-alert-ack-box">
-            <strong>Confirmações de leitura</strong>
+            <strong>Registro de confirmações</strong>
             <div class="admin-list-item-meta">
               <span>${acknowledgements.length} confirmação(ões)</span>
               <span>Última: ${escapeHtml(new Date(acknowledgements[0].acknowledgedAt).toLocaleString("pt-BR"))}</span>
@@ -1973,7 +2083,7 @@ function renderAdminAlertsList() {
         `
         : `
           <div class="admin-alert-ack-box">
-            <strong>Confirmações de leitura</strong>
+            <strong>Registro de confirmações</strong>
             <div class="admin-list-item-meta">
               <span>Aguardando confirmação do setor.</span>
             </div>
@@ -1981,7 +2091,7 @@ function renderAdminAlertsList() {
         `)
       : `
         <div class="admin-alert-ack-box">
-          <strong>Confirmações de leitura</strong>
+          <strong>Registro de confirmações</strong>
           <div class="admin-list-item-meta">
             <span>Alerta informativo sem exigência de leitura.</span>
           </div>
@@ -1996,8 +2106,13 @@ function renderAdminAlertsList() {
           <span>Prioridade: ${escapeHtml(priorityLabel(alert.priority))}</span>
           <span>${escapeHtml(new Date(alert.createdAt).toLocaleString("pt-BR"))}</span>
           <span>${alert.requiresAck ? "Exige leitura" : "Informativo"}</span>
+          <span>${alert.lastAckAt ? `Última confirmação: ${escapeHtml(new Date(alert.lastAckAt).toLocaleString("pt-BR"))}` : "Sem confirmação ainda"}</span>
         </div>
         <p>${escapeHtml(alert.message || "")}</p>
+        <div class="admin-list-item-meta">
+          <span>${alert.lastAckAt ? "Permaneceu 24h no setor após a leitura" : "Ainda visível no setor até a primeira leitura"}</span>
+          <span>Registro permanente no admin</span>
+        </div>
         ${ackHtml}
       </article>
     `;
@@ -2025,6 +2140,7 @@ async function loadAdminData() {
       username: user.username,
       role: user.role,
       sector: user.sector,
+      alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector],
       active: user.active !== false,
       createdAt: user.createdAt || null,
     }));
@@ -2044,6 +2160,7 @@ async function loadAdminData() {
       username: user.username,
       role: user.role,
       sector: user.sector,
+      alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector],
       active: user.active !== false,
       createdAt: user.createdAt || null,
     }));
@@ -2058,6 +2175,7 @@ async function loadAdminData() {
 
 function openAdminModal() {
   if (!adminModalEl) return;
+  if (adminAlertSearchEl) adminAlertSearchEl.value = state.adminAlertSearchQuery || "";
   adminModalEl.classList.remove("hidden");
   adminModalEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("modal-open");
@@ -2132,6 +2250,7 @@ async function handleAdminUserSubmit(event) {
       password: String(document.getElementById("admin-user-password").value || "").trim(),
       role: document.getElementById("admin-user-role").value,
       sector: document.getElementById("admin-user-sector").value,
+      alertSectors: getSelectedAdminAlertSectors(),
     };
     const response = await fetch("/api/admin-users", {
       method: editingId ? "PUT" : "POST",
@@ -2149,6 +2268,7 @@ async function handleAdminUserSubmit(event) {
       username: payload.username,
       role: payload.role,
       sector: payload.role === "admin" ? "all" : payload.sector,
+      alertSectors: payload.role === "admin" ? [] : payload.alertSectors,
       active: true,
       createdAt: new Date().toISOString(),
     };

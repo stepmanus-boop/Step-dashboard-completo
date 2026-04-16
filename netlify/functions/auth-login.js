@@ -1,4 +1,4 @@
-const { jsonResponse, createSessionCookie, normalizeText, verifyPassword } = require("./_auth");
+const { jsonResponse, createSessionCookie, normalizeText, normalizeSectorList, verifyPassword } = require("./_auth");
 const { readJson } = require("./_githubStore");
 
 exports.handler = async (event) => {
@@ -41,6 +41,7 @@ exports.handler = async (event) => {
         username: user.username,
         role: user.role,
         sector: user.sector,
+        alertSectors: normalizeSectorList(user.sector, user.alertSectors),
       },
     }, {
       headers: {

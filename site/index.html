@@ -327,9 +327,22 @@
                 <option value="inspecao">Inspeção</option>
                 <option value="pendente_envio">Pendente de envio</option>
                 <option value="producao">Produção</option>
+                <option value="calderaria">Calderaria</option>
+                <option value="solda">Solda</option>
               </select>
             </label>
           </div>
+          <label class="stack-field">
+            <span>Recebe alertas de</span>
+            <div class="check-grid">
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="pintura" checked /> Pintura</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="inspecao" /> Inspeção</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="pendente_envio" /> Pendente de envio</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="producao" /> Produção</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="calderaria" /> Calderaria</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="solda" /> Solda</label>
+            </div>
+          </label>
           <div class="stack-actions">
             <button class="primary-button" type="submit"><span id="admin-user-submit-label">Criar usuário</span></button>
             <button id="admin-user-cancel-edit" class="ghost-button hidden" type="button">Cancelar edição</button>
@@ -351,6 +364,8 @@
                 <option value="inspecao">Inspeção</option>
                 <option value="pendente_envio">Pendente de envio</option>
                 <option value="producao">Produção</option>
+                <option value="calderaria">Calderaria</option>
+                <option value="solda">Solda</option>
               </select>
             </label>
             <label class="stack-field">
@@ -382,7 +397,11 @@
 
       <section class="admin-card admin-card--wide">
         <div class="admin-card-head">
-          <h4>Alerta Operacional ativos</h4>
+          <h4>Registro de Alertas Operacionais</h4>
+        </div>
+        <div class="stack-field admin-alert-search-field">
+          <span>Pesquisar no histórico de alertas</span>
+          <input id="admin-alert-search" type="text" placeholder="Buscar por título, mensagem, setor, usuário ou data" autocomplete="off" />
         </div>
         <div id="admin-alerts-list" class="admin-list empty-state">Nenhum alerta manual carregado.</div>
       </section>

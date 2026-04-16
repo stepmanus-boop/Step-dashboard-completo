@@ -17,6 +17,7 @@ exports.handler = async (event) => {
       username: session.username,
       role: session.role,
       sector: session.sector,
+      alertSectors: Array.isArray(session.alertSectors) ? session.alertSectors : (session.sector && session.sector !== "all" ? [session.sector] : []),
     },
   });
 };

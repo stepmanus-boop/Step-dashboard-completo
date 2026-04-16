@@ -1,5 +1,5 @@
 const crypto = require("crypto");
-const { jsonResponse, requireAdmin, hashPassword, normalizeText } = require("./_auth");
+const { jsonResponse, requireAdmin, hashPassword, normalizeText, normalizeSectorList } = require("./_auth");
 const { readJson, writeJson, isGithubConfigured } = require("./_githubStore");
 
 exports.handler = async (event) => {
@@ -17,6 +17,7 @@ exports.handler = async (event) => {
         username: user.username,
         role: user.role,
         sector: user.sector,
+        alertSectors: normalizeSectorList(user.sector, user.alertSectors),
         active: Boolean(user.active),
         createdAt: user.createdAt || null,
       })),
@@ -42,6 +43,7 @@ exports.handler = async (event) => {
       const password = String(body.password || "");
       const role = body.role === "admin" ? "admin" : "sector";
       const sector = role === "admin" ? "all" : String(body.sector || "").trim();
+    const alertSectors = role === "admin" ? [] : normalizeSectorList(sector, body.alertSectors);
 
       if (!name || !username) {
         return jsonResponse(400, { ok: false, error: "Preencha nome e usuário." });
@@ -64,6 +66,7 @@ exports.handler = async (event) => {
       users[index].username = username;
       users[index].role = role;
       users[index].sector = sector;
+      users[index].alertSectors = role === "admin" ? [] : alertSectors;
       users[index].active = body.active === false ? false : true;
       if (password) {
         users[index].passwordHash = hashPassword(password);
@@ -78,6 +81,7 @@ exports.handler = async (event) => {
           username: users[index].username,
           role: users[index].role,
           sector: users[index].sector,
+          alertSectors: normalizeSectorList(users[index].sector, users[index].alertSectors),
           active: users[index].active,
           createdAt: users[index].createdAt || null,
         },
@@ -105,8 +109,9 @@ exports.handler = async (event) => {
       }
       users[index].role = nextRole;
       users[index].sector = nextRole === "admin" ? "all" : (users[index].sector && users[index].sector !== "all" ? users[index].sector : "producao");
+      users[index].alertSectors = nextRole === "admin" ? [] : normalizeSectorList(users[index].sector, users[index].alertSectors);
       await writeJson("data/users.json", users, `chore: atualiza perfil do usuário ${users[index].username}`);
-      return jsonResponse(200, { ok: true, user: { id: users[index].id, role: users[index].role, sector: users[index].sector } });
+      return jsonResponse(200, { ok: true, user: { id: users[index].id, role: users[index].role, sector: users[index].sector, alertSectors: normalizeSectorList(users[index].sector, users[index].alertSectors) } });
     } catch (error) {
       return jsonResponse(500, { ok: false, error: error.message || "Falha ao atualizar usuário." });
     }
@@ -123,6 +128,7 @@ exports.handler = async (event) => {
     const password = String(body.password || "");
     const role = body.role === "admin" ? "admin" : "sector";
     const sector = role === "admin" ? "all" : String(body.sector || "").trim();
+    const alertSectors = role === "admin" ? [] : normalizeSectorList(sector, body.alertSectors);
 
     if (!name || !username || !password) {
       return jsonResponse(400, { ok: false, error: "Preencha nome, usuário e senha." });
@@ -145,6 +151,7 @@ exports.handler = async (event) => {
       passwordHash: hashPassword(password),
       role,
       sector,
+      alertSectors,
       active: true,
       createdAt: new Date().toISOString(),
     };
@@ -160,6 +167,7 @@ exports.handler = async (event) => {
         username: nextUser.username,
         role: nextUser.role,
         sector: nextUser.sector,
+        alertSectors: normalizeSectorList(nextUser.sector, nextUser.alertSectors),
         active: nextUser.active,
       },
     });
