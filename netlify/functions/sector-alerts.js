@@ -1,11 +1,11 @@
-const { jsonResponse, requireSession, requireAdmin, normalizeSectorList, normalizeText } = require('./_auth');
+const { jsonResponse, requireSession, requireAdmin, normalizeSectorList, normalizeText, normalizeSectorValue } = require('./_auth');
 const { listManualAlerts, listAcknowledgements, createManualAlert, addAcknowledgement, findAcknowledgement, isSupabaseConfigured } = require('./_supabase');
 
 function alertVisibleToUser(alert, session) {
   if (!alert || alert.active === false) return false;
   if (session.role === 'admin') return true;
   const allowedSectors = normalizeSectorList('', session.alertSectors);
-  return allowedSectors.includes(normalizeText(alert.sector));
+  return allowedSectors.includes(normalizeSectorValue(alert.sector));
 }
 
 function getUserAlertExpiration(acknowledgements, session, alert) {
@@ -62,7 +62,7 @@ exports.handler = async (event) => {
       const body = JSON.parse(event.body || '{}');
       const title = String(body.title || '').trim();
       const message = String(body.message || '').trim();
-      const sector = normalizeText(body.sector);
+      const sector = normalizeSectorValue(body.sector);
       const priority = String(body.priority || 'normal').trim().toLowerCase();
       const requiresAck = body.requiresAck !== false;
 

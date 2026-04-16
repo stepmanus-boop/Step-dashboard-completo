@@ -1,4 +1,4 @@
-const { normalizeSectorList, normalizeText, hashPassword, verifyPassword } = require('./_auth');
+const { normalizeSectorList, normalizeText, normalizeSectorValue, hashPassword, verifyPassword } = require('./_auth');
 
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '');
@@ -46,7 +46,7 @@ function mapUser(row) {
     username: row.username,
     passwordHash: row.password_hash,
     role: row.role === 'admin' ? 'admin' : 'sector',
-    sector: row.sector || (row.role === 'admin' ? 'all' : ''),
+    sector: normalizeSectorValue(row.sector || (row.role === 'admin' ? 'all' : '')), 
     alertSectors: normalizeSectorList(row.sector || '', Array.isArray(row.alert_sectors) ? row.alert_sectors : []),
     active: row.active !== false,
     createdAt: row.created_at || null,
@@ -60,7 +60,7 @@ function mapAlert(row) {
     id: row.id,
     title: row.title,
     message: row.message,
-    sector: row.sector,
+    sector: normalizeSectorValue(row.sector),
     priority: row.priority || 'normal',
     requiresAck: row.require_ack !== false,
     createdBy: row.created_by || '',
@@ -79,7 +79,7 @@ function mapAck(row) {
     alertId: row.alert_id,
     userId: row.user_id,
     username: row.username,
-    sector: row.sector,
+    sector: normalizeSectorValue(row.sector),
     acknowledgedAt: row.read_at,
   };
 }
