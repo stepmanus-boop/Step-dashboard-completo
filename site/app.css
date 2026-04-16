@@ -2481,3 +2481,24 @@ button.alert-badge {
 .admin-tab-panel[hidden] {
   display: none !important;
 }
+
+
+/* ajuste: aba Novo usuário com largura total */
+.admin-tab-panel[data-admin-tab-panel="usuario"] .admin-grid {
+  grid-template-columns: 1fr;
+}
+
+.admin-tab-panel[data-admin-tab-panel="usuario"] .admin-card,
+.admin-tab-panel[data-admin-tab-panel="usuario"] .admin-card--wide {
+  grid-column: 1 / -1;
+}
+
+.admin-tab-panel[data-admin-tab-panel="usuario"] #admin-user-form {
+  max-width: none;
+}
+
+@media (min-width: 1100px) {
+  .modal-dialog--admin {
+    width: min(1320px, calc(100vw - 24px));
+  }
+}
