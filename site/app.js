@@ -134,7 +134,17 @@ function setupInstallExperience() {
 async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
   try {
-    await navigator.serviceWorker.register('./sw.js');
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
+
+    const registration = await navigator.serviceWorker.register('./sw.js?v=4', { updateViaCache: 'none' });
+    if (typeof registration.update === 'function') {
+      registration.update().catch(() => {});
+    }
   } catch (error) {
     console.warn('Falha ao registrar service worker.', error);
   }
@@ -1939,18 +1949,59 @@ function renderAdminAlertsList() {
     adminAlertsListEl.innerHTML = '<div class="empty-state">Nenhum alerta operacional ativo.</div>';
     return;
   }
-  adminAlertsListEl.innerHTML = state.manualAlerts.map((alert) => `
-    <article class="admin-list-item">
-      <strong>${escapeHtml(alert.title || "Alerta Operacional")}</strong>
-      <div class="admin-list-item-meta">
-        <span>Setor: ${escapeHtml(sectorLabel(alert.sector))}</span>
-        <span>Prioridade: ${escapeHtml(priorityLabel(alert.priority))}</span>
-        <span>${escapeHtml(new Date(alert.createdAt).toLocaleString("pt-BR"))}</span>
-        <span>${alert.requiresAck ? "Exige leitura" : "Informativo"}</span>
-      </div>
-      <p>${escapeHtml(alert.message || "")}</p>
-    </article>
-  `).join("");
+  adminAlertsListEl.innerHTML = state.manualAlerts.map((alert) => {
+    const acknowledgements = Array.isArray(alert.acknowledgements) ? alert.acknowledgements : [];
+    const ackHtml = alert.requiresAck
+      ? (acknowledgements.length
+        ? `
+          <div class="admin-alert-ack-box">
+            <strong>Confirmações de leitura</strong>
+            <div class="admin-list-item-meta">
+              <span>${acknowledgements.length} confirmação(ões)</span>
+              <span>Última: ${escapeHtml(new Date(acknowledgements[0].acknowledgedAt).toLocaleString("pt-BR"))}</span>
+            </div>
+            <div class="admin-alert-ack-list">
+              ${acknowledgements.map((ack) => `
+                <div class="admin-alert-ack-item">
+                  <span><strong>${escapeHtml(ack.username || ack.userId || "Usuário")}</strong></span>
+                  <span>Setor: ${escapeHtml(sectorLabel(ack.sector))}</span>
+                  <span>${escapeHtml(new Date(ack.acknowledgedAt).toLocaleString("pt-BR"))}</span>
+                </div>
+              `).join("")}
+            </div>
+          </div>
+        `
+        : `
+          <div class="admin-alert-ack-box">
+            <strong>Confirmações de leitura</strong>
+            <div class="admin-list-item-meta">
+              <span>Aguardando confirmação do setor.</span>
+            </div>
+          </div>
+        `)
+      : `
+        <div class="admin-alert-ack-box">
+          <strong>Confirmações de leitura</strong>
+          <div class="admin-list-item-meta">
+            <span>Alerta informativo sem exigência de leitura.</span>
+          </div>
+        </div>
+      `;
+
+    return `
+      <article class="admin-list-item">
+        <strong>${escapeHtml(alert.title || "Alerta Operacional")}</strong>
+        <div class="admin-list-item-meta">
+          <span>Setor: ${escapeHtml(sectorLabel(alert.sector))}</span>
+          <span>Prioridade: ${escapeHtml(priorityLabel(alert.priority))}</span>
+          <span>${escapeHtml(new Date(alert.createdAt).toLocaleString("pt-BR"))}</span>
+          <span>${alert.requiresAck ? "Exige leitura" : "Informativo"}</span>
+        </div>
+        <p>${escapeHtml(alert.message || "")}</p>
+        ${ackHtml}
+      </article>
+    `;
+  }).join("");
 }
 
 async function loadAdminData() {

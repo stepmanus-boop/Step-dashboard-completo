@@ -1401,3 +1401,33 @@ button.alert-badge {
     max-width: 45vw;
   }
 }
+
+
+.admin-alert-ack-box {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(83, 155, 245, 0.2);
+  border-radius: 14px;
+  background: rgba(5, 18, 38, 0.42);
+}
+
+.admin-alert-ack-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.admin-alert-ack-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(12, 34, 68, 0.55);
+  border: 1px solid rgba(83, 155, 245, 0.14);
+  color: var(--text-muted);
+}
+
+.admin-alert-ack-item strong {
+  color: var(--text-primary);
+}

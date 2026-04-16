@@ -17,8 +17,24 @@ exports.handler = async (event) => {
     const visible = alerts
       .filter((alert) => alertVisibleToUser(alert, auth.session))
       .map((alert) => {
-        const acked = acks.some((item) => item.alertId === alert.id && item.userId === auth.session.sub);
-        return { ...alert, acknowledged: acked };
+        const acknowledgements = acks
+          .filter((item) => item.alertId === alert.id)
+          .sort((a, b) => new Date(b.acknowledgedAt || 0).getTime() - new Date(a.acknowledgedAt || 0).getTime())
+          .map((item) => ({
+            id: item.id,
+            userId: item.userId,
+            username: item.username,
+            sector: item.sector,
+            acknowledgedAt: item.acknowledgedAt,
+          }));
+        const acked = acknowledgements.some((item) => item.userId === auth.session.sub);
+        return {
+          ...alert,
+          acknowledged: acked,
+          ackCount: acknowledgements.length,
+          lastAckAt: acknowledgements[0]?.acknowledgedAt || null,
+          acknowledgements: auth.session.role === "admin" ? acknowledgements : undefined,
+        };
       })
       .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
