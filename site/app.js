@@ -22,6 +22,7 @@ const state = {
   githubSyncEnabled: false,
   manualAlerts: [],
   adminAlertSearchQuery: "",
+  adminActiveTab: "gestao",
   alertResponses: [],
   selectedAlertForResponse: null,
 };
@@ -91,11 +92,28 @@ const adminUserCancelEditEl = document.getElementById("admin-user-cancel-edit");
 const adminUserTogglePasswordEl = document.getElementById("admin-user-toggle-password");
 const adminUserIdEl = document.getElementById("admin-user-id");
 const adminUserSubmitLabelEl = document.getElementById("admin-user-submit-label");
+const adminTabTriggerEls = Array.from(document.querySelectorAll('[data-admin-tab-trigger]'));
+const adminTabPanelEls = Array.from(document.querySelectorAll('[data-admin-tab-panel]'));
 
 const installAppButtonEl = document.getElementById("install-app-button");
 const connectionStatusEl = document.getElementById("connection-status");
 let deferredInstallPrompt = null;
 
+
+function setAdminActiveTab(tab) {
+  const nextTab = tab === 'historico' ? 'historico' : 'gestao';
+  state.adminActiveTab = nextTab;
+  adminTabTriggerEls.forEach((button) => {
+    const active = button.dataset.adminTabTrigger === nextTab;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  adminTabPanelEls.forEach((panel) => {
+    const active = panel.dataset.adminTabPanel === nextTab;
+    panel.classList.toggle('is-active', active);
+    panel.hidden = !active;
+  });
+}
 function isIosDevice() {
   return /iphone|ipad|ipod/i.test(window.navigator.userAgent || "");
 }
@@ -869,9 +887,12 @@ function renderStats() {
   const activeWeek = getActiveWeekLabel();
   const allProjectsWeldedWeight = getTotalWeldedWeightAllProjects();
   const displayedWeldedWeight = getWeldedWeightForWeek(activeWeek);
+  const totalBacklogWelding = Math.max(0, Number(state.stats.totalWeightKg || 0) - Number(allProjectsWeldedWeight || 0));
   document.getElementById("stat-projects").textContent = formatNumber(state.stats.totalProjects);
   document.getElementById("stat-spools").textContent = `${formatNumber(displayedWeldedWeight, 0)} kg`;
   document.getElementById("stat-total-weight").textContent = `${formatNumber(state.stats.totalWeightKg, 0)} kg`;
+  const backlogWeldingEl = document.getElementById("stat-backlog-welding");
+  if (backlogWeldingEl) backlogWeldingEl.textContent = `${formatNumber(totalBacklogWelding, 0)} kg`;
 
   const currentWeekEl = document.getElementById("stat-current-week");
   if (currentWeekEl) {
@@ -1656,6 +1677,10 @@ if (adminModalEl) {
   });
 }
 
+adminTabTriggerEls.forEach((button) => {
+  button.addEventListener('click', () => setAdminActiveTab(button.dataset.adminTabTrigger));
+});
+
 if (adminUserFormEl) {
   adminUserFormEl.addEventListener("submit", handleAdminUserSubmit);
 }
@@ -2398,6 +2423,7 @@ async function loadAdminData() {
 function openAdminModal() {
   if (!adminModalEl) return;
   if (adminAlertSearchEl) adminAlertSearchEl.value = state.adminAlertSearchQuery || "";
+  setAdminActiveTab(state.adminActiveTab || 'gestao');
   adminModalEl.classList.remove("hidden");
   adminModalEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("modal-open");
@@ -2412,6 +2438,7 @@ function openAdminModal() {
 
 function closeAdminModal() {
   if (!adminModalEl) return;
+  setAdminActiveTab('gestao');
   window.clearInterval(adminResponsesPollTimer);
   adminResponsesPollTimer = null;
   adminModalEl.classList.add("hidden");

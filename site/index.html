@@ -64,7 +64,7 @@
         </div>
       </header>
 
-      <section class="summary-row summary-row--eight">
+      <section class="summary-row summary-row--nine">
         <article class="summary-card">
           <span class="summary-label">Total de projetos</span>
           <strong id="stat-projects">--</strong>
@@ -72,6 +72,11 @@
         <article class="summary-card">
           <span class="summary-label">Peso total Programado</span>
           <strong id="stat-total-weight">--</strong>
+        </article>
+        <article class="summary-card summary-card--warning-soft">
+          <span class="summary-label">Backlog total pendente de solda</span>
+          <span class="summary-subtext">Total - soldado</span>
+          <strong id="stat-backlog-welding">--</strong>
         </article>
         <article class="summary-card">
           <span class="summary-label">Peso total soldado</span>
@@ -303,7 +308,14 @@
       </div>
       <button id="admin-close" class="modal-close" type="button" aria-label="Fechar">×</button>
     </div>
-    <div class="modal-content admin-grid">
+    <div class="modal-content admin-modal-shell">
+      <div class="admin-tabs" role="tablist" aria-label="Abas do admin">
+        <button class="admin-tab is-active" type="button" data-admin-tab-trigger="gestao" aria-selected="true">Gestão</button>
+        <button class="admin-tab" type="button" data-admin-tab-trigger="historico" aria-selected="false">Histórico operacional</button>
+      </div>
+
+      <div class="admin-tab-panel is-active" data-admin-tab-panel="gestao">
+        <div class="admin-grid">
       <section class="admin-card">
         <div class="admin-card-head">
           <h4>Novo usuário</h4>
@@ -405,6 +417,11 @@
         <div id="admin-users-list" class="admin-list empty-state">Nenhum usuário carregado.</div>
       </section>
 
+        </div>
+      </div>
+
+      <div class="admin-tab-panel" data-admin-tab-panel="historico" hidden>
+        <div class="admin-grid">
       <section class="admin-card admin-card--wide">
         <div class="admin-card-head">
           <h4>Registro de Alertas Operacionais</h4>
@@ -422,6 +439,8 @@
         </div>
         <div id="admin-alert-responses-list" class="admin-list empty-state">Nenhuma resposta recebida ainda.</div>
       </section>
+        </div>
+      </div>
     </div>
   </div>
 </div>
