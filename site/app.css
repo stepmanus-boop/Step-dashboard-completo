@@ -1813,7 +1813,7 @@ button.alert-badge {
 .login-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.06fr) minmax(320px, 0.94fr);
-  min-height: 620px;
+  min-height: auto;
 }
 
 .login-panel {
@@ -1829,8 +1829,8 @@ button.alert-badge {
   height: 100%;
   display: grid;
   align-content: start;
-  gap: 28px;
-  padding: 54px 52px 42px;
+  gap: 24px;
+  padding: 54px 52px 28px;
 }
 
 .login-brand-row {
@@ -1941,9 +1941,11 @@ button.alert-badge {
 .login-feedback {
   padding: 14px 16px;
   border-radius: 16px;
-  background: rgba(16, 56, 88, 0.05);
-  border: 1px solid rgba(82, 115, 140, 0.12);
+  background: linear-gradient(135deg, rgba(22, 49, 74, 0.92), rgba(50, 83, 113, 0.92));
+  border: 1px solid rgba(124, 172, 213, 0.22);
+  color: #eef7ff;
   font-size: 13px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
 }
 
 .login-panel--visual {
@@ -2312,7 +2314,7 @@ button.alert-badge {
 
 .login-panel-inner {
   gap: 22px;
-  padding: 48px 46px 38px;
+  padding: 48px 46px 22px;
 }
 
 .login-brand-copy .modal-subtitle {
@@ -2321,9 +2323,9 @@ button.alert-badge {
 
 .login-feedback {
   padding: 13px 16px;
-  background: #dce8f3;
-  border: 1px solid rgba(71, 103, 132, 0.16);
-  color: #31485e;
+  background: linear-gradient(135deg, rgba(22, 49, 74, 0.92), rgba(50, 83, 113, 0.92));
+  border: 1px solid rgba(124, 172, 213, 0.22);
+  color: #eef7ff;
 }
 
 .login-panel--visual {
