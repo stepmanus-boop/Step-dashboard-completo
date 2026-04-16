@@ -915,9 +915,7 @@ function renderStats() {
 
   const currentWeekEl = document.getElementById("stat-current-week");
   if (currentWeekEl) {
-    currentWeekEl.textContent = activeWeek === "Todas as semanas"
-      ? "Total de todos os projetos"
-      : `${activeWeek} • Total geral: ${formatNumber(allProjectsWeldedWeight, 0)} kg`;
+    currentWeekEl.textContent = `Total enviado ${formatNumber(allProjectsWeldedWeight, 0)} kg`;
   }
 
   const setTags = (id, value) => {
