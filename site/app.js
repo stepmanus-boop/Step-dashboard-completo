@@ -1699,7 +1699,7 @@ function closeLoginModal() {
 
 function openLoginModal(message = "") {
   if (!loginModalEl) return;
-  if (loginFeedbackEl) loginFeedbackEl.textContent = message || "Login opcional: entre com seu acesso setorial ou admin.";
+  if (loginFeedbackEl) loginFeedbackEl.textContent = message || "Acesse com seu usuário setorial ou admin.";
   loginModalEl.classList.remove("hidden");
   loginModalEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("modal-open");

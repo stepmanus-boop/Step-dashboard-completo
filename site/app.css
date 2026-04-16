@@ -2303,3 +2303,70 @@ button.alert-badge {
     min-height: 220px;
   }
 }
+
+/* login visual refinements */
+.login-layout {
+  min-height: auto;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.94fr);
+}
+
+.login-panel-inner {
+  gap: 22px;
+  padding: 48px 46px 38px;
+}
+
+.login-brand-copy .modal-subtitle {
+  max-width: 360px;
+}
+
+.login-feedback {
+  padding: 13px 16px;
+  background: #dce8f3;
+  border: 1px solid rgba(71, 103, 132, 0.16);
+  color: #31485e;
+}
+
+.login-panel--visual {
+  background: url("./assets/offshore-login-bg.png") center center / cover no-repeat;
+}
+
+.login-panel--visual::before,
+.login-panel--visual::after {
+  display: none;
+}
+
+.login-visual-content {
+  padding: 20px 18px 0;
+}
+
+.login-visual-top--image {
+  position: relative;
+  z-index: 2;
+}
+
+.login-visual-kicker {
+  background: rgba(10, 18, 28, 0.48);
+  border-color: rgba(255,255,255,0.28);
+}
+
+.offshore-scene--image {
+  min-height: 0;
+}
+
+@media (max-width: 860px) {
+  .login-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .login-panel-inner {
+    padding: 28px 22px 24px;
+  }
+
+  .login-panel--visual {
+    min-height: 220px;
+  }
+
+  .login-visual-content {
+    padding: 18px 16px 0;
+  }
+}
