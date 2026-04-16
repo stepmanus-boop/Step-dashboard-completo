@@ -233,36 +233,60 @@
 <div id="login-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-backdrop"></div>
   <div class="modal-dialog modal-dialog--login" role="dialog" aria-modal="true" aria-labelledby="login-title">
-    <div class="modal-head modal-head--login">
-      <div class="login-brand-block">
-        <img src="./assets/step-logo.png" alt="STEP Oil &amp; Gas" class="login-brand-logo" />
-        <div>
-          <p class="modal-eyebrow">Acesso setorial</p>
-          <h3 id="login-title">Acesso ao painel</h3>
-          <p class="modal-subtitle">Entre com seu usuário para visualizar alertas e permissões do seu perfil.</p>
+    <button id="login-close" class="modal-close modal-close--login" type="button" aria-label="Fechar">×</button>
+    <div class="login-layout">
+      <div class="login-panel login-panel--form">
+        <div class="login-panel-inner">
+          <div class="login-brand-row">
+            <img src="./assets/step-logo.png" alt="STEP Oil &amp; Gas" class="login-brand-logo" />
+            <div class="login-brand-copy">
+              <p class="modal-eyebrow">Acesso setorial</p>
+              <h3 id="login-title">Login</h3>
+              <p class="modal-subtitle">Entre com seu usuário para visualizar alertas, pendências e permissões do seu perfil.</p>
+            </div>
+          </div>
+          <form id="login-form" class="stack-form login-form-card">
+            <label class="stack-field">
+              <span>Usuário</span>
+              <input id="login-username" type="text" autocomplete="username" placeholder="Ex.: pintura" />
+            </label>
+            <label class="stack-field">
+              <span>Senha</span>
+              <div class="password-field">
+                <input id="login-password" type="password" autocomplete="current-password" placeholder="Digite a senha" />
+                <button id="toggle-login-password" class="ghost-button ghost-button--compact password-toggle" type="button" aria-label="Mostrar senha">Mostrar</button>
+              </div>
+            </label>
+            <div class="stack-actions login-actions">
+              <button class="primary-button" type="submit">Entrar</button>
+              <button id="login-guest-close" class="ghost-button" type="button">Continuar sem login</button>
+            </div>
+            <p id="login-feedback" class="inline-feedback login-feedback">Acesso ao painel: entre com seu setor ou admin.</p>
+          </form>
         </div>
       </div>
-      <button id="login-close" class="modal-close" type="button" aria-label="Fechar">×</button>
-    </div>
-    <div class="modal-content">
-      <form id="login-form" class="stack-form">
-        <label class="stack-field">
-          <span>Usuário</span>
-          <input id="login-username" type="text" autocomplete="username" placeholder="Ex.: pintura" />
-        </label>
-        <label class="stack-field">
-          <span>Senha</span>
-          <div class="password-field">
-            <input id="login-password" type="password" autocomplete="current-password" placeholder="Digite a senha" />
-            <button id="toggle-login-password" class="ghost-button ghost-button--compact password-toggle" type="button" aria-label="Mostrar senha">Mostrar</button>
+      <aside class="login-panel login-panel--visual" aria-hidden="true">
+        <div class="login-visual-content">
+          <div class="login-visual-top">
+            <span class="login-visual-kicker">STEP Oil &amp; Gas</span>
+            <strong>Operação offshore</strong>
+            <p>Monitoramento setorial com visual mais limpo, foco operacional e leitura rápida.</p>
           </div>
-        </label>
-        <div class="stack-actions">
-          <button class="primary-button" type="submit">Entrar</button>
-          <button id="login-guest-close" class="ghost-button" type="button">Continuar sem login</button>
+          <div class="offshore-scene">
+            <div class="sea-line sea-line--1"></div>
+            <div class="sea-line sea-line--2"></div>
+            <div class="offshore-rig">
+              <span class="rig-leg rig-leg--1"></span>
+              <span class="rig-leg rig-leg--2"></span>
+              <span class="rig-leg rig-leg--3"></span>
+              <span class="rig-top"></span>
+              <span class="rig-crane"></span>
+              <span class="rig-cabin"></span>
+            </div>
+            <div class="offshore-badge">PAINEL OPERACIONAL</div>
+          </div>
         </div>
-        <p id="login-feedback" class="inline-feedback">Acesso ao painel: entre com seu setor ou admin. Sem GitHub configurado, usuários novos funcionam neste navegador.</p>
-      </form>
+      </aside>
     </div>
   </div>
 </div>
