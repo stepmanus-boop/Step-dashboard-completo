@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "id": "u_admin_001",
+    "name": "Administrador",
+    "username": "admin",
+    "passwordHash": "scrypt$8858b7a20df38fbb536f2df38823ab8d$126400ab2346a092178adf61abd633ff71e5f0e6c722287846ab611405177ed5",
+    "role": "admin",
+    "sector": "all",
+    "active": true,
+    "createdAt": "2026-04-15T00:00:00.000Z"
+  }
+]

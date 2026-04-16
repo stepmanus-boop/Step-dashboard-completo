@@ -1,21 +1,21 @@
-CONFIGURAÇÃO DO GITHUB
+CONFIGURAÇÃO CORRETA NO NETLIFY
 
-1. Antes de publicar o projeto, abra a pasta config
-2. Edite o arquivo github-sync.json
-3. Preencha:
-   - token
-   - repo
-   - branch
+Este projeto foi ajustado para funcionar com as variáveis do Netlify.
+Não é mais necessário mostrar token no painel.
 
-Exemplo:
-{
-  "token": "SEU_TOKEN_AQUI",
-  "repo": "stepmanus-boop/Step-dashboard",
-  "branch": "main"
-}
+CADASTRE NO NETLIFY:
+GITHUB_TOKEN=SEU_TOKEN
+GITHUB_REPO=stepmanus-boop/Step-dashboard-completo
+GITHUB_BRANCH=main
+SESSION_SECRET=step-gerencia-2026-admin-login-seguro-874512
 
-IMPORTANTE
-- O campo de token não aparece mais no painel admin
-- O botão "Subir pro GitHub" continua no admin
-- Depois do deploy, o sistema usa esse arquivo para sincronizar usuários e alertas
-- Se quiser trocar o token depois, altere o arquivo config/github-sync.json e publique novamente
+DEPOIS:
+1. Faça novo deploy
+2. Entre com admin
+3. Crie o usuário
+4. Clique em "Subir pro GitHub"
+5. Atualize a página
+6. Teste o login do novo usuário
+
+Se o GitHub estiver configurado, criar/editar usuário já salva no GitHub
+e o botão "Subir pro GitHub" confirma a sincronização dos arquivos.

@@ -1801,11 +1801,11 @@ async function syncAdminDataToGithub() {
       throw new Error(data?.error || "Falha ao sincronizar com o GitHub.");
     }
     state.githubSyncEnabled = true;
-    adminUserFeedbackEl.textContent = "Sincronizado com sucesso com o GitHub.";
+    adminUserFeedbackEl.textContent = `${data.message || "Sincronizado com sucesso com o GitHub."}`;
     updateSessionUi();
     await loadAdminData();
   } catch (error) {
-    adminUserFeedbackEl.textContent = error.message || "Falha ao sincronizar com o GitHub.";
+    adminUserFeedbackEl.textContent = error.message || "Falha ao sincronizar com o GitHub. Verifique GITHUB_TOKEN, GITHUB_REPO e GITHUB_BRANCH no Netlify.";
   }
 }
 
@@ -2004,7 +2004,7 @@ async function handleAdminUserSubmit(event) {
     };
     upsertLocalUser(savedUser);
     resetAdminUserForm();
-    adminUserFeedbackEl.textContent = editingId ? "Usuário atualizado com sucesso." : "Usuário criado com sucesso.";
+    adminUserFeedbackEl.textContent = state.githubSyncEnabled ? (editingId ? "Usuário atualizado e salvo no GitHub." : "Usuário criado e salvo no GitHub.") : (editingId ? "Usuário atualizado com sucesso." : "Usuário criado com sucesso.");
     await loadAdminData();
   } catch (error) {
     adminUserFeedbackEl.textContent = error.message || (editingId ? "Falha ao editar usuário." : "Falha ao criar usuário.");

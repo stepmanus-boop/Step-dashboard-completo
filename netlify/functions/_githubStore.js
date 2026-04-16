@@ -217,7 +217,7 @@ async function writeJson(relativePath, value, message = "chore: atualiza dados")
 async function syncLocalDataToGithub() {
   const cfg = await getGithubConfig();
   if (!cfg.repo || !cfg.token) {
-    throw new Error("GitHub não configurado.");
+    throw new Error("GitHub não configurado nas variáveis do Netlify.");
   }
   const targets = [
     { path: "data/users.json", message: "chore: sincroniza usuários" },
@@ -228,9 +228,14 @@ async function syncLocalDataToGithub() {
   for (const target of targets) {
     const raw = await readLocalRaw(target.path).catch(() => "[]");
     await writeGithubFile(target.path, raw || "[]", target.message);
-    results.push(target.path);
+    const confirm = await readGithubFile(target.path);
+    results.push({
+      path: target.path,
+      saved: Boolean(confirm && typeof confirm.content === "string"),
+      size: String(confirm?.content || "").length,
+    });
   }
-  return { ok: true, files: results };
+  return { ok: true, files: results, repo: cfg.repo, branch: cfg.branch };
 }
 
 module.exports = {

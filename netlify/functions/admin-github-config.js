@@ -35,9 +35,10 @@ exports.handler = async (event) => {
       if (action === "sync") {
         const synced = await syncLocalDataToGithub();
         const cfg = await getGithubConfig();
+        const savedCount = Array.isArray(synced.files) ? synced.files.filter((item) => item.saved).length : 0;
         return jsonResponse(200, {
           ok: true,
-          message: "Sincronização com GitHub concluída com sucesso.",
+          message: `Sincronização concluída. ${savedCount} arquivo(s) confirmados no GitHub.`,
           files: synced.files || [],
           configured: Boolean(cfg.repo && cfg.token),
           repo: cfg.repo || "",
