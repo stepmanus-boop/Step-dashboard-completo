@@ -1,6 +1,6 @@
 const crypto = require("crypto");
 const { jsonResponse, requireSession, requireAdmin, normalizeSectorList, normalizeText } = require("./_auth");
-const { readJson, writeJson, isGithubConfigured } = require("./_githubStore");
+const { readMergedJson, writeJson, writeLocalJson, isGithubConfigured } = require("./_githubStore");
 
 const ALERT_ACK_VISIBILITY_MS = 24 * 60 * 60 * 1000;
 
@@ -26,8 +26,8 @@ exports.handler = async (event) => {
   if (event.httpMethod === "GET") {
     const auth = requireSession(event);
     if (!auth.ok) return auth.response;
-    const alerts = await readJson("data/manual-alerts.json", []);
-    const acks = await readJson("data/alert-acks.json", []);
+    const alerts = await readMergedJson("data/manual-alerts.json", []);
+    const acks = await readMergedJson("data/alert-acks.json", []);
     const visible = alerts
       .filter((alert) => alertVisibleToUser(alert, auth.session))
       .map((alert) => {
@@ -81,7 +81,7 @@ exports.handler = async (event) => {
         return jsonResponse(400, { ok: false, error: "Informe setor, título e mensagem." });
       }
 
-      const alerts = await readJson("data/manual-alerts.json", []);
+      const alerts = await readMergedJson("data/manual-alerts.json", []);
       const nextAlert = {
         id: `a_${crypto.randomBytes(6).toString("hex")}`,
         sector,
@@ -95,6 +95,7 @@ exports.handler = async (event) => {
       };
 
       alerts.unshift(nextAlert);
+      await writeLocalJson("data/manual-alerts.json", alerts);
       await writeJson("data/manual-alerts.json", alerts, `feat: adiciona alerta manual para ${sector}`);
       return jsonResponse(200, { ok: true, alert: nextAlert });
     } catch (error) {
@@ -112,7 +113,7 @@ exports.handler = async (event) => {
         return jsonResponse(400, { ok: false, error: "Alerta não informado." });
       }
 
-      const alerts = await readJson("data/manual-alerts.json", []);
+      const alerts = await readMergedJson("data/manual-alerts.json", []);
       const acks = await readJson("data/alert-acks.json", []);
       const alert = alerts.find((item) => item.id === alertId);
       if (!alert || !alertVisibleToUser(alert, auth.session)) {
@@ -130,6 +131,7 @@ exports.handler = async (event) => {
           targetSector: alert.sector,
           acknowledgedAt: new Date().toISOString(),
         });
+        await writeLocalJson("data/alert-acks.json", acks);
         await writeJson("data/alert-acks.json", acks, `chore: confirma leitura do alerta ${alertId}`);
       }
 

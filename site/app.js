@@ -1349,7 +1349,12 @@ async function loadProjects() {
 
 function startPolling() {
   window.clearInterval(state.pollTimer);
-  state.pollTimer = window.setInterval(loadProjects, DEFAULT_POLL_MS);
+  state.pollTimer = window.setInterval(async () => {
+    await loadProjects();
+    if (state.user) {
+      await loadManualAlerts();
+    }
+  }, DEFAULT_POLL_MS);
 }
 
 function bindEvents() {
@@ -1912,7 +1917,7 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
 async function loadManualAlerts() {
   if (!state.user) return;
   try {
-    const response = await fetch("/api/sector-alerts", { credentials: "same-origin", cache: "no-store" });
+    const response = await fetch(`/api/sector-alerts?t=${Date.now()}`, { credentials: "same-origin", cache: "no-store" });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) {
       throw new Error(data?.error || "Falha ao carregar alertas operacionais.");
