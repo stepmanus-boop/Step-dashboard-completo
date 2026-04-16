@@ -1,5 +1,7 @@
 const DEFAULT_POLL_MS = 30000;
 
+let adminResponsesPollTimer = null;
+
 const state = {
   projects: [],
   filteredProjects: [],
@@ -2028,6 +2030,47 @@ function getAlertResponsesForAlert(alertId) {
   return (Array.isArray(state.alertResponses) ? state.alertResponses : []).filter((item) => String(item.alertId) === String(alertId));
 }
 
+function getAdminReplyStatusLabel(status) {
+  const value = String(status || '').toLowerCase();
+  if (value === 'respondido') return 'Respondido pelo admin';
+  if (value === 'lido') return 'Lido';
+  return 'Aguardando retorno';
+}
+
+function renderAdminResponsesThread(alertId) {
+  const responses = getAlertResponsesForAlert(alertId);
+  if (!responses.length) {
+    return `
+      <div class="admin-alert-ack-box">
+        <strong>Respostas do setor</strong>
+        <div class="admin-list-item-meta">
+          <span>Nenhuma resposta recebida ainda.</span>
+        </div>
+      </div>
+    `;
+  }
+  return `
+    <div class="admin-alert-ack-box">
+      <strong>Respostas do setor</strong>
+      <div class="admin-list-item-meta">
+        <span>${responses.length} resposta(s)</span>
+        <span>Última: ${escapeHtml(responses[0]?.createdAt ? new Date(responses[0].createdAt).toLocaleString('pt-BR') : 'Sem data')}</span>
+      </div>
+      <div class="admin-alert-ack-list">
+        ${responses.map((item) => `
+          <div class="admin-alert-ack-item admin-alert-response-item">
+            <span><strong>${escapeHtml(item.username || item.userEmail || 'Usuário')}</strong></span>
+            <span>${escapeHtml(item.createdAt ? new Date(item.createdAt).toLocaleString('pt-BR') : 'Sem data')}</span>
+            <span>Status: ${escapeHtml(getAdminReplyStatusLabel(item.status))}</span>
+            <div class="response-bubble"><p>${escapeHtml(item.responseText || '')}</p></div>
+            ${item.adminReply ? `<div class="response-bubble response-bubble--admin"><strong>Admin</strong><p>${escapeHtml(item.adminReply)}</p></div>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
 function openAlertResponseModal(alertId) {
   const alert = (Array.isArray(state.manualAlerts) ? state.manualAlerts : []).find((item) => String(item.id) === String(alertId));
   if (!alert || !alertResponseModalEl) return;
@@ -2098,6 +2141,7 @@ async function loadAlertResponses() {
     if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao carregar respostas dos alertas.');
     state.alertResponses = Array.isArray(data.responses) ? data.responses : [];
     renderAdminAlertResponses();
+    renderAdminAlertsList();
   } catch (error) {
     state.alertResponses = [];
     if (adminAlertResponsesListEl) {
@@ -2118,12 +2162,12 @@ function renderAdminAlertResponses() {
       <strong>${escapeHtml(item.username || item.userEmail || 'Usuário')}</strong>
       <div class="admin-list-item-meta">
         <span>Setor: ${escapeHtml(sectorLabel(item.sector))}</span>
-        <span>Status: ${escapeHtml(item.status || 'enviado')}</span>
+        <span>Status: ${escapeHtml(getAdminReplyStatusLabel(item.status || 'enviado'))}</span>
         <span>${escapeHtml(item.createdAt ? new Date(item.createdAt).toLocaleString('pt-BR') : 'Sem data')}</span>
       </div>
       <p>${escapeHtml(item.responseText || '')}</p>
       <div class="admin-list-item-meta">
-        <span>Alerta: ${escapeHtml(((state.manualAlerts || []).find((alert) => String(alert.id) === String(item.alertId))?.title) || item.alertId || 'Alerta')}</span>
+        <span>Alerta: ${escapeHtml(item.alertTitle || ((state.manualAlerts || []).find((alert) => String(alert.id) === String(item.alertId))?.title) || item.alertId || 'Alerta')}</span>
       </div>
       ${item.adminReply ? `<div class="response-bubble response-bubble--admin"><strong>Resposta do admin</strong><p>${escapeHtml(item.adminReply)}</p></div>` : ''}
     </article>
@@ -2290,6 +2334,7 @@ function renderAdminAlertsList() {
           <span>Registro permanente no admin</span>
         </div>
         ${ackHtml}
+        ${renderAdminResponsesThread(alert.id)}
       </article>
     `;
   }).join("");
@@ -2357,10 +2402,18 @@ function openAdminModal() {
   adminModalEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("modal-open");
   loadAdminData();
+  window.clearInterval(adminResponsesPollTimer);
+  adminResponsesPollTimer = window.setInterval(() => {
+    if (!adminModalEl.classList.contains('hidden') && state.user?.role === 'admin') {
+      loadAlertResponses();
+    }
+  }, 10000);
 }
 
 function closeAdminModal() {
   if (!adminModalEl) return;
+  window.clearInterval(adminResponsesPollTimer);
+  adminResponsesPollTimer = null;
   adminModalEl.classList.add("hidden");
   adminModalEl.setAttribute("aria-hidden", "true");
   if (

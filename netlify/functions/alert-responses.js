@@ -21,8 +21,23 @@ exports.handler = async (event) => {
     if (!admin.ok) return admin.response;
     try {
       const alertId = String(event.queryStringParameters?.alertId || '').trim();
-      const responses = await listAlertResponses(alertId);
-      return jsonResponse(200, { ok: true, responses });
+      const [responses, manualAlerts] = await Promise.all([
+        listAlertResponses(alertId),
+        listManualAlerts(),
+      ]);
+      const alertMap = new Map((Array.isArray(manualAlerts) ? manualAlerts : []).map((item) => [String(item.id), item]));
+      const enriched = (Array.isArray(responses) ? responses : []).map((item) => {
+        const alert = alertMap.get(String(item.alertId)) || null;
+        return {
+          ...item,
+          alertTitle: alert?.title || '',
+          alertMessage: alert?.message || '',
+          alertSector: alert?.sector || '',
+          alertPriority: alert?.priority || 'normal',
+          alertCreatedAt: alert?.createdAt || null,
+        };
+      });
+      return jsonResponse(200, { ok: true, responses: enriched });
     } catch (error) {
       return jsonResponse(500, { ok: false, error: error.message || 'Falha ao carregar respostas.' });
     }

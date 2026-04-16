@@ -2404,3 +2404,16 @@ button.alert-badge {
 }
 .response-bubble--admin { border-color: rgba(255, 210, 77, 0.22); }
 .response-bubble p { margin: 0; }
+
+
+.admin-alert-response-item {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(8, 20, 40, 0.35);
+}
+
+.admin-alert-response-item .response-bubble {
+  margin-top: 0;
+}
