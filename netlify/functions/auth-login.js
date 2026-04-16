@@ -1,36 +1,40 @@
-const { jsonResponse, createSessionCookie, normalizeText, normalizeSectorList, verifyPassword } = require("./_auth");
-const { readJson } = require("./_githubStore");
+const { jsonResponse, createSessionCookie, normalizeText } = require('./_auth');
+const { getUserByUsername, isSupabaseConfigured, userPasswordMatches } = require('./_supabase');
 
 exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") {
-    return jsonResponse(405, { ok: false, error: "Método não permitido." });
+  if (event.httpMethod !== 'POST') {
+    return jsonResponse(405, { ok: false, error: 'Método não permitido.' });
   }
 
   try {
-    const body = JSON.parse(event.body || "{}");
-    const username = String(body.username || "").trim();
-    const password = String(body.password || "").trim();
+    if (!isSupabaseConfigured()) {
+      return jsonResponse(500, { ok: false, error: 'Supabase não configurado no Netlify.' });
+    }
+    const body = JSON.parse(event.body || '{}');
+    const username = String(body.username || '').trim();
+    const password = String(body.password || '').trim();
     if (!username || !password) {
-      return jsonResponse(400, { ok: false, error: "Informe usuário e senha." });
+      return jsonResponse(400, { ok: false, error: 'Informe usuário e senha.' });
     }
 
-    const users = await readJson("data/users.json", []);
     const defaultAdmin = {
-      id: "u_admin_001",
-      name: "Administrador",
-      username: "admin",
-      role: "admin",
-      sector: "all",
+      id: 'u_admin_001',
+      name: 'Administrador',
+      username: 'admin',
+      role: 'admin',
+      sector: 'all',
+      alertSectors: [],
       active: true,
+      passwordHash: 'admin123',
     };
-    let user = users.find((item) => normalizeText(item.username) === normalizeText(username));
 
-    if ((!user || !user.active) && normalizeText(username) === "admin" && String(password) === "admin123") {
+    let user = await getUserByUsername(username);
+    if ((!user || !user.active) && normalizeText(username) === 'admin' && password === 'admin123') {
       user = defaultAdmin;
     }
 
-    if (!user || !user.active || (user.passwordHash ? !verifyPassword(password, user.passwordHash) : String(password) !== "admin123")) {
-      return jsonResponse(401, { ok: false, error: "Usuário ou senha inválidos." });
+    if (!user || !user.active || !userPasswordMatches(password, user.passwordHash)) {
+      return jsonResponse(401, { ok: false, error: 'Usuário ou senha inválidos.' });
     }
 
     return jsonResponse(200, {
@@ -41,14 +45,14 @@ exports.handler = async (event) => {
         username: user.username,
         role: user.role,
         sector: user.sector,
-        alertSectors: normalizeSectorList(user.sector, user.alertSectors),
+        alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [],
       },
     }, {
       headers: {
-        "set-cookie": createSessionCookie(user),
+        'set-cookie': createSessionCookie(user),
       },
     });
   } catch (error) {
-    return jsonResponse(500, { ok: false, error: error.message || "Falha ao autenticar." });
+    return jsonResponse(500, { ok: false, error: error.message || 'Falha ao autenticar.' });
   }
 };

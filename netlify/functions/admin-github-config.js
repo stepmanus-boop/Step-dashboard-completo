@@ -1,72 +1,30 @@
-const { jsonResponse, requireAdmin } = require("./_auth");
-const { getGithubConfig, saveGithubConfig, clearGithubConfig, syncLocalDataToGithub, isGithubConfigured } = require("./_githubStore");
-
-function maskToken(token) {
-  const value = String(token || "");
-  if (!value) return "";
-  if (value.length <= 8) return "********";
-  return `${value.slice(0, 6)}••••${value.slice(-4)}`;
-}
+const { jsonResponse, requireAdmin } = require('./_auth');
+const { isSupabaseConfigured } = require('./_supabase');
 
 exports.handler = async (event) => {
   const admin = requireAdmin(event);
   if (!admin.ok) return admin.response;
 
-  if (event.httpMethod === "GET") {
-    const cfg = await getGithubConfig();
+  if (event.httpMethod === 'GET') {
     return jsonResponse(200, {
       ok: true,
-      configured: Boolean(cfg.repo && cfg.token),
-      source: cfg.source,
-      repo: cfg.repo || "",
-      branch: cfg.branch || "main",
-      tokenMasked: maskToken(cfg.token),
+      configured: true,
+      source: 'supabase',
+      repo: 'Supabase ativo',
+      branch: 'runtime',
+      tokenMasked: 'supabase',
+      message: 'O armazenamento operacional está usando Supabase.',
     });
   }
 
-  if (event.httpMethod === "POST") {
-    try {
-      const body = JSON.parse(event.body || "{}");
-      const action = String(body.action || "save");
-      if (action === "clear") {
-        await clearGithubConfig();
-        return jsonResponse(200, { ok: true, message: "Configuração local do GitHub removida." });
-      }
-      if (action === "sync") {
-        const synced = await syncLocalDataToGithub();
-        const cfg = await getGithubConfig();
-        const savedCount = Array.isArray(synced.files) ? synced.files.filter((item) => item.saved).length : 0;
-        return jsonResponse(200, {
-          ok: true,
-          message: `Sincronização concluída. ${savedCount} arquivo(s) confirmados no GitHub.`,
-          files: synced.files || [],
-          configured: Boolean(cfg.repo && cfg.token),
-          repo: cfg.repo || "",
-          branch: cfg.branch || "main",
-          tokenMasked: maskToken(cfg.token),
-        });
-      }
-
-      const repo = String(body.repo || "").trim();
-      const branch = String(body.branch || "main").trim() || "main";
-      const token = String(body.token || "").trim();
-      if (!repo || !branch || !token) {
-        return jsonResponse(400, { ok: false, error: "Preencha token, repositório e branch." });
-      }
-      await saveGithubConfig({ repo, branch, token });
-      const configured = await isGithubConfigured();
-      return jsonResponse(200, {
-        ok: true,
-        configured,
-        message: "Configuração do GitHub salva com sucesso.",
-        repo,
-        branch,
-        tokenMasked: maskToken(token),
-      });
-    } catch (error) {
-      return jsonResponse(500, { ok: false, error: error.message || "Falha ao salvar configuração do GitHub." });
-    }
+  if (event.httpMethod === 'POST') {
+    return jsonResponse(200, {
+      ok: true,
+      configured: true,
+      message: 'O armazenamento operacional está usando Supabase. Nenhuma configuração de GitHub é necessária para alertas e usuários.',
+      supabaseEnabled: isSupabaseConfigured(),
+    });
   }
 
-  return jsonResponse(405, { ok: false, error: "Método não permitido." });
+  return jsonResponse(405, { ok: false, error: 'Método não permitido.' });
 };

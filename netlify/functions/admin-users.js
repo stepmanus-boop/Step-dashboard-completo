@@ -1,152 +1,140 @@
-const crypto = require("crypto");
-const { jsonResponse, requireAdmin, hashPassword, normalizeText, normalizeSectorList } = require("./_auth");
-const { readJson, writeJson, isGithubConfigured } = require("./_githubStore");
+const crypto = require('crypto');
+const { jsonResponse, requireAdmin, hashPassword, normalizeText, normalizeSectorList, normalizeSectorValue } = require('./_auth');
+const { listUsers, insertUser, updateUser, isSupabaseConfigured } = require('./_supabase');
 
 exports.handler = async (event) => {
   const admin = requireAdmin(event);
   if (!admin.ok) return admin.response;
 
-  if (event.httpMethod === "GET") {
-    const users = await readJson("data/users.json", []);
+  if (!isSupabaseConfigured()) {
+    return jsonResponse(500, { ok: false, error: 'Supabase não configurado no Netlify.' });
+  }
+
+  if (event.httpMethod === 'GET') {
+    const users = await listUsers();
     return jsonResponse(200, {
       ok: true,
-      githubSyncEnabled: await isGithubConfigured(),
+      githubSyncEnabled: true,
       users: users.map((user) => ({
         id: user.id,
         name: user.name,
         username: user.username,
         role: user.role,
         sector: user.sector,
-        alertSectors: normalizeSectorList(user.sector, user.alertSectors),
+        alertSectors: normalizeSectorList('', user.alertSectors),
         active: Boolean(user.active),
         createdAt: user.createdAt || null,
       })),
     });
   }
 
-  if (event.httpMethod === "PUT") {
+  if (event.httpMethod === 'PUT') {
     try {
-      const body = JSON.parse(event.body || "{}");
-      const userId = String(body.userId || "").trim();
+      const body = JSON.parse(event.body || '{}');
+      const userId = String(body.userId || '').trim();
       if (!userId) {
-        return jsonResponse(400, { ok: false, error: "Usuário não informado." });
+        return jsonResponse(400, { ok: false, error: 'Usuário não informado.' });
       }
 
-      const users = await readJson("data/users.json", []);
-      const index = users.findIndex((user) => user.id === userId);
-      if (index < 0) {
-        return jsonResponse(404, { ok: false, error: "Usuário não encontrado." });
+      const users = await listUsers();
+      const current = users.find((user) => user.id === userId);
+      if (!current) {
+        return jsonResponse(404, { ok: false, error: 'Usuário não encontrado.' });
       }
 
-      const name = String(body.name || "").trim();
-      const username = String(body.username || "").trim();
-      const password = String(body.password || "");
-      const role = body.role === "admin" ? "admin" : "sector";
-      const sector = role === "admin" ? "all" : String(body.sector || "").trim();
-    const alertSectors = role === "admin" ? [] : normalizeSectorList(sector, body.alertSectors);
+      const name = String(body.name || '').trim();
+      const username = String(body.username || '').trim();
+      const password = String(body.password || '');
+      const role = body.role === 'admin' ? 'admin' : 'sector';
+      const sector = role === 'admin' ? 'all' : normalizeSectorValue(body.sector);
+      const alertSectors = role === 'admin' ? [] : normalizeSectorList('', body.alertSectors);
 
       if (!name || !username) {
-        return jsonResponse(400, { ok: false, error: "Preencha nome e usuário." });
+        return jsonResponse(400, { ok: false, error: 'Preencha nome e usuário.' });
+      }
+      if (role !== 'admin' && !sector && !alertSectors.length) {
+        return jsonResponse(400, { ok: false, error: 'Selecione ao menos um setor monitorado ou setor principal.' });
       }
 
-      if (role !== "admin" && !sector) {
-        return jsonResponse(400, { ok: false, error: "Selecione o setor do usuário." });
-      }
-
-      const exists = users.some((user, userIndex) => userIndex !== index && normalizeText(user.username) === normalizeText(username));
+      const exists = users.some((user) => user.id !== userId && normalizeText(user.username) === normalizeText(username));
       if (exists) {
-        return jsonResponse(409, { ok: false, error: "Já existe um usuário com esse login." });
+        return jsonResponse(409, { ok: false, error: 'Já existe um usuário com esse login.' });
+      }
+      if (current.id === admin.session.sub && role !== 'admin') {
+        return jsonResponse(400, { ok: false, error: 'O admin atual não pode remover o próprio acesso.' });
       }
 
-      if (users[index].id === admin.session.sub && role !== "admin") {
-        return jsonResponse(400, { ok: false, error: "O admin atual não pode remover o próprio acesso." });
-      }
-
-      users[index].name = name;
-      users[index].username = username;
-      users[index].role = role;
-      users[index].sector = sector;
-      users[index].alertSectors = role === "admin" ? [] : alertSectors;
-      users[index].active = body.active === false ? false : true;
-      if (password) {
-        users[index].passwordHash = hashPassword(password);
-      }
-
-      await writeJson("data/users.json", users, `chore: edita usuário ${users[index].username}`);
-      return jsonResponse(200, {
-        ok: true,
-        user: {
-          id: users[index].id,
-          name: users[index].name,
-          username: users[index].username,
-          role: users[index].role,
-          sector: users[index].sector,
-          alertSectors: normalizeSectorList(users[index].sector, users[index].alertSectors),
-          active: users[index].active,
-          createdAt: users[index].createdAt || null,
-        },
-        persistedToGithub: await isGithubConfigured(),
+      const saved = await updateUser(userId, {
+        name,
+        username,
+        role,
+        sector,
+        alertSectors: role === 'admin' ? [] : alertSectors,
+        active: body.active === false ? false : true,
+        ...(password ? { passwordHash: hashPassword(password) } : {}),
       });
+
+      return jsonResponse(200, { ok: true, user: saved });
     } catch (error) {
-      return jsonResponse(500, { ok: false, error: error.message || "Falha ao editar usuário." });
+      return jsonResponse(500, { ok: false, error: error.message || 'Falha ao editar usuário.' });
     }
   }
 
-  if (event.httpMethod === "PATCH") {
+  if (event.httpMethod === 'PATCH') {
     try {
-      const body = JSON.parse(event.body || "{}");
-      const userId = String(body.userId || "").trim();
-      const nextRole = body.role === "admin" ? "admin" : "sector";
+      const body = JSON.parse(event.body || '{}');
+      const userId = String(body.userId || '').trim();
+      const nextRole = body.role === 'admin' ? 'admin' : 'sector';
       if (!userId) {
-        return jsonResponse(400, { ok: false, error: "Usuário não informado." });
+        return jsonResponse(400, { ok: false, error: 'Usuário não informado.' });
       }
-      const users = await readJson("data/users.json", []);
-      const index = users.findIndex((user) => user.id === userId);
-      if (index < 0) {
-        return jsonResponse(404, { ok: false, error: "Usuário não encontrado." });
+      const users = await listUsers();
+      const current = users.find((user) => user.id === userId);
+      if (!current) {
+        return jsonResponse(404, { ok: false, error: 'Usuário não encontrado.' });
       }
-      if (users[index].id === admin.session.sub && nextRole !== "admin") {
-        return jsonResponse(400, { ok: false, error: "O admin atual não pode remover o próprio acesso." });
+      if (current.id === admin.session.sub && nextRole !== 'admin') {
+        return jsonResponse(400, { ok: false, error: 'O admin atual não pode remover o próprio acesso.' });
       }
-      users[index].role = nextRole;
-      users[index].sector = nextRole === "admin" ? "all" : (users[index].sector && users[index].sector !== "all" ? users[index].sector : "producao");
-      users[index].alertSectors = nextRole === "admin" ? [] : normalizeSectorList(users[index].sector, users[index].alertSectors);
-      await writeJson("data/users.json", users, `chore: atualiza perfil do usuário ${users[index].username}`);
-      return jsonResponse(200, { ok: true, user: { id: users[index].id, role: users[index].role, sector: users[index].sector, alertSectors: normalizeSectorList(users[index].sector, users[index].alertSectors) }, persistedToGithub: await isGithubConfigured() });
+      const saved = await updateUser(userId, {
+        role: nextRole,
+        sector: nextRole === 'admin' ? 'all' : (current.sector && current.sector !== 'all' ? current.sector : ''),
+        alertSectors: nextRole === 'admin' ? [] : normalizeSectorList('', current.alertSectors),
+      });
+      return jsonResponse(200, { ok: true, user: saved });
     } catch (error) {
-      return jsonResponse(500, { ok: false, error: error.message || "Falha ao atualizar usuário." });
+      return jsonResponse(500, { ok: false, error: error.message || 'Falha ao atualizar perfil.' });
     }
   }
 
-  if (event.httpMethod !== "POST") {
-    return jsonResponse(405, { ok: false, error: "Método não permitido." });
+  if (event.httpMethod !== 'POST') {
+    return jsonResponse(405, { ok: false, error: 'Método não permitido.' });
   }
 
   try {
-    const body = JSON.parse(event.body || "{}");
-    const name = String(body.name || "").trim();
-    const username = String(body.username || "").trim();
-    const password = String(body.password || "");
-    const role = body.role === "admin" ? "admin" : "sector";
-    const sector = role === "admin" ? "all" : String(body.sector || "").trim();
-    const alertSectors = role === "admin" ? [] : normalizeSectorList(sector, body.alertSectors);
+    const body = JSON.parse(event.body || '{}');
+    const name = String(body.name || '').trim();
+    const username = String(body.username || '').trim();
+    const password = String(body.password || '');
+    const role = body.role === 'admin' ? 'admin' : 'sector';
+    const sector = role === 'admin' ? 'all' : normalizeSectorValue(body.sector);
+    const alertSectors = role === 'admin' ? [] : normalizeSectorList('', body.alertSectors);
 
     if (!name || !username || !password) {
-      return jsonResponse(400, { ok: false, error: "Preencha nome, usuário e senha." });
+      return jsonResponse(400, { ok: false, error: 'Preencha nome, usuário e senha.' });
+    }
+    if (role !== 'admin' && !sector && !alertSectors.length) {
+      return jsonResponse(400, { ok: false, error: 'Selecione ao menos um setor monitorado ou setor principal.' });
     }
 
-    if (role !== "admin" && !sector) {
-      return jsonResponse(400, { ok: false, error: "Selecione o setor do usuário." });
-    }
-
-    const users = await readJson("data/users.json", []);
+    const users = await listUsers();
     const exists = users.some((user) => normalizeText(user.username) === normalizeText(username));
     if (exists) {
-      return jsonResponse(409, { ok: false, error: "Já existe um usuário com esse login." });
+      return jsonResponse(409, { ok: false, error: 'Já existe um usuário com esse login.' });
     }
 
-    const nextUser = {
-      id: `u_${crypto.randomBytes(6).toString("hex")}`,
+    const saved = await insertUser({
+      id: `u_${crypto.randomBytes(6).toString('hex')}`,
       name,
       username,
       passwordHash: hashPassword(password),
@@ -154,26 +142,10 @@ exports.handler = async (event) => {
       sector,
       alertSectors,
       active: true,
-      createdAt: new Date().toISOString(),
-    };
-
-    users.push(nextUser);
-    await writeJson("data/users.json", users, `feat: adiciona usuário ${username}`);
-
-    return jsonResponse(200, {
-      ok: true,
-      user: {
-        id: nextUser.id,
-        name: nextUser.name,
-        username: nextUser.username,
-        role: nextUser.role,
-        sector: nextUser.sector,
-        alertSectors: normalizeSectorList(nextUser.sector, nextUser.alertSectors),
-        active: nextUser.active,
-      },
-      persistedToGithub: await isGithubConfigured(),
     });
+
+    return jsonResponse(200, { ok: true, user: saved });
   } catch (error) {
-    return jsonResponse(500, { ok: false, error: error.message || "Falha ao criar usuário." });
+    return jsonResponse(500, { ok: false, error: error.message || 'Falha ao criar usuário.' });
   }
 };

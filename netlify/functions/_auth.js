@@ -122,14 +122,17 @@ function normalizeText(value) {
 }
 
 
+function normalizeSectorValue(value) {
+  return normalizeText(value);
+}
+
 function normalizeSectorList(primarySector, alertSectors) {
   const seen = new Set();
   const normalized = [];
-  const values = [];
-  if (primarySector && primarySector !== "all") values.push(primarySector);
-  if (Array.isArray(alertSectors)) values.push(...alertSectors);
+  const explicit = Array.isArray(alertSectors) ? alertSectors : [];
+  const values = explicit.length ? explicit : (primarySector && primarySector !== "all" ? [primarySector] : []);
   for (const value of values) {
-    const item = normalizeText(value);
+    const item = normalizeSectorValue(value);
     if (!item || item === "all" || seen.has(item)) continue;
     seen.add(item);
     normalized.push(item);
@@ -166,6 +169,7 @@ module.exports = {
   requireSession,
   requireAdmin,
   normalizeText,
+  normalizeSectorValue,
   hashPassword,
   verifyPassword,
   readLocalJson,
