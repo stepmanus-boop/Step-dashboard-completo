@@ -1,5 +1,5 @@
 const crypto = require("crypto");
-const { jsonResponse, requireSession, requireAdmin, normalizeSectorList, normalizeText, normalizeSectorValue } = require("./_auth");
+const { jsonResponse, requireSession, requireAdmin, normalizeSectorList, normalizeText } = require("./_auth");
 const { readJson, writeJson, isGithubConfigured } = require("./_githubStore");
 
 const ALERT_ACK_VISIBILITY_MS = 24 * 60 * 60 * 1000;
@@ -8,7 +8,7 @@ function alertVisibleToUser(alert, session) {
   if (!alert || alert.active === false) return false;
   if (session.role === "admin") return true;
   const allowedSectors = normalizeSectorList(session.sector, session.alertSectors);
-  return allowedSectors.includes(normalizeSectorValue(alert.sector));
+  return allowedSectors.includes(normalizeText(alert.sector));
 }
 
 function getUserAlertExpiration(acknowledgements, session) {
@@ -73,7 +73,7 @@ exports.handler = async (event) => {
       const body = JSON.parse(event.body || "{}");
       const title = String(body.title || "").trim();
       const message = String(body.message || "").trim();
-      const sector = normalizeSectorValue(body.sector);
+      const sector = String(body.sector || "").trim().toLowerCase();
       const priority = String(body.priority || "normal").trim().toLowerCase();
       const requiresAck = body.requiresAck !== false;
 
@@ -126,7 +126,7 @@ exports.handler = async (event) => {
           alertId,
           userId: auth.session.sub,
           username: auth.session.username,
-          sector: normalizeSectorValue(auth.session.sector),
+          sector: auth.session.sector,
           targetSector: alert.sector,
           acknowledgedAt: new Date().toISOString(),
         });

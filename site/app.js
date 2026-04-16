@@ -176,32 +176,7 @@ function normalizeText(value) {
     .replace(/[^a-z0-9]+/g, "");
 }
 
-function slugifySector(value) {
-  return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .replace(/_+/g, "_");
-}
 
-const SECTOR_ALIASES = {
-  pintura: "pintura",
-  inspecao: "inspecao",
-  pendente_envio: "pendente_envio",
-  pendente_de_envio: "pendente_envio",
-  envio: "pendente_envio",
-  producao: "producao",
-  calderaria: "calderaria",
-  solda: "solda",
-};
-
-function normalizeSectorValue(value) {
-  const slug = slugifySector(value);
-  return SECTOR_ALIASES[slug] || slug;
-}
 
 function normalizeLoginValue(value) {
   return normalizeText(value || "");
@@ -254,6 +229,9 @@ const AVAILABLE_SECTORS = [
   { value: "solda", label: "Solda" },
 ];
 
+function normalizeSectorValue(value) {
+  return normalizeText(value);
+}
 
 function getUserAlertSectors(user = state.user) {
   if (!user) return [];
@@ -293,7 +271,7 @@ function setSelectedAdminAlertSectors(values = []) {
 }
 
 function sectorLabel(value) {
-  const normalized = normalizeSectorValue(value);
+  const normalized = String(value || "").toLowerCase();
   if (normalized === "pintura") return "Pintura";
   if (normalized === "inspecao") return "Inspeção";
   if (normalized === "pendente_envio") return "Pendente de envio";
@@ -301,10 +279,7 @@ function sectorLabel(value) {
   if (normalized === "calderaria") return "Calderaria";
   if (normalized === "solda") return "Solda";
   if (normalized === "all") return "Todos";
-  if (!normalized) return "—";
-  return String(value || "—")
-    .replace(/[_-]+/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return value || "—";
 }
 
 function priorityLabel(value) {
@@ -2300,7 +2275,7 @@ async function handleAdminUserSubmit(event) {
     upsertLocalUser(savedUser);
     resetAdminUserForm();
     adminUserFeedbackEl.textContent = state.githubSyncEnabled
-      ? (editingId ? "Usuário atualizado localmente. Clique em 'Subir pro GitHub' para enviar todas as alterações." : "Usuário criado localmente. Clique em 'Subir pro GitHub' para enviar todos os cadastros.")
+      ? (editingId ? "Usuário atualizado e salvo no GitHub." : "Usuário criado e salvo no GitHub.")
       : (editingId ? "Usuário atualizado localmente. Para enviar ao GitHub, configure as variáveis GITHUB_TOKEN, GITHUB_REPO e GITHUB_BRANCH no Netlify e clique em 'Subir pro GitHub'." : "Usuário criado localmente. Para enviar ao GitHub, configure as variáveis GITHUB_TOKEN, GITHUB_REPO e GITHUB_BRANCH no Netlify e clique em 'Subir pro GitHub'.");
     await loadAdminData();
   } catch (error) {
