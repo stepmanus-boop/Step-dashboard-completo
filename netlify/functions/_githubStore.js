@@ -397,6 +397,8 @@ module.exports = {
   readLocalJson,
   readLocalRaw,
   writeLocalRaw,
+  writeLocalJson,
+  readMergedJson,
   getGithubConfig,
   saveGithubConfig,
   clearGithubConfig,
