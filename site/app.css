@@ -1062,6 +1062,29 @@ button.alert-badge {
   justify-content: flex-end;
 }
 
+
+.manual-alert-summary,
+.manual-alert-section {
+  display: grid;
+  gap: 10px;
+}
+
+.manual-alert-section-list {
+  display: grid;
+  gap: 10px;
+}
+
+.manual-alert-item--automatic {
+  border-color: rgba(255, 210, 77, 0.24);
+}
+
+.manual-alert-item--automatic .manual-alert-actions {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+
 .manual-alert-tag {
   display: inline-flex;
   align-items: center;

@@ -153,7 +153,7 @@ O projeto agora inclui:
 - login simples por usuário e senha
 - perfil `admin` e perfil `sector`
 - criação de usuários por setor
-- alertas manuais por setor
+- alerta operacional por setor
 - confirmação de leitura dos alertas
 - persistência automática em arquivos JSON versionados no repositório
 

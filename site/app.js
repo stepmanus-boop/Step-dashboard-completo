@@ -1262,6 +1262,9 @@ async function loadProjects() {
     } else {
       renderAlertModal();
     }
+    if (state.user && sectorAlertsModalEl && !sectorAlertsModalEl.classList.contains("hidden")) {
+      renderManualAlerts();
+    }
   } catch (error) {
     const fallbackMessage = error?.message || "Falha ao atualizar dados da planilha.";
 
@@ -1687,6 +1690,23 @@ async function bootstrapSession() {
   }
 }
 
+function getUserAutomaticAlerts() {
+  if (!state.user) return [];
+  if (state.user.role === "admin") {
+    return Array.isArray(state.alerts) ? [...state.alerts] : [];
+  }
+
+  const userSector = normalizeText(state.user.sector);
+  return (Array.isArray(state.alerts) ? state.alerts : [])
+    .filter((alert) => normalizeText(alert?.sector) === userSector)
+    .sort((a, b) => {
+      if ((a?.daysRemaining ?? 0) !== (b?.daysRemaining ?? 0)) {
+        return (a?.daysRemaining ?? 0) - (b?.daysRemaining ?? 0);
+      }
+      return String(a?.projectDisplay || "").localeCompare(String(b?.projectDisplay || ""), "pt-BR");
+    });
+}
+
 function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sectorAlertsContentEl) {
   if (!targetEl) return;
   if (!state.user) {
@@ -1694,29 +1714,102 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
     return;
   }
 
-  const alerts = Array.isArray(targetAlerts) ? targetAlerts : [];
-  if (!alerts.length) {
-    targetEl.innerHTML = '<div class="detail-placeholder">Nenhum alerta manual ativo para este login.</div>';
+  const manualAlerts = Array.isArray(targetAlerts) ? targetAlerts : [];
+  const automaticAlerts = getUserAutomaticAlerts();
+
+  if (!manualAlerts.length && !automaticAlerts.length) {
+    targetEl.innerHTML = '<div class="detail-placeholder">Nenhum alerta específico para este login no momento.</div>';
     return;
   }
 
-  targetEl.innerHTML = alerts.map((alert) => `
-    <article class="manual-alert-item">
-      <div class="admin-list-item-meta">
-        <span class="manual-alert-tag manual-alert-tag--${escapeHtml(alert.priority || "normal")}">${escapeHtml(priorityLabel(alert.priority))}</span>
-        <span class="manual-alert-tag">${escapeHtml(sectorLabel(alert.sector))}</span>
-        <span>${escapeHtml(new Date(alert.createdAt).toLocaleString("pt-BR"))}</span>
-        <span>${alert.acknowledged ? "Lido" : "Pendente de leitura"}</span>
-      </div>
-      <strong>${escapeHtml(alert.title || "Alerta manual")}</strong>
-      <p>${escapeHtml(alert.message || "")}</p>
-      <div class="manual-alert-actions">
-        ${alert.requiresAck && !alert.acknowledged
-          ? `<button class="primary-button" type="button" data-ack-alert="${escapeHtml(alert.id)}">Marcar como lido</button>`
-          : `<span class="manual-alert-tag">${alert.acknowledged ? "Confirmado" : "Informativo"}</span>`}
-      </div>
-    </article>
-  `).join("");
+  const manualHtml = manualAlerts.length
+    ? `
+      <section class="manual-alert-section">
+        <div class="admin-list-item-meta">
+          <span class="manual-alert-tag">Manuais</span>
+          <span>${manualAlerts.length} alerta(s)</span>
+        </div>
+        <div class="manual-alert-section-list">
+          ${manualAlerts.map((alert) => `
+            <article class="manual-alert-item">
+              <div class="admin-list-item-meta">
+                <span class="manual-alert-tag manual-alert-tag--${escapeHtml(alert.priority || "normal")}">${escapeHtml(priorityLabel(alert.priority))}</span>
+                <span class="manual-alert-tag">${escapeHtml(sectorLabel(alert.sector))}</span>
+                <span>${escapeHtml(new Date(alert.createdAt).toLocaleString("pt-BR"))}</span>
+                <span>${alert.acknowledged ? "Lido" : "Pendente de leitura"}</span>
+              </div>
+              <strong>${escapeHtml(alert.title || "Alerta manual")}</strong>
+              <p>${escapeHtml(alert.message || "")}</p>
+              <div class="manual-alert-actions">
+                ${alert.requiresAck && !alert.acknowledged
+                  ? `<button class="primary-button" type="button" data-ack-alert="${escapeHtml(alert.id)}">Marcar como lido</button>`
+                  : `<span class="manual-alert-tag">${alert.acknowledged ? "Confirmado" : "Informativo"}</span>`}
+              </div>
+            </article>
+          `).join("")}
+        </div>
+      </section>
+    `
+    : `
+      <section class="manual-alert-section">
+        <div class="admin-list-item-meta">
+          <span class="manual-alert-tag">Manuais</span>
+          <span>Nenhum alerta manual para o seu setor.</span>
+        </div>
+      </section>
+    `;
+
+  const automaticHtml = automaticAlerts.length
+    ? `
+      <section class="manual-alert-section">
+        <div class="admin-list-item-meta">
+          <span class="manual-alert-tag manual-alert-tag--high">Automáticos</span>
+          <span>${automaticAlerts.length} alerta(s) de prazo do setor ${escapeHtml(sectorLabel(state.user.sector))}</span>
+        </div>
+        <div class="manual-alert-section-list">
+          ${automaticAlerts.map((alert) => {
+            const severity = getAlertSeverity(alert);
+            const severityLabel = severity === "urgent" ? "Urgente" : "Médio";
+            const dateLabel = alert.daysRemaining < 0
+              ? `${Math.abs(alert.daysRemaining)} dia(s) em atraso`
+              : `${alert.daysRemaining} dia(s) para o prazo`;
+            return `
+              <article class="manual-alert-item manual-alert-item--automatic">
+                <div class="admin-list-item-meta">
+                  <span class="manual-alert-tag manual-alert-tag--${severity === "urgent" ? "urgent" : "high"}">${severityLabel}</span>
+                  <span class="manual-alert-tag">${escapeHtml(sectorLabel(alert.sector))}</span>
+                  <span>${escapeHtml(alert.plannedFinishDate || "Sem data")}</span>
+                  <span>${escapeHtml(dateLabel)}</span>
+                </div>
+                <strong>${escapeHtml(alert.title || "Alerta automático")}</strong>
+                <p>${escapeHtml(alert.message || "")}</p>
+                <div class="manual-alert-actions">
+                  <span class="manual-alert-tag">${escapeHtml(alert.projectDisplay || alert.projectNumber || "Projeto")}</span>
+                  <span class="manual-alert-tag">Cliente: ${escapeHtml(alert.client || "—")}</span>
+                </div>
+              </article>
+            `;
+          }).join("")}
+        </div>
+      </section>
+    `
+    : `
+      <section class="manual-alert-section">
+        <div class="admin-list-item-meta">
+          <span class="manual-alert-tag manual-alert-tag--high">Automáticos</span>
+          <span>Nenhum alerta automático de prazo para o seu setor.</span>
+        </div>
+      </section>
+    `;
+
+  targetEl.innerHTML = `
+    <div class="manual-alert-summary">
+      <span class="manual-alert-tag">Meu setor: ${escapeHtml(sectorLabel(state.user.sector))}</span>
+      <span class="manual-alert-tag">Total: ${manualAlerts.length + automaticAlerts.length} alerta(s)</span>
+    </div>
+    ${manualHtml}
+    ${automaticHtml}
+  `;
 }
 
 async function loadManualAlerts() {
