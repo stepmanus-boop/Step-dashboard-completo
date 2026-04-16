@@ -13,7 +13,7 @@
 }
 
 * { box-sizing: border-box; }
-html, body { min-height: 100%; }
+html, body { height: 100%; min-height: 100%; }
 body {
   margin: 0;
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -22,12 +22,13 @@ body {
     linear-gradient(180deg, #01070d, #02101c 40%, #01070d 100%);
   color: var(--text);
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
 }
 
 body.modal-open { overflow: hidden; }
 
 .page-shell {
+  height: 100vh;
   min-height: 100vh;
   display: grid;
   grid-template-rows: auto auto auto auto;
@@ -112,7 +113,7 @@ body.modal-open { overflow: hidden; }
   gap: 6px;
   min-width: 0;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
 }
 
 
@@ -210,7 +211,8 @@ body.modal-open { overflow: hidden; }
   display: grid;
   grid-template-columns: minmax(0, 1.75fr) minmax(320px, 0.75fr);
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
+  overflow: hidden;
 }
 
 .panel {
@@ -218,7 +220,7 @@ body.modal-open { overflow: hidden; }
   min-height: 0;
   display: grid;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
 }
 
 
@@ -227,7 +229,7 @@ body.modal-open { overflow: hidden; }
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
-.panel--detail { grid-template-rows: auto minmax(0, 1fr); min-height: 520px; }
+.panel--detail { grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
 
 .panel-head {
   display: flex;
@@ -325,6 +327,7 @@ body.modal-open { overflow: hidden; }
 
 .table-shell {
   min-height: 0;
+  height: 100%;
   overflow: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(53, 115, 188, 0.55) transparent;
@@ -375,6 +378,7 @@ body.modal-open { overflow: hidden; }
 
 .detail-card {
   min-height: 0;
+  height: 100%;
   padding: 14px;
   overflow: auto;
 }

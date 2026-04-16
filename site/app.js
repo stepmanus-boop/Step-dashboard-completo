@@ -22,7 +22,7 @@ const state = {
   githubSyncEnabled: false,
   manualAlerts: [],
   adminAlertSearchQuery: "",
-  adminActiveTab: "gestao",
+  adminActiveTab: "usuario",
   alertResponses: [],
   selectedAlertForResponse: null,
 };
@@ -101,7 +101,8 @@ let deferredInstallPrompt = null;
 
 
 function setAdminActiveTab(tab) {
-  const nextTab = tab === 'historico' ? 'historico' : 'gestao';
+  const validTabs = new Set(['usuario', 'historico', 'alerta']);
+  const nextTab = validTabs.has(tab) ? tab : 'usuario';
   state.adminActiveTab = nextTab;
   adminTabTriggerEls.forEach((button) => {
     const active = button.dataset.adminTabTrigger === nextTab;
@@ -2447,7 +2448,7 @@ async function loadAdminData() {
 function openAdminModal() {
   if (!adminModalEl) return;
   if (adminAlertSearchEl) adminAlertSearchEl.value = state.adminAlertSearchQuery || "";
-  setAdminActiveTab(state.adminActiveTab || 'gestao');
+  setAdminActiveTab(state.adminActiveTab || 'usuario');
   adminModalEl.classList.remove("hidden");
   adminModalEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("modal-open");
@@ -2462,7 +2463,7 @@ function openAdminModal() {
 
 function closeAdminModal() {
   if (!adminModalEl) return;
-  setAdminActiveTab('gestao');
+  setAdminActiveTab('usuario');
   window.clearInterval(adminResponsesPollTimer);
   adminResponsesPollTimer = null;
   adminModalEl.classList.add("hidden");
