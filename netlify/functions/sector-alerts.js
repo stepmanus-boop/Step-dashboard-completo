@@ -24,7 +24,7 @@ exports.handler = async (event) => {
 
     return jsonResponse(200, {
       ok: true,
-      githubSyncEnabled: isGithubConfigured(),
+      githubSyncEnabled: await isGithubConfigured(),
       alerts: visible,
     });
   }

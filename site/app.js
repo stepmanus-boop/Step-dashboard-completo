@@ -1738,7 +1738,7 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
                 <span>${escapeHtml(new Date(alert.createdAt).toLocaleString("pt-BR"))}</span>
                 <span>${alert.acknowledged ? "Lido" : "Pendente de leitura"}</span>
               </div>
-              <strong>${escapeHtml(alert.title || "Alerta manual")}</strong>
+              <strong>${escapeHtml(alert.title || "Alerta Operacional")}</strong>
               <p>${escapeHtml(alert.message || "")}</p>
               <div class="manual-alert-actions">
                 ${alert.requiresAck && !alert.acknowledged
@@ -1754,7 +1754,7 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
       <section class="manual-alert-section">
         <div class="admin-list-item-meta">
           <span class="manual-alert-tag">Manuais</span>
-          <span>Nenhum alerta manual para o seu setor.</span>
+          <span>Nenhum alerta operacional para o seu setor.</span>
         </div>
       </section>
     `;
@@ -1818,7 +1818,7 @@ async function loadManualAlerts() {
     const response = await fetch("/api/sector-alerts", { credentials: "same-origin", cache: "no-store" });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) {
-      throw new Error(data?.error || "Falha ao carregar alertas manuais.");
+      throw new Error(data?.error || "Falha ao carregar alertas operacionais.");
     }
     state.githubSyncEnabled = Boolean(data.githubSyncEnabled ?? state.githubSyncEnabled);
     state.manualAlerts = data.alerts || [];
@@ -1936,12 +1936,12 @@ function renderAdminUsersList(users = []) {
 function renderAdminAlertsList() {
   if (!adminAlertsListEl) return;
   if (!state.manualAlerts.length) {
-    adminAlertsListEl.innerHTML = '<div class="empty-state">Nenhum alerta manual ativo.</div>';
+    adminAlertsListEl.innerHTML = '<div class="empty-state">Nenhum alerta operacional ativo.</div>';
     return;
   }
   adminAlertsListEl.innerHTML = state.manualAlerts.map((alert) => `
     <article class="admin-list-item">
-      <strong>${escapeHtml(alert.title || "Alerta manual")}</strong>
+      <strong>${escapeHtml(alert.title || "Alerta Operacional")}</strong>
       <div class="admin-list-item-meta">
         <span>Setor: ${escapeHtml(sectorLabel(alert.sector))}</span>
         <span>Prioridade: ${escapeHtml(priorityLabel(alert.priority))}</span>
@@ -2149,15 +2149,15 @@ async function handleAdminAlertSubmit(event) {
     });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) {
-      throw new Error(data?.error || "Falha ao criar alerta.");
+      throw new Error(data?.error || "Falha ao criar alerta operacional.");
     }
     adminAlertFormEl.reset();
     document.getElementById("admin-alert-requires-ack").checked = true;
-    adminAlertFeedbackEl.textContent = "Alerta enviado com sucesso.";
+    adminAlertFeedbackEl.textContent = "Alerta operacional enviado com sucesso.";
     await loadManualAlerts();
     await loadAdminData();
   } catch (error) {
-    adminAlertFeedbackEl.textContent = error.message || "Falha ao criar alerta.";
+    adminAlertFeedbackEl.textContent = error.message || "Falha ao criar alerta operacional.";
   }
 }
 

@@ -74,7 +74,7 @@ async function writeLocalRaw(relativePath, content) {
 async function readLocalJson(relativePath, fallbackValue = []) {
   try {
     const raw = await readLocalRaw(relativePath);
-    return JSON.parse(raw || JSON.stringify(fallbackValue));
+    return parsePossiblyConflictedJson(raw || JSON.stringify(fallbackValue), fallbackValue, relativePath);
   } catch (error) {
     if (String(error.message || "").includes("ENOENT")) {
       return fallbackValue;
@@ -197,7 +197,7 @@ async function readJson(relativePath, fallbackValue = []) {
     const raw = await isGithubConfigured()
       ? (async () => (await readGithubFile(relativePath)).content)()
       : readLocalRaw(relativePath);
-    return JSON.parse(await raw || JSON.stringify(fallbackValue));
+    return parsePossiblyConflictedJson(await raw || JSON.stringify(fallbackValue), fallbackValue, relativePath);
   } catch (error) {
     if (String(error.message || "").includes("ENOENT")) {
       return fallbackValue;
@@ -224,6 +224,80 @@ function normalizeMergeKey(value) {
 
 function isObject(value) {
   return value && typeof value === "object" && !Array.isArray(value);
+}
+
+function extractConflictBlocks(raw) {
+  const text = String(raw || "");
+  if (!text.includes("<<<<<<<")) return null;
+  const lines = text.split(/\r?\n/);
+  const blocks = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (!lines[i].startsWith("<<<<<<<")) {
+      i += 1;
+      continue;
+    }
+    i += 1;
+    const head = [];
+    while (i < lines.length && !lines[i].startsWith("=======")) {
+      head.push(lines[i]);
+      i += 1;
+    }
+    if (i < lines.length && lines[i].startsWith("=======")) i += 1;
+    const incoming = [];
+    while (i < lines.length && !lines[i].startsWith(">>>>>>>")) {
+      incoming.push(lines[i]);
+      i += 1;
+    }
+    if (i < lines.length && lines[i].startsWith(">>>>>>>")) i += 1;
+    blocks.push({ head: head.join("\n").trim(), incoming: incoming.join("\n").trim() });
+  }
+  return blocks.length ? blocks : null;
+}
+
+function parseJsonOrNull(raw) {
+  try {
+    return JSON.parse(String(raw || "").trim());
+  } catch (_) {
+    return null;
+  }
+}
+
+function mergeStructuredValues(left, right, relativePath = "") {
+  if (Array.isArray(left) && Array.isArray(right)) {
+    if (relativePath.includes("users")) return mergeUsers(left, right);
+    return mergeById(left, right);
+  }
+  if (isObject(left) && isObject(right)) {
+    return { ...left, ...right };
+  }
+  return right ?? left;
+}
+
+function parsePossiblyConflictedJson(raw, fallbackValue = [], relativePath = "") {
+  const direct = parseJsonOrNull(raw);
+  if (direct !== null) return direct;
+
+  const blocks = extractConflictBlocks(raw);
+  if (!blocks) {
+    throw new Error(`JSON inválido em ${relativePath || "arquivo de dados"}.`);
+  }
+
+  let repaired = null;
+  for (const block of blocks) {
+    const left = parseJsonOrNull(block.head);
+    const right = parseJsonOrNull(block.incoming);
+    if (left === null && right === null) continue;
+    repaired = repaired === null
+      ? mergeStructuredValues(left ?? fallbackValue, right ?? fallbackValue, relativePath)
+      : mergeStructuredValues(repaired, mergeStructuredValues(left ?? fallbackValue, right ?? fallbackValue, relativePath), relativePath);
+  }
+
+  if (repaired === null) {
+    throw new Error(`JSON inválido em ${relativePath || "arquivo de dados"}: conflito de merge detectado.`);
+  }
+
+  return repaired;
 }
 
 function mergeUsers(localUsers = [], remoteUsers = []) {
@@ -257,7 +331,7 @@ function mergeById(localItems = [], remoteItems = []) {
 async function readGithubJsonIfExists(relativePath, fallbackValue = []) {
   try {
     const payload = await readGithubFile(relativePath);
-    return JSON.parse(String(payload?.content || "") || JSON.stringify(fallbackValue));
+    return parsePossiblyConflictedJson(String(payload?.content || "") || JSON.stringify(fallbackValue), fallbackValue, relativePath);
   } catch (error) {
     if (String(error.message || "").includes("GitHub 404")) {
       return fallbackValue;
