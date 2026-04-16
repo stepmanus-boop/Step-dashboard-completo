@@ -1,1 +1,13 @@
-[]
+[
+  {
+    "id": "a_43c8dc425d31",
+    "sector": "inspecao",
+    "title": "Teste",
+    "message": "teste",
+    "priority": "high",
+    "requiresAck": true,
+    "active": true,
+    "createdAt": "2026-04-16T01:28:07.113Z",
+    "createdBy": "admin"
+  }
+]
