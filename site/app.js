@@ -80,6 +80,11 @@ const installAppButtonEl = document.getElementById("install-app-button");
 const connectionStatusEl = document.getElementById("connection-status");
 let deferredInstallPrompt = null;
 
+function isElementHidden(el) {
+  return !el || el.classList.contains("hidden");
+}
+
+
 function isIosDevice() {
   return /iphone|ipad|ipod/i.test(window.navigator.userAgent || "");
 }
@@ -600,8 +605,10 @@ function setClock(targetTimeId, targetDateId, locale, timeZone) {
     timeZone,
   }).format(now);
 
-  document.getElementById(targetTimeId).textContent = timeText;
-  document.getElementById(targetDateId).textContent = dateText;
+  const timeEl = document.getElementById(targetTimeId);
+  const dateEl = document.getElementById(targetDateId);
+  if (timeEl) timeEl.textContent = timeText;
+  if (dateEl) dateEl.textContent = dateText;
 }
 
 
@@ -1438,27 +1445,8 @@ if (loginFormEl) {
   loginFormEl.addEventListener("submit", handleLoginSubmit);
 }
 
-if (openLoginButtonEl) {
-  openLoginButtonEl.addEventListener("click", () => {
-    openLoginModal();
-  });
-}
+bindCriticalUiEvents();
 
-if (loginGuestCloseEl) {
-  loginGuestCloseEl.addEventListener("click", closeLoginModal);
-}
-
-if (loginCloseEl) {
-  loginCloseEl.addEventListener("click", closeLoginModal);
-}
-
-if (loginModalEl) {
-  loginModalEl.addEventListener("click", (event) => {
-    if (event.target === loginModalEl || event.target.matches(".modal-backdrop")) {
-      closeLoginModal();
-    }
-  });
-}
 
 if (logoutButtonEl) {
   logoutButtonEl.addEventListener("click", handleLogout);
@@ -1586,15 +1574,43 @@ if (adminUsersListEl) {
   });
 }
 
+function bindCriticalUiEvents() {
+  if (openLoginButtonEl && !openLoginButtonEl.dataset.boundLoginOpen) {
+    openLoginButtonEl.dataset.boundLoginOpen = "true";
+    openLoginButtonEl.addEventListener("click", () => {
+      openLoginModal();
+    });
+  }
+
+  if (loginGuestCloseEl && !loginGuestCloseEl.dataset.boundLoginClose) {
+    loginGuestCloseEl.dataset.boundLoginClose = "true";
+    loginGuestCloseEl.addEventListener("click", closeLoginModal);
+  }
+
+  if (loginCloseEl && !loginCloseEl.dataset.boundLoginClose) {
+    loginCloseEl.dataset.boundLoginClose = "true";
+    loginCloseEl.addEventListener("click", closeLoginModal);
+  }
+
+  if (loginModalEl && !loginModalEl.dataset.boundLoginBackdrop) {
+    loginModalEl.dataset.boundLoginBackdrop = "true";
+    loginModalEl.addEventListener("click", (event) => {
+      if (event.target === loginModalEl || event.target.matches?.(".modal-backdrop")) {
+        closeLoginModal();
+      }
+    });
+  }
+}
+
 function closeLoginModal() {
   if (!loginModalEl) return;
   loginModalEl.classList.add("hidden");
   loginModalEl.setAttribute("aria-hidden", "true");
   if (
-    modalEl.classList.contains("hidden") &&
-    alertModalEl.classList.contains("hidden") &&
-    sectorAlertsModalEl.classList.contains("hidden") &&
-    adminModalEl.classList.contains("hidden")
+    isElementHidden(modalEl) &&
+    isElementHidden(alertModalEl) &&
+    isElementHidden(sectorAlertsModalEl) &&
+    isElementHidden(adminModalEl)
   ) {
     document.body.classList.remove("modal-open");
   }
@@ -1919,10 +1935,10 @@ function closeAdminModal() {
   adminModalEl.classList.add("hidden");
   adminModalEl.setAttribute("aria-hidden", "true");
   if (
-    modalEl.classList.contains("hidden") &&
-    alertModalEl.classList.contains("hidden") &&
-    sectorAlertsModalEl.classList.contains("hidden") &&
-    loginModalEl.classList.contains("hidden")
+    isElementHidden(modalEl) &&
+    isElementHidden(alertModalEl) &&
+    isElementHidden(sectorAlertsModalEl) &&
+    isElementHidden(loginModalEl)
   ) {
     document.body.classList.remove("modal-open");
   }
@@ -2082,22 +2098,35 @@ async function init() {
   updateConnectionStatus();
   window.addEventListener("online", updateConnectionStatus);
   window.addEventListener("offline", updateConnectionStatus);
-  setupInstallExperience();
-  registerServiceWorker();
-  startClocks();
-  bindEvents();
+
+  bindCriticalUiEvents();
   setupLoginPasswordToggle();
   setupAdminPasswordToggle();
-  resetAdminUserForm();
-  const authenticated = await bootstrapSession();
-  await loadProjects();
-  if (authenticated) {
-    await loadManualAlerts();
-    if (state.user?.role === "admin") {
-      await loadAdminData();
+
+  try {
+    setupInstallExperience();
+    registerServiceWorker();
+    startClocks();
+    bindEvents();
+    resetAdminUserForm();
+    const authenticated = await bootstrapSession();
+    await loadProjects();
+    if (authenticated) {
+      await loadManualAlerts();
+      if (state.user?.role === "admin") {
+        await loadAdminData();
+      }
+    }
+    startPolling();
+  } catch (error) {
+    console.error("Falha ao inicializar a aplicação.", error);
+    if (loginFeedbackEl) {
+      loginFeedbackEl.textContent = "O painel carregou com falha parcial, mas o login continua disponível.";
+    }
+    if (bodyEl && !bodyEl.children.length) {
+      bodyEl.innerHTML = `<tr><td colspan="17" class="loading-cell">Falha ao carregar dados. Recarregue a página.</td></tr>`;
     }
   }
-  startPolling();
 }
 
 init();
