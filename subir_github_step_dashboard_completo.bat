@@ -8,10 +8,12 @@ echo.
 
 cd /d "%~dp0"
 
+set /p REPO_URL=Cole a URL do repositorio GitHub: 
+
 git init
 git branch -M main
 git remote remove origin 2>nul
-git remote add origin https://github.com/stepmanus-boop/Step-dashboard-completo.git
+git remote add origin "%REPO_URL%"
 
 git add .
 git commit -m "Atualizacao do projeto"
