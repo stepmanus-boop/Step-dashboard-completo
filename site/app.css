@@ -2212,3 +2212,94 @@ button.alert-badge {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Login visual refresh with offshore image */
+.login-panel--visual {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(4, 14, 26, 0.18), rgba(4, 14, 26, 0.72)),
+    url("./assets/offshore-login-bg.png") center center / cover no-repeat;
+}
+
+.login-panel--visual::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(6, 20, 34, 0.10) 0%, rgba(4, 14, 26, 0.18) 38%, rgba(4, 14, 26, 0.72) 100%);
+  z-index: 0;
+}
+
+.login-panel--visual::after {
+  content: "";
+  position: absolute;
+  inset: auto 22px 22px 22px;
+  height: 96px;
+  border-radius: 28px;
+  background: linear-gradient(180deg, rgba(4, 14, 26, 0), rgba(4, 14, 26, 0.62));
+  z-index: 0;
+}
+
+.login-visual-content {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  padding: 34px 28px 28px;
+  color: #fff;
+}
+
+.login-visual-top--image {
+  max-width: none;
+  justify-self: start;
+  align-self: start;
+  text-align: left;
+}
+
+.login-visual-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(4, 17, 31, 0.36);
+  border: 1px solid rgba(255,255,255,0.22);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: rgba(255,255,255,0.96);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.22);
+}
+
+.offshore-scene--image {
+  min-height: 360px;
+}
+
+.offshore-scene--image::before,
+.offshore-scene--image::after,
+.sea-line,
+.offshore-rig,
+.offshore-badge {
+  display: none !important;
+}
+
+@media (max-width: 860px) {
+  .login-panel--visual {
+    min-height: 260px;
+    background-position: center center;
+  }
+
+  .login-visual-content {
+    padding: 20px 18px 18px;
+  }
+
+  .offshore-scene--image {
+    min-height: 220px;
+  }
+}
