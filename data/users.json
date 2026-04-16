@@ -8,5 +8,15 @@
     "sector": "all",
     "active": true,
     "createdAt": "2026-04-15T00:00:00.000Z"
+  },
+  {
+    "id": "u_e0a9e16d878f",
+    "name": "INSPEÇÃO",
+    "username": "inspecao@step",
+    "passwordHash": "scrypt$f773250067d0780cf4c6440f1c050653$194287095917b248550cabef23186424ff99ec87bd69f589c3b946a9cad87b06",
+    "role": "sector",
+    "sector": "inspecao",
+    "active": true,
+    "createdAt": "2026-04-16T01:26:07.737Z"
   }
 ]
