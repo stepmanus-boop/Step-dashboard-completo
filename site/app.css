@@ -1792,6 +1792,9 @@ button.alert-badge {
 .modal-dialog--login {
   width: min(980px, calc(100vw - 32px));
   max-width: 980px;
+  height: auto;
+  max-height: min(86vh, 760px);
+  display: block;
   padding: 0;
   overflow: hidden;
   position: relative;
@@ -1814,6 +1817,7 @@ button.alert-badge {
   display: grid;
   grid-template-columns: minmax(0, 1.06fr) minmax(320px, 0.94fr);
   min-height: auto;
+  align-items: stretch;
 }
 
 .login-panel {
