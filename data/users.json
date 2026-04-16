@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "id": "u_667ee1bfddb6",
+    "name": "INSPEÇÃO",
+    "username": "inspecao@step",
+    "passwordHash": "scrypt$641474cf25a702a5b8bdb0990e1b96dc$26e88eaa811651e0659378d39373f570fe7bee04364a80a9eff789ac38632bae",
+    "role": "sector",
+    "sector": "inspecao",
+    "active": true,
+    "createdAt": "2026-04-16T00:50:29.283Z"
+  }
+]
