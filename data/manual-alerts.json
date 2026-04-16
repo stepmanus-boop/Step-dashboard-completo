@@ -1,1 +1,17 @@
+<<<<<<< HEAD
 []
+=======
+[
+  {
+    "id": "a_660d24b8ffc9",
+    "sector": "inspecao",
+    "title": "Teste",
+    "message": "alerta de teste",
+    "priority": "high",
+    "requiresAck": true,
+    "active": true,
+    "createdAt": "2026-04-16T00:51:36.427Z",
+    "createdBy": "admin"
+  }
+]
+>>>>>>> 4be8fc707a0e4181bbf38499a9c6fe4b35b163da
