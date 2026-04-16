@@ -3,6 +3,6 @@ Antes de publicar o projeto, edite o arquivo github-sync.json desta pasta e pree
 - repo
 - branch
 
-Exemplo de repo: stepmanus-boop/Step-dashboard
+Exemplo de repo: USUARIO/REPOSITORIO
 Exemplo de branch: main
 Depois faça o deploy normalmente.
