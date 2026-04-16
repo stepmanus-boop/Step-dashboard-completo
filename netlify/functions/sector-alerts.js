@@ -127,17 +127,17 @@ exports.handler = async (event) => {
       const effectiveSession = await getEffectiveSession(auth.session);
     const alerts = await listManualAlerts();
       const alert = alerts.find((item) => item.id === alertId);
-      if (!alert || !alertVisibleToUser(alert, auth.session)) {
+      if (!alert || !alertVisibleToUser(alert, effectiveSession)) {
         return jsonResponse(404, { ok: false, error: 'Alerta não encontrado.' });
       }
 
-      const existing = await findAcknowledgement(alertId, auth.session.sub);
+      const existing = await findAcknowledgement(alertId, effectiveSession.sub);
       if (!existing) {
         await addAcknowledgement({
           alertId,
-          userId: auth.session.sub,
-          username: auth.session.username,
-          sector: auth.session.sector,
+          userId: effectiveSession.sub,
+          username: effectiveSession.username,
+          sector: effectiveSession.sector,
         });
       }
 
