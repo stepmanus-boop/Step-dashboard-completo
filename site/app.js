@@ -262,14 +262,27 @@ function readAlertNotificationState(key) {
   }
 }
 
-function writeAlertNotificationState(key, signature, notifiedAt = null) {
-  window.localStorage.setItem(key, JSON.stringify({ signature, notifiedAt }));
+function writeAlertNotificationState(key, signature, notifiedAt = null, notifiedWindow = '') {
+  window.localStorage.setItem(key, JSON.stringify({ signature, notifiedAt, notifiedWindow }));
 }
 
-function shouldNotifyAlert(stateEntry, signature) {
+function getProjectAlertWindow(date = new Date()) {
+  const hours = Number(date.getHours());
+  if (hours === 9) return `${date.toISOString().slice(0, 10)}:09`;
+  if (hours === 14) return `${date.toISOString().slice(0, 10)}:14`;
+  return '';
+}
+
+function shouldNotifyAlert(stateEntry, signature, options = {}) {
   if (!signature) return false;
   if (!stateEntry?.signature) return false;
   if (stateEntry.signature === signature) return false;
+  const scheduleOnly = Boolean(options.scheduleOnly);
+  if (scheduleOnly) {
+    const activeWindow = getProjectAlertWindow();
+    if (!activeWindow) return false;
+    return stateEntry?.notifiedWindow !== activeWindow;
+  }
   const lastNotifiedAt = Number(stateEntry.notifiedAt || 0);
   return !lastNotifiedAt || (Date.now() - lastNotifiedAt) >= ALERT_NOTIFICATION_COOLDOWN_MS;
 }
@@ -287,23 +300,29 @@ function detectNewUserAlerts() {
 
   let manualNotifiedAt = prevManual?.notifiedAt || null;
   let autoNotifiedAt = prevAuto?.notifiedAt || null;
+  let manualNotifiedWindow = prevManual?.notifiedWindow || '';
+  let autoNotifiedWindow = prevAuto?.notifiedWindow || '';
+  const scheduledProjectAlerts = userHasProjectsScope(state.user) && state.projectView === 'mine';
+  const activeWindow = scheduledProjectAlerts ? getProjectAlertWindow() : '';
 
-  if (shouldNotifyAlert(prevManual, manualSignature)) {
+  if (shouldNotifyAlert(prevManual, manualSignature, { scheduleOnly: scheduledProjectAlerts })) {
     const latest = manualAlerts[0];
     if (latest) {
       showBrowserNotification('Novo alerta operacional', latest.title || latest.message || 'Você recebeu um novo alerta.', `manual-${latest.id}`);
       manualNotifiedAt = Date.now();
+      manualNotifiedWindow = activeWindow || '';
     }
   }
-  if (shouldNotifyAlert(prevAuto, automaticSignature)) {
+  if (shouldNotifyAlert(prevAuto, automaticSignature, { scheduleOnly: scheduledProjectAlerts })) {
     const latestAuto = automaticAlerts[0];
     if (latestAuto) {
       showBrowserNotification('Prazo em alerta', `${latestAuto.projectDisplay || latestAuto.projectNumber || 'Projeto'} requer atenção do seu setor.`, `auto-${latestAuto.projectNumber || latestAuto.projectDisplay}`);
       autoNotifiedAt = Date.now();
+      autoNotifiedWindow = activeWindow || '';
     }
   }
-  writeAlertNotificationState(manualKey, manualSignature, manualNotifiedAt);
-  writeAlertNotificationState(autoKey, automaticSignature, autoNotifiedAt);
+  writeAlertNotificationState(manualKey, manualSignature, manualNotifiedAt, manualNotifiedWindow);
+  writeAlertNotificationState(autoKey, automaticSignature, autoNotifiedAt, autoNotifiedWindow);
   state.manualAlertSignature = manualSignature;
   state.automaticAlertSignature = automaticSignature;
 }
@@ -1495,6 +1514,7 @@ function getAlertSignature() {
 
 function shouldOpenAlertPopup() {
   if (!state.alerts.length) return false;
+  if (userHasProjectsScope(state.user) && state.projectView === 'mine' && !getProjectAlertWindow()) return false;
   try {
     const raw = window.localStorage.getItem(getAlertStorageKey());
     const saved = raw ? JSON.parse(raw) : null;
@@ -2253,6 +2273,15 @@ function getUserAutomaticAlerts() {
   const allowedSectors = new Set(getUserAlertSectors(state.user));
   return (Array.isArray(state.alerts) ? state.alerts : [])
     .filter((alert) => allowedSectors.has(normalizeSectorValue(alert?.sector)))
+    .filter((alert) => {
+      if (!userHasProjectsScope(state.user)) return true;
+      const relatedProject = state.projects.find((project) => {
+        const alertNumber = normalizeText(alert?.projectNumber || alert?.projectDisplay || '');
+        const projectNumber = normalizeText(project?.projectNumber || project?.projectDisplay || '');
+        return alertNumber && projectNumber && alertNumber === projectNumber;
+      });
+      return relatedProject ? projectBelongsToUser(relatedProject, state.user) : false;
+    })
     .sort((a, b) => {
       if ((a?.daysRemaining ?? 0) !== (b?.daysRemaining ?? 0)) {
         return (a?.daysRemaining ?? 0) - (b?.daysRemaining ?? 0);
@@ -2325,7 +2354,7 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
       <section class="manual-alert-section">
         <div class="admin-list-item-meta">
           <span class="manual-alert-tag manual-alert-tag--high">Automáticos</span>
-          <span>${automaticAlerts.length} alerta(s) de prazo para ${escapeHtml(formatSectorList(getUserAlertSectors(state.user)))}</span>
+          <span>${automaticAlerts.length} alerta(s) de prazo${userHasProjectsScope(state.user) ? ' dos seus projetos' : ` para ${escapeHtml(formatSectorList(getUserAlertSectors(state.user)))}`}</span>
         </div>
         <div class="manual-alert-section-list">
           ${automaticAlerts.map((alert) => {
