@@ -282,10 +282,51 @@ function stageStatusFromPercent(percent) {
   return "waiting";
 }
 
+const HDG_FBE_PAINT_PROGRESS_KEY = "HDG / FBE.  (PAINT)";
+const HDG_FBE_PAINT_EXIT_KEY = "HDG / FBE DATE SAIDA (PAINT)";
+const HDG_FBE_PAINT_RETURN_KEY = "HDG / FBE DATE RETORNO (PAINT)";
+
+function isNotApplicableValue(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "n/a" || normalized === "na";
+}
+
+function getHdgFbePaintState(row) {
+  const rawText = textValue(row, HDG_FBE_PAINT_PROGRESS_KEY);
+  const percent = parsePercent(row, HDG_FBE_PAINT_PROGRESS_KEY);
+  const ignored = isNotApplicableValue(rawText);
+  const hasProgress = percent != null;
+  const active = !ignored && (hasProgress || Boolean(rawText));
+  return {
+    rawText,
+    percent,
+    ignored,
+    active,
+    completed: active && hasProgress && percent >= 100,
+    inProgress: active && hasProgress && percent > 0 && percent < 100,
+  };
+}
+
+function shouldIgnoreOptionalPaintStage(row, stageKey) {
+  if (![HDG_FBE_PAINT_PROGRESS_KEY, HDG_FBE_PAINT_EXIT_KEY, HDG_FBE_PAINT_RETURN_KEY].includes(stageKey)) return false;
+  const paintState = getHdgFbePaintState(row);
+  return paintState.ignored;
+}
+
 function buildStageValues(row) {
   const stageValues = {};
+  const paintState = getHdgFbePaintState(row);
   for (const stage of STAGE_ORDER) {
+    if (shouldIgnoreOptionalPaintStage(row, stage.key)) {
+      stageValues[stage.key] = stage.type === "date" ? "" : "N/A";
+      continue;
+    }
+
     if (stage.type === "percent") {
+      if (stage.key === HDG_FBE_PAINT_PROGRESS_KEY && paintState.ignored) {
+        stageValues[stage.key] = "N/A";
+        continue;
+      }
       const value = parsePercent(row, stage.key);
       stageValues[stage.key] = value == null ? null : value;
       continue;
@@ -306,8 +347,13 @@ function deriveProgress(row) {
   const milestones = [];
   const completedStages = [];
   let currentStage = null;
+  const paintState = getHdgFbePaintState(row);
 
   for (const stage of STAGE_ORDER) {
+    if (shouldIgnoreOptionalPaintStage(row, stage.key)) {
+      continue;
+    }
+
     if (stage.type === "date") {
       const value = textValue(row, stage.key);
       if (value) {
@@ -326,7 +372,12 @@ function deriveProgress(row) {
     }
 
     const percent = parsePercent(row, stage.key);
-    const hasContent = percent != null || textValue(row, stage.key);
+    const rawText = textValue(row, stage.key);
+    if (stage.key === HDG_FBE_PAINT_PROGRESS_KEY && paintState.ignored) {
+      continue;
+    }
+
+    const hasContent = percent != null || rawText;
     if (!hasContent && stage.optional) continue;
     if (!hasContent) continue;
 
