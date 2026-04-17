@@ -202,7 +202,7 @@ body.modal-open { overflow: hidden; }
 
 .content-grid {
   min-height: 0;
-  height: 100%;
+  height: calc(100% + 350px);
   display: grid;
   grid-template-columns: minmax(0, 1.75fr) minmax(320px, 0.75fr);
   gap: 12px;
