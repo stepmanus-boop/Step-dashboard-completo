@@ -2571,3 +2571,7 @@ button.alert-badge {
   border-color: rgba(77, 208, 225, 0.45);
   color: #e9fcff;
 }
+
+.project-view-tabs {
+  display: none !important;
+}

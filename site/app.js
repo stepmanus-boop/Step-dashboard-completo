@@ -1189,7 +1189,7 @@ function renderProjectViewTabs() {
     return;
   }
   const mineCount = state.projects.filter((project) => projectBelongsToUser(project)).length;
-  projectViewTabsEl.classList.remove('hidden');
+  projectViewTabsEl.classList.add('hidden');
   projectViewTabsEl.innerHTML = `
     <button type="button" class="ghost-button ghost-button--compact ${state.projectView === 'all' ? 'is-active' : ''}" data-project-view="all">Todos os projetos <strong>${state.projects.length}</strong></button>
     <button type="button" class="ghost-button ghost-button--compact ${state.projectView === 'mine' ? 'is-active' : ''}" data-project-view="mine">Meus projetos <strong>${mineCount}</strong></button>
