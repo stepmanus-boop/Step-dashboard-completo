@@ -2544,3 +2544,21 @@ button.alert-badge {
   .manual-alert-hero, .manual-alert-section-head { flex-direction: column; }
   .manual-alert-summary-grid { grid-template-columns: 1fr; }
 }
+
+
+.project-view-tabs {
+  display: flex;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+  flex-wrap: wrap;
+}
+
+.project-view-tabs.hidden {
+  display: none;
+}
+
+.project-view-tabs .ghost-button.is-active {
+  background: rgba(6, 118, 164, 0.18);
+  border-color: rgba(77, 208, 225, 0.45);
+  color: #e9fcff;
+}

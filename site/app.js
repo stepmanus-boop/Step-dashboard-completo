@@ -5,6 +5,7 @@ let adminResponsesPollTimer = null;
 const state = {
   projects: [],
   filteredProjects: [],
+  projectView: 'all',
   stats: null,
   meta: null,
   alerts: [],
@@ -42,6 +43,7 @@ const demandFilterEl = document.getElementById("demand-filter");
 const weekFilterEl = document.getElementById("week-filter");
 const searchCountEl = document.getElementById("search-count");
 const tableShellEl = document.getElementById("table-shell");
+const projectViewTabsEl = document.getElementById("project-view-tabs");
 const modalEl = document.getElementById("project-modal");
 const modalContentEl = document.getElementById("modal-content");
 const modalTitleEl = document.getElementById("modal-title");
@@ -368,6 +370,7 @@ const AVAILABLE_SECTORS = [
   { value: "producao", label: "Produção" },
   { value: "calderaria", label: "Calderaria" },
   { value: "solda", label: "Solda" },
+  { value: "projetos", label: "Projetos" },
 ];
 
 function normalizeSectorValue(value) {
@@ -382,6 +385,7 @@ function normalizeSectorValue(value) {
   if (["producao", "production"].includes(normalized)) return "producao";
   if (["calderaria", "boilermaker", "fabrication"].includes(normalized)) return "calderaria";
   if (["solda", "welding"].includes(normalized)) return "solda";
+  if (["projetos", "projeto", "project", "projects", "pm"].includes(normalized)) return "projetos";
   if (normalized === "all") return "all";
   return normalized;
 }
@@ -431,6 +435,7 @@ function sectorLabel(value) {
   if (normalized === "producao") return "Produção";
   if (normalized === "calderaria") return "Calderaria";
   if (normalized === "solda") return "Solda";
+  if (normalized === "projetos") return "Projetos";
   if (normalized === "all") return "Todos";
   return value || "—";
 }
@@ -964,11 +969,70 @@ function getWeldedWeightForWeek(weekLabel) {
   }, 0);
 }
 
+function userHasProjectsScope(user = state.user) {
+  if (!user || user.role === "admin") return false;
+  return getUserAlertSectors(user).includes("projetos") || normalizeSectorValue(user.sector) === "projetos";
+}
+
+function tokenizeNormalizedNames(values = []) {
+  const set = new Set();
+  const source = Array.isArray(values) ? values : [values];
+  for (const value of source) {
+    const normalized = normalizeText(value).trim();
+    if (!normalized) continue;
+    set.add(normalized);
+    for (const part of normalized.split(/[^a-z0-9]+/)) {
+      if (part) set.add(part);
+    }
+  }
+  return set;
+}
+
+function projectBelongsToUser(project, user = state.user) {
+  if (!project || !userHasProjectsScope(user)) return false;
+  const pmValue = String(project.pm || '').trim();
+  if (!pmValue) return false;
+  const candidates = tokenizeNormalizedNames([user.name, user.username, String(user.username || '').split('@')[0]]);
+  if (!candidates.size) return false;
+  const normalizedPm = normalizeText(pmValue).trim();
+  const pmTokens = tokenizeNormalizedNames(pmValue.split(/[;,|/]+/));
+  for (const candidate of candidates) {
+    if (normalizedPm === candidate || normalizedPm.includes(candidate)) return true;
+    if (pmTokens.has(candidate)) return true;
+  }
+  return false;
+}
+
+function getVisibleProjectsSource() {
+  if (state.projectView === 'mine' && userHasProjectsScope()) {
+    return state.projects.filter((project) => projectBelongsToUser(project));
+  }
+  return state.projects;
+}
+
+function renderProjectViewTabs() {
+  if (!projectViewTabsEl) return;
+  if (!userHasProjectsScope()) {
+    state.projectView = 'all';
+    projectViewTabsEl.innerHTML = '';
+    projectViewTabsEl.classList.add('hidden');
+    return;
+  }
+  const mineCount = state.projects.filter((project) => projectBelongsToUser(project)).length;
+  projectViewTabsEl.classList.remove('hidden');
+  projectViewTabsEl.innerHTML = `
+    <button type="button" class="ghost-button ghost-button--compact ${state.projectView === 'all' ? 'is-active' : ''}" data-project-view="all">Todos os projetos <strong>${state.projects.length}</strong></button>
+    <button type="button" class="ghost-button ghost-button--compact ${state.projectView === 'mine' ? 'is-active' : ''}" data-project-view="mine">Meus projetos <strong>${mineCount}</strong></button>
+  `;
+}
+
 function applyFilter() {
   const query = normalizeText(state.searchQuery).trim();
   const demand = normalizeText(state.demandFilter).trim();
 
-  state.filteredProjects = state.projects
+  const sourceProjects = getVisibleProjectsSource();
+
+  state.filteredProjects = sourceProjects
     .filter((project) => {
       const matchesQuery = !query || project._searchText.includes(query);
       const matchesDemand = !demand || normalizeText(project.currentStage).includes(demand) || normalizeText(translateProjectStatus(project.projectStatus, project.uiState)).includes(demand);
@@ -982,7 +1046,9 @@ function applyFilter() {
 }
 
 function getSelectedProject() {
-  return state.projects.find((project) => project.rowId === state.selectedProjectId) || null;
+  return state.filteredProjects.find((project) => project.rowId === state.selectedProjectId)
+    || state.projects.find((project) => project.rowId === state.selectedProjectId)
+    || null;
 }
 
 function getBacklogKg(project) {
@@ -1477,6 +1543,7 @@ async function loadProjects() {
     }
 
     state.projects = enrichProjects(data.projects || []);
+    renderProjectViewTabs();
     state.stats = data.stats || null;
     state.meta = data.meta || null;
     state.alerts = data.alerts || [];
@@ -1747,6 +1814,20 @@ if (logoutButtonEl) {
   logoutButtonEl.addEventListener("click", handleLogout);
 }
 
+if (projectViewTabsEl) {
+  projectViewTabsEl.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-project-view]');
+    if (!button) return;
+    const nextView = button.dataset.projectView === 'mine' ? 'mine' : 'all';
+    if (nextView === state.projectView) return;
+    state.projectView = nextView;
+    renderProjectViewTabs();
+    applyFilter();
+    renderTable();
+    renderSelectedProjectCard();
+  });
+}
+
 if (openSectorAlertsEl) {
   openSectorAlertsEl.addEventListener("click", () => {
     if (!state.user) {
@@ -1966,6 +2047,7 @@ function updateSessionUi() {
   if (!user) {
     sessionUserNameEl.textContent = "Visualização geral";
     sessionUserMetaEl.textContent = "Sem login, você vê todas as informações. Entre apenas para alertas e direcionamento por setor.";
+    renderProjectViewTabs();
     sessionStatusEl.textContent = "visitante";
     logoutButtonEl.classList.add("hidden");
     openAdminPanelEl.classList.add("hidden");
