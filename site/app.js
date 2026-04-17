@@ -1032,6 +1032,8 @@ function buildClientStats(projects) {
     awaitingShipmentTags: 0,
     notStarted: 0,
     notStartedTags: 0,
+    notStartedHold: 0,
+    notStartedHoldTags: 0,
     averageOverallProgress: 0,
   };
 
@@ -1077,8 +1079,16 @@ function buildClientStats(projects) {
         stats.inProgressTags += tags;
       }
     } else {
+      const normalizedProjectStatus = String(project?.projectStatus || "").trim().toUpperCase().replace(/\s+/g, " ");
+      const isHoldProject = ["ON HOLD", "HOLD", "PAUSED", "EM ESPERA"].includes(normalizedProjectStatus);
+
       stats.notStarted += 1;
       stats.notStartedTags += tags;
+
+      if (isHoldProject) {
+        stats.notStartedHold += 1;
+        stats.notStartedHoldTags += tags;
+      }
     }
   }
 
@@ -1269,6 +1279,10 @@ function renderStats() {
 
   document.getElementById("stat-not-started").textContent = formatNumber(stats.notStarted);
   setTags("stat-not-started-tags", stats.notStartedTags);
+
+  const notStartedHoldEl = document.getElementById("stat-not-started-hold");
+  if (notStartedHoldEl) notStartedHoldEl.textContent = formatNumber(stats.notStartedHold);
+  setTags("stat-not-started-hold-tags", stats.notStartedHoldTags);
 
   document.getElementById("stat-in-progress").textContent = formatNumber(stats.inProgress);
   setTags("stat-in-progress-tags", stats.inProgressTags);
