@@ -1,4 +1,5 @@
 const DEFAULT_POLL_MS = 10000;
+const ALERT_NOTIFICATION_COOLDOWN_MS = 4 * 60 * 60 * 1000;
 
 let adminResponsesPollTimer = null;
 
@@ -251,6 +252,28 @@ async function syncPushSubscription(forcePrompt = false) {
   return true;
 }
 
+function readAlertNotificationState(key) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeAlertNotificationState(key, signature, notifiedAt = null) {
+  window.localStorage.setItem(key, JSON.stringify({ signature, notifiedAt }));
+}
+
+function shouldNotifyAlert(stateEntry, signature) {
+  if (!signature) return false;
+  if (!stateEntry?.signature) return false;
+  if (stateEntry.signature === signature) return false;
+  const lastNotifiedAt = Number(stateEntry.notifiedAt || 0);
+  return !lastNotifiedAt || (Date.now() - lastNotifiedAt) >= ALERT_NOTIFICATION_COOLDOWN_MS;
+}
+
 function detectNewUserAlerts() {
   if (!state.user || state.user.role === 'admin') return;
   const manualAlerts = Array.isArray(state.manualAlerts) ? state.manualAlerts : [];
@@ -259,19 +282,28 @@ function detectNewUserAlerts() {
   const automaticSignature = buildAlertSignature(automaticAlerts, (item) => `${item.projectNumber || item.projectDisplay}:${item.sector}:${item.daysRemaining}`);
   const manualKey = getAlertStorageKey('manual', state.user.sub || state.user.username);
   const autoKey = getAlertStorageKey('automatic', state.user.sub || state.user.username);
-  const prevManual = window.localStorage.getItem(manualKey) || '';
-  const prevAuto = window.localStorage.getItem(autoKey) || '';
+  const prevManual = readAlertNotificationState(manualKey);
+  const prevAuto = readAlertNotificationState(autoKey);
 
-  if (prevManual && prevManual !== manualSignature) {
+  let manualNotifiedAt = prevManual?.notifiedAt || null;
+  let autoNotifiedAt = prevAuto?.notifiedAt || null;
+
+  if (shouldNotifyAlert(prevManual, manualSignature)) {
     const latest = manualAlerts[0];
-    if (latest) showBrowserNotification('Novo alerta operacional', latest.title || latest.message || 'Você recebeu um novo alerta.', `manual-${latest.id}`);
+    if (latest) {
+      showBrowserNotification('Novo alerta operacional', latest.title || latest.message || 'Você recebeu um novo alerta.', `manual-${latest.id}`);
+      manualNotifiedAt = Date.now();
+    }
   }
-  if (prevAuto && prevAuto !== automaticSignature) {
+  if (shouldNotifyAlert(prevAuto, automaticSignature)) {
     const latestAuto = automaticAlerts[0];
-    if (latestAuto) showBrowserNotification('Prazo em alerta', `${latestAuto.projectDisplay || latestAuto.projectNumber || 'Projeto'} requer atenção do seu setor.`, `auto-${latestAuto.projectNumber || latestAuto.projectDisplay}`);
+    if (latestAuto) {
+      showBrowserNotification('Prazo em alerta', `${latestAuto.projectDisplay || latestAuto.projectNumber || 'Projeto'} requer atenção do seu setor.`, `auto-${latestAuto.projectNumber || latestAuto.projectDisplay}`);
+      autoNotifiedAt = Date.now();
+    }
   }
-  window.localStorage.setItem(manualKey, manualSignature);
-  window.localStorage.setItem(autoKey, automaticSignature);
+  writeAlertNotificationState(manualKey, manualSignature, manualNotifiedAt);
+  writeAlertNotificationState(autoKey, automaticSignature, autoNotifiedAt);
   state.manualAlertSignature = manualSignature;
   state.automaticAlertSignature = automaticSignature;
 }
@@ -934,8 +966,85 @@ function getActiveWeekLabel() {
   return state.weekFilter || "Todas as semanas";
 }
 
+function getStatsProjectsSource() {
+  return getVisibleProjectsSource();
+}
+
+function buildClientStats(projects) {
+  const stats = {
+    totalProjects: projects.length,
+    totalSpools: 0,
+    totalWeightKg: 0,
+    totalWeldedWeightKg: 0,
+    totalPaintingM2: 0,
+    completed: 0,
+    completedTags: 0,
+    inProgress: 0,
+    inProgressTags: 0,
+    inspectionProjects: 0,
+    inspectionTags: 0,
+    paintingProjects: 0,
+    paintingTags: 0,
+    awaitingShipment: 0,
+    awaitingShipmentTags: 0,
+    notStarted: 0,
+    notStartedTags: 0,
+    averageOverallProgress: 0,
+  };
+
+  let progressAccumulator = 0;
+  for (const project of projects) {
+    const tags = Number(project.quantitySpools || 0);
+    stats.totalSpools += tags;
+    stats.totalWeightKg += Number(project.kilos || 0);
+    stats.totalWeldedWeightKg += Number(project.weldedWeightKg || 0);
+    stats.totalPaintingM2 += Number(project.m2Painting || 0);
+    progressAccumulator += Number(project.overallProgress || 0);
+
+    const stateValue = project.operationalState || project.uiState;
+    const statusCandidates = [
+      project?.projectStatus,
+      project?.currentStage,
+      project?.operationalState,
+      project?.uiState,
+    ].filter(Boolean).map((value) => String(value).trim().toLowerCase());
+    const excludeFromCompletedCounts = Boolean(project?.projectFinishedFlag) || statusCandidates.some((value) => value.includes("project finished"));
+
+    if (stateValue === "completed") {
+      if (!excludeFromCompletedCounts) {
+        stats.completed += 1;
+        stats.completedTags += tags;
+      }
+    } else if (stateValue === "awaiting_shipment") {
+      if (!excludeFromCompletedCounts) {
+        stats.awaitingShipment += 1;
+        stats.awaitingShipmentTags += tags;
+        stats.completed += 1;
+        stats.completedTags += tags;
+      }
+    } else if (stateValue === "in_inspection") {
+      stats.inspectionProjects += 1;
+      stats.inspectionTags += tags;
+    } else if (stateValue === "in_production") {
+      if (project.operationalSector === "Pintura") {
+        stats.paintingProjects += 1;
+        stats.paintingTags += tags;
+      } else {
+        stats.inProgress += 1;
+        stats.inProgressTags += tags;
+      }
+    } else {
+      stats.notStarted += 1;
+      stats.notStartedTags += tags;
+    }
+  }
+
+  stats.averageOverallProgress = projects.length ? progressAccumulator / projects.length : 0;
+  return stats;
+}
+
 function getTotalWeldedWeightAllProjects() {
-  return state.projects.reduce((total, project) => {
+  return getStatsProjectsSource().reduce((total, project) => {
     const spools = project.spools || [];
     if (spools.length) {
       return total + spools.reduce((spoolTotal, spool) => spoolTotal + (spool.weldedWeightKg || 0), 0);
@@ -946,7 +1055,7 @@ function getTotalWeldedWeightAllProjects() {
 }
 
 function getTotalFinishedWeightAllProjects() {
-  return state.projects.reduce((total, project) => {
+  return getStatsProjectsSource().reduce((total, project) => {
     const isFinished = Boolean(project?.finished) || normalizeText(project?.projectStatus).includes("project finished") || normalizeText(project?.jobProcessStatus).includes("project finished");
     if (!isFinished) return total;
     return total + Number(project?.kilos || 0);
@@ -955,7 +1064,7 @@ function getTotalFinishedWeightAllProjects() {
 
 function getWeldedWeightForWeek(weekLabel) {
   if (!weekLabel || weekLabel === "Todas as semanas") return getTotalWeldedWeightAllProjects();
-  return state.projects.reduce((total, project) => {
+  return getStatsProjectsSource().reduce((total, project) => {
     const spools = project.spools || [];
     if (spools.length) {
       return total + spools.reduce((spoolTotal, spool) => {
@@ -977,8 +1086,15 @@ function userHasProjectsScope(user = state.user) {
 function updatePrimaryUserActionUi() {
   if (!openSectorAlertsEl) return;
   const projectsScope = userHasProjectsScope();
-  openSectorAlertsEl.textContent = projectsScope ? "Meus projetos" : "Meus alertas";
-  openSectorAlertsEl.title = projectsScope ? "Visualizar projetos vinculados ao seu nome na coluna PM" : "Visualizar alertas direcionados ao seu setor";
+  const viewingMine = projectsScope && state.projectView === "mine";
+  openSectorAlertsEl.textContent = projectsScope
+    ? (viewingMine ? "Todos os projetos" : "Meus projetos")
+    : "Meus alertas";
+  openSectorAlertsEl.title = projectsScope
+    ? (viewingMine
+        ? "Voltar para a visualização com todos os projetos"
+        : "Visualizar apenas os projetos vinculados ao seu nome na coluna PM")
+    : "Visualizar alertas direcionados ao seu setor";
   const titleEl = document.getElementById("sector-alerts-title");
   if (titleEl) {
     titleEl.textContent = projectsScope ? "Meus projetos" : "Meus alertas por setor";
@@ -1087,13 +1203,14 @@ function formatBacklogItemText(project) {
 }
 
 function renderStats() {
-  if (!state.stats) return;
+  const stats = buildClientStats(getStatsProjectsSource());
+  state.visibleStats = stats;
   const totalFinishedWeight = getTotalFinishedWeightAllProjects();
-  const totalWeldedWeight = Number(state.stats.totalWeldedWeightKg || 0);
-  const totalBacklogWelding = Math.max(0, Number(state.stats.totalWeightKg || 0) - totalWeldedWeight);
-  document.getElementById("stat-projects").textContent = formatNumber(state.stats.totalProjects);
+  const totalWeldedWeight = Number(stats.totalWeldedWeightKg || 0);
+  const totalBacklogWelding = Math.max(0, Number(stats.totalWeightKg || 0) - totalWeldedWeight);
+  document.getElementById("stat-projects").textContent = formatNumber(stats.totalProjects);
   document.getElementById("stat-spools").textContent = `${formatNumber(totalWeldedWeight, 0)} kg`;
-  document.getElementById("stat-total-weight").textContent = `${formatNumber(state.stats.totalWeightKg, 0)} kg`;
+  document.getElementById("stat-total-weight").textContent = `${formatNumber(stats.totalWeightKg, 0)} kg`;
   const backlogWeldingEl = document.getElementById("stat-backlog-welding");
   if (backlogWeldingEl) backlogWeldingEl.textContent = `${formatNumber(totalBacklogWelding, 0)} kg`;
 
@@ -1107,27 +1224,27 @@ function renderStats() {
     if (el) el.textContent = `Tags ${formatNumber(value ?? 0)}`;
   };
 
-  document.getElementById("stat-not-started").textContent = formatNumber(state.stats.notStarted);
-  setTags("stat-not-started-tags", state.stats.notStartedTags);
+  document.getElementById("stat-not-started").textContent = formatNumber(stats.notStarted);
+  setTags("stat-not-started-tags", stats.notStartedTags);
 
-  document.getElementById("stat-in-progress").textContent = formatNumber(state.stats.inProgress);
-  setTags("stat-in-progress-tags", state.stats.inProgressTags);
+  document.getElementById("stat-in-progress").textContent = formatNumber(stats.inProgress);
+  setTags("stat-in-progress-tags", stats.inProgressTags);
 
   const inspectionEl = document.getElementById("stat-inspection");
-  if (inspectionEl) inspectionEl.textContent = formatNumber(state.stats.inspectionProjects);
-  setTags("stat-inspection-tags", state.stats.inspectionTags);
+  if (inspectionEl) inspectionEl.textContent = formatNumber(stats.inspectionProjects);
+  setTags("stat-inspection-tags", stats.inspectionTags);
 
   const paintingEl = document.getElementById("stat-painting");
-  if (paintingEl) paintingEl.textContent = formatNumber(state.stats.paintingProjects);
-  setTags("stat-painting-tags", state.stats.paintingTags);
+  if (paintingEl) paintingEl.textContent = formatNumber(stats.paintingProjects);
+  setTags("stat-painting-tags", stats.paintingTags);
 
   const awaitingEl = document.getElementById("stat-awaiting-shipment");
-  if (awaitingEl) awaitingEl.textContent = formatNumber(state.stats.awaitingShipment);
-  setTags("stat-awaiting-tags", state.stats.awaitingShipmentTags);
+  if (awaitingEl) awaitingEl.textContent = formatNumber(stats.awaitingShipment);
+  setTags("stat-awaiting-tags", stats.awaitingShipmentTags);
 
   const completedEl = document.getElementById("stat-completed");
-  if (completedEl) completedEl.textContent = formatNumber(state.stats.completed);
-  setTags("stat-completed-tags", state.stats.completedTags);
+  if (completedEl) completedEl.textContent = formatNumber(stats.completed);
+  setTags("stat-completed-tags", stats.completedTags);
 }
 
 function renderTable() {
@@ -1627,6 +1744,7 @@ function bindEvents() {
   searchInputEl.addEventListener("input", (event) => {
     state.searchQuery = event.target.value;
     applyFilter();
+    renderStats();
     renderTable();
     renderSelectedProjectCard();
     tableShellEl.scrollTop = 0;
@@ -1651,6 +1769,7 @@ function bindEvents() {
     demandFilterEl.addEventListener("change", (event) => {
       state.demandFilter = event.target.value;
       applyFilter();
+      renderStats();
       renderTable();
       renderSelectedProjectCard();
       tableShellEl.scrollTop = 0;
@@ -1832,8 +1951,10 @@ if (projectViewTabsEl) {
     const nextView = button.dataset.projectView === 'mine' ? 'mine' : 'all';
     if (nextView === state.projectView) return;
     state.projectView = nextView;
+    updatePrimaryUserActionUi();
     renderProjectViewTabs();
     applyFilter();
+    renderStats();
     renderTable();
     renderSelectedProjectCard();
   });
@@ -1846,9 +1967,11 @@ if (openSectorAlertsEl) {
       return;
     }
     if (userHasProjectsScope()) {
-      state.projectView = 'mine';
+      state.projectView = state.projectView === 'mine' ? 'all' : 'mine';
+      updatePrimaryUserActionUi();
       renderProjectViewTabs();
       applyFilter();
+      renderStats();
       renderTable();
       renderSelectedProjectCard();
       document.getElementById('table-shell')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2077,8 +2200,8 @@ function updateSessionUi() {
     return;
   }
 
-  if (userHasProjectsScope(user)) {
-    state.projectView = 'mine';
+  if (!userHasProjectsScope(user)) {
+    state.projectView = 'all';
   }
 
   sessionUserNameEl.textContent = user.name || user.username;
