@@ -29,7 +29,7 @@ body.modal-open { overflow: hidden; }
 
 .page-shell {
   height: auto;
-  min-height: calc(100vh + 72px);
+  min-height: calc(100vh + 24px);
   display: grid;
   grid-template-rows: auto auto auto auto;
   gap: 10px;
@@ -201,7 +201,7 @@ body.modal-open { overflow: hidden; }
 .summary-card--shipment strong,.summary-card--shipment .summary-label { color: #6ff0ff; }
 
 .content-grid {
-  min-height: 700px;
+  min-height: 620px;
   display: grid;
   grid-template-columns: minmax(0, 1.75fr) minmax(320px, 0.75fr);
   gap: 12px;
