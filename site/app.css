@@ -29,7 +29,7 @@ body.modal-open { overflow: hidden; }
 
 .page-shell {
   height: auto;
-  min-height: calc(100vh + 220px);
+  min-height: calc(100vh + 72px);
   display: grid;
   grid-template-rows: auto auto auto auto;
   gap: 10px;
