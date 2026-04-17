@@ -883,14 +883,6 @@ function translateProjectStatus(projectStatus, uiState) {
   return projectStatus || uiStateLabel(uiState);
 }
 
-function isProjectOnHold(project) {
-  const normalized = String(project?.projectStatus || project?.projectStatusLabel || '')
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, ' ');
-  return ["ON HOLD", "HOLD", "PAUSED", "EM ESPERA"].includes(normalized);
-}
-
 function stageStatusClass(status) {
   if (status === "completed") return "completed";
   if (status === "in_progress") return "in_progress";
@@ -1040,8 +1032,6 @@ function buildClientStats(projects) {
     awaitingShipmentTags: 0,
     notStarted: 0,
     notStartedTags: 0,
-    notStartedHold: 0,
-    notStartedHoldTags: 0,
     averageOverallProgress: 0,
   };
 
@@ -1089,10 +1079,6 @@ function buildClientStats(projects) {
     } else {
       stats.notStarted += 1;
       stats.notStartedTags += tags;
-      if (isProjectOnHold(project)) {
-        stats.notStartedHold += 1;
-        stats.notStartedHoldTags += tags;
-      }
     }
   }
 
@@ -1283,10 +1269,6 @@ function renderStats() {
 
   document.getElementById("stat-not-started").textContent = formatNumber(stats.notStarted);
   setTags("stat-not-started-tags", stats.notStartedTags);
-
-  const notStartedHoldEl = document.getElementById("stat-not-started-hold");
-  if (notStartedHoldEl) notStartedHoldEl.textContent = formatNumber(stats.notStartedHold);
-  setTags("stat-not-started-hold-tags", stats.notStartedHoldTags);
 
   document.getElementById("stat-in-progress").textContent = formatNumber(stats.inProgress);
   setTags("stat-in-progress-tags", stats.inProgressTags);
