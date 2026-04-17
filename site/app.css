@@ -21,19 +21,19 @@ body {
     radial-gradient(circle at top center, rgba(0, 123, 255, 0.08), transparent 28%),
     linear-gradient(180deg, #01070d, #02101c 40%, #01070d 100%);
   color: var(--text);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 body.modal-open { overflow: hidden; }
 
 .page-shell {
-  height: calc(100vh + 28px);
+  height: auto;
   min-height: calc(100vh + 28px);
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 10px;
   padding: 12px;
-  overflow: hidden;
 }
 
 .topbar,
@@ -213,16 +213,19 @@ body.modal-open { overflow: hidden; }
 .panel {
   min-width: 0;
   min-height: 0;
+  height: 100%;
   display: grid;
   overflow: hidden;
 }
 
 
 .panel--table {
+  height: 100%;
   grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 
 .panel--detail {
+  height: 100%;
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
 }
