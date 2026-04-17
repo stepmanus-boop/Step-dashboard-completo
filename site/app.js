@@ -641,8 +641,32 @@ function normalizeAlertSectorFilterValue(value) {
   return normalized;
 }
 
+function alertBelongsToUser(alert) {
+  if (!userHasProjectsScope() || state.projectView !== 'mine') return true;
+  const project = (() => {
+    const projectId = Number(alert?.projectRowId || 0);
+    if (projectId) {
+      const direct = state.projects.find((item) => item.rowId === projectId);
+      if (direct) return direct;
+    }
+    const projectNumber = normalizeText(alert?.projectNumber || alert?.projectDisplay || '');
+    if (!projectNumber) return null;
+    return state.projects.find((item) => normalizeText(item.projectNumber) === projectNumber || normalizeText(item.projectDisplay) === projectNumber) || null;
+  })();
+  if (!project) return false;
+  return projectBelongsToUser(project);
+}
+
+function getVisibleAlertsSource() {
+  const alerts = Array.isArray(state.alerts) ? state.alerts : [];
+  if (userHasProjectsScope() && state.projectView === 'mine') {
+    return alerts.filter((alert) => alertBelongsToUser(alert));
+  }
+  return alerts;
+}
+
 function getFilteredAlerts() {
-  let alerts = [...state.alerts];
+  let alerts = [...getVisibleAlertsSource()];
   const clientQuery = normalizeText(state.alertClientQuery).trim();
 
   if (state.alertFilter === "medium") {
@@ -1505,35 +1529,83 @@ function closeProjectModal() {
 }
 
 function getAlertStorageKey() {
-  return "step-alert-popup-state";
+  const userKey = normalizeText(state.user?.username || state.user?.name || "guest") || "guest";
+  return `step-alert-popup-state:${userKey}`;
 }
 
 function getAlertSignature() {
   return state.meta?.alertSignature || "no-alerts";
 }
 
-function shouldOpenAlertPopup() {
-  if (!state.alerts.length) return false;
-  if (userHasProjectsScope(state.user) && state.projectView === 'mine' && !getProjectAlertWindow()) return false;
+function getAlertCooldownMs() {
+  if (userHasProjectsScope(state.user) && state.projectView === 'mine') {
+    return 0;
+  }
+  return 4 * 60 * 60 * 1000;
+}
+
+function getNextProjectAlertWindowTimestamp(now = new Date()) {
+  const next = new Date(now);
+  next.setSeconds(0, 0);
+  const hour = now.getHours();
+  if (hour < 9 || (hour === 9 && now.getMinutes() === 0)) {
+    next.setHours(9, 0, 0, 0);
+    return next.getTime();
+  }
+  if (hour < 14 || (hour === 14 && now.getMinutes() === 0)) {
+    next.setHours(14, 0, 0, 0);
+    return next.getTime();
+  }
+  next.setDate(next.getDate() + 1);
+  next.setHours(9, 0, 0, 0);
+  return next.getTime();
+}
+
+function readSavedAlertState() {
   try {
     const raw = window.localStorage.getItem(getAlertStorageKey());
-    const saved = raw ? JSON.parse(raw) : null;
-    const lastDismissedAt = Number(saved?.dismissedAt || 0);
-    const withinCooldown = lastDismissedAt > 0 && (Date.now() - lastDismissedAt) < 4 * 60 * 60 * 1000;
-    if (withinCooldown) return false;
-    return true;
+    return raw ? JSON.parse(raw) : null;
   } catch {
-    return true;
+    return null;
   }
 }
 
+function getSuppressedUntil() {
+  const saved = readSavedAlertState();
+  const localSuppressedUntil = Number(saved?.suppressedUntil || 0);
+  const memorySuppressedUntil = Number(state.alertPopupSuppressedUntil || 0);
+  return Math.max(localSuppressedUntil, memorySuppressedUntil);
+}
+
+function shouldOpenAlertPopup() {
+  const visibleAlerts = getVisibleAlertsSource();
+  if (!visibleAlerts.length) return false;
+
+  const now = Date.now();
+  if (userHasProjectsScope(state.user) && state.projectView === 'mine') {
+    const windowOpen = getProjectAlertWindow();
+    if (!windowOpen) return false;
+  }
+
+  const suppressedUntil = getSuppressedUntil();
+  if (suppressedUntil > now) return false;
+  return true;
+}
+
 function persistAlertDismiss() {
+  const now = Date.now();
+  let suppressedUntil = now + getAlertCooldownMs();
+  if (userHasProjectsScope(state.user) && state.projectView === 'mine') {
+    suppressedUntil = getNextProjectAlertWindowTimestamp(new Date(now));
+  }
+  state.alertPopupSuppressedUntil = suppressedUntil;
   try {
     window.localStorage.setItem(
       getAlertStorageKey(),
       JSON.stringify({
         signature: getAlertSignature(),
-        dismissedAt: Date.now(),
+        dismissedAt: now,
+        suppressedUntil,
       })
     );
   } catch {}
@@ -1541,7 +1613,7 @@ function persistAlertDismiss() {
 
 function renderAlertBadge() {
   if (!alertBadgeCountEl) return;
-  const totalAlerts = state.alerts.length || 0;
+  const totalAlerts = getVisibleAlertsSource().length || 0;
   alertBadgeCountEl.textContent = String(totalAlerts);
   if (openAlertsButtonEl) {
     openAlertsButtonEl.disabled = totalAlerts === 0;
@@ -1553,8 +1625,9 @@ function renderAlertBadge() {
 function renderAlertModal() {
   if (!alertModalContentEl) return;
 
-  const mediumCount = state.alerts.filter((alert) => getAlertSeverity(alert) === "medium").length;
-  const urgentCount = state.alerts.filter((alert) => getAlertSeverity(alert) === "urgent").length;
+  const visibleAlerts = getVisibleAlertsSource();
+  const mediumCount = visibleAlerts.filter((alert) => getAlertSeverity(alert) === "medium").length;
+  const urgentCount = visibleAlerts.filter((alert) => getAlertSeverity(alert) === "urgent").length;
   const sectorButtons = [
     { key: "solda", label: "Solda", match: ["Solda"] },
     { key: "calderaria", label: "Calderaria", match: ["Calderaria"] },
@@ -1565,7 +1638,7 @@ function renderAlertModal() {
   const sectorCounts = Object.fromEntries(
     sectorButtons.map((button) => [
       button.key,
-      state.alerts.filter((alert) => normalizeAlertSectorFilterValue(alert.sector) === button.key).length,
+      visibleAlerts.filter((alert) => normalizeAlertSectorFilterValue(alert.sector) === button.key).length,
     ])
   );
   const filteredAlerts = getFilteredAlerts();
@@ -1573,12 +1646,12 @@ function renderAlertModal() {
   const filterBar = `
     <div class="alert-filter-stack">
       <div class="alert-filter-bar">
-        <button type="button" class="alert-filter-button ${state.alertFilter === "all" ? "is-active" : ""}" data-alert-filter="all">Tudo <strong>${state.alerts.length}</strong></button>
+        <button type="button" class="alert-filter-button ${state.alertFilter === "all" ? "is-active" : ""}" data-alert-filter="all">Tudo <strong>${visibleAlerts.length}</strong></button>
         <button type="button" class="alert-filter-button alert-filter-button--medium ${state.alertFilter === "medium" ? "is-active" : ""}" data-alert-filter="medium">Médio <strong>${mediumCount}</strong></button>
         <button type="button" class="alert-filter-button alert-filter-button--urgent ${state.alertFilter === "urgent" ? "is-active" : ""}" data-alert-filter="urgent">Urgente <strong>${urgentCount}</strong></button>
       </div>
       <div class="alert-filter-bar alert-filter-bar--sector">
-        <button type="button" class="alert-filter-button ${state.alertSectorFilter === "all" ? "is-active" : ""}" data-alert-sector="all">Todos os setores <strong>${state.alerts.length}</strong></button>
+        <button type="button" class="alert-filter-button ${state.alertSectorFilter === "all" ? "is-active" : ""}" data-alert-sector="all">Todos os setores <strong>${visibleAlerts.length}</strong></button>
         ${sectorButtons.map((button) => `<button type="button" class="alert-filter-button alert-filter-button--sector ${state.alertSectorFilter === button.key ? "is-active" : ""}" data-alert-sector="${button.key}">${button.label} <strong>${sectorCounts[button.key]}</strong></button>`).join("")}
       </div>
       <div class="alert-toolbar-row">
@@ -1591,7 +1664,7 @@ function renderAlertModal() {
     </div>
   `;
 
-  if (!state.alerts.length) {
+  if (!visibleAlerts.length) {
     alertModalContentEl.innerHTML = `${filterBar}<div class="alert-empty">Nenhum prazo em alerta no momento.</div>`;
     return;
   }
@@ -1843,7 +1916,11 @@ function bindEvents() {
   modalCloseEl.addEventListener("click", closeProjectModal);
 
   if (alertModalCloseEl) {
-    alertModalCloseEl.addEventListener("click", closeAlertModal);
+    alertModalCloseEl.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      closeAlertModal();
+    });
   }
 
   if (alertModalEl) {

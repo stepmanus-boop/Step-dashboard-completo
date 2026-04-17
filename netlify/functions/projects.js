@@ -901,6 +901,8 @@ function buildStats(projects) {
     awaitingShipmentTags: 0,
     notStarted: 0,
     notStartedTags: 0,
+    notStartedHold: 0,
+    notStartedHoldTags: 0,
     averageOverallProgress: 0,
   };
 
@@ -916,6 +918,8 @@ function buildStats(projects) {
 
     const state = project.operationalState || project.uiState;
     const excludeFromCompletedCounts = hasProjectFinishedMarker(project);
+    const normalizedProjectStatus = String(project?.projectStatus || "").trim().toUpperCase().replace(/\s+/g, " ");
+    const isOnHold = ["ON HOLD", "HOLD", "EM ESPERA", "PAUSED"].includes(normalizedProjectStatus);
     if (state === "completed") {
       if (!excludeFromCompletedCounts) {
         stats.completed += 1;
@@ -942,6 +946,10 @@ function buildStats(projects) {
     } else {
       stats.notStarted += 1;
       stats.notStartedTags += tags;
+      if (isOnHold) {
+        stats.notStartedHold += 1;
+        stats.notStartedHoldTags += tags;
+      }
     }
   }
 
