@@ -27,8 +27,8 @@ body {
 body.modal-open { overflow: hidden; }
 
 .page-shell {
-  height: 100vh;
-  min-height: 100vh;
+  height: calc(100vh + 28px);
+  min-height: calc(100vh + 28px);
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 10px;
