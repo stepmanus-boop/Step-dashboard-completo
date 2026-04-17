@@ -2071,7 +2071,7 @@ if (openSectorAlertsEl) {
       renderStats();
       renderTable();
       renderSelectedProjectCard();
-      document.getElementById('table-shell')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (tableShellEl) tableShellEl.scrollTop = 0;
       return;
     }
     openSectorAlertsModal();
