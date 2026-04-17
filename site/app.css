@@ -21,18 +21,19 @@ body {
     radial-gradient(circle at top center, rgba(0, 123, 255, 0.08), transparent 28%),
     linear-gradient(180deg, #01070d, #02101c 40%, #01070d 100%);
   color: var(--text);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 body.modal-open { overflow: hidden; }
 
 .page-shell {
-  height: 100vh;
+  height: auto;
+  min-height: calc(100vh + 24px);
   display: grid;
-  grid-template-rows: auto auto auto 1fr auto;
+  grid-template-rows: auto auto auto auto;
   gap: 10px;
   padding: 12px;
-  overflow: hidden;
 }
 
 .topbar,
@@ -200,41 +201,30 @@ body.modal-open { overflow: hidden; }
 .summary-card--shipment strong,.summary-card--shipment .summary-label { color: #6ff0ff; }
 
 .content-grid {
+  min-height: 585px;
   display: grid;
   grid-template-columns: minmax(0, 1.75fr) minmax(320px, 0.75fr);
   gap: 12px;
   align-items: stretch;
   overflow: hidden;
-  min-height: 0;
-  height: 100%;
 }
 
 .panel {
   min-width: 0;
   min-height: 0;
   display: grid;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
+
 
 .panel--table {
-  overflow-y: auto;
-  align-self: stretch;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 
 .panel--detail {
-  overflow: visible;
-}
-
-
-.panel--table,
-.panel--detail {
-  grid-template-rows: auto auto minmax(0, 1fr);
-}
-
-.panel--detail { 
-  grid-template-rows: auto auto; 
+  grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
-  align-self: flex-start;
 }
 
 .panel-head {
@@ -384,9 +374,9 @@ body.modal-open { overflow: hidden; }
 
 .detail-card {
   min-height: 0;
-  height: auto;
+  height: 100%;
   padding: 14px;
-  overflow: visible;
+  overflow: auto;
 }
 .detail-placeholder {
   color: var(--muted);
