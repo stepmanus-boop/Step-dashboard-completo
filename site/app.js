@@ -974,6 +974,17 @@ function userHasProjectsScope(user = state.user) {
   return getUserAlertSectors(user).includes("projetos") || normalizeSectorValue(user.sector) === "projetos";
 }
 
+function updatePrimaryUserActionUi() {
+  if (!openSectorAlertsEl) return;
+  const projectsScope = userHasProjectsScope();
+  openSectorAlertsEl.textContent = projectsScope ? "Meus projetos" : "Meus alertas";
+  openSectorAlertsEl.title = projectsScope ? "Visualizar projetos vinculados ao seu nome na coluna PM" : "Visualizar alertas direcionados ao seu setor";
+  const titleEl = document.getElementById("sector-alerts-title");
+  if (titleEl) {
+    titleEl.textContent = projectsScope ? "Meus projetos" : "Meus alertas por setor";
+  }
+}
+
 function tokenizeNormalizedNames(values = []) {
   const set = new Set();
   const source = Array.isArray(values) ? values : [values];
@@ -1834,6 +1845,15 @@ if (openSectorAlertsEl) {
       openLoginModal();
       return;
     }
+    if (userHasProjectsScope()) {
+      state.projectView = 'mine';
+      renderProjectViewTabs();
+      applyFilter();
+      renderTable();
+      renderSelectedProjectCard();
+      document.getElementById('table-shell')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
     openSectorAlertsModal();
   });
 }
@@ -2045,8 +2065,10 @@ function setupAdminPasswordToggle() {
 function updateSessionUi() {
   const user = state.user;
   if (!user) {
+    state.projectView = 'all';
     sessionUserNameEl.textContent = "Visualização geral";
     sessionUserMetaEl.textContent = "Sem login, você vê todas as informações. Entre apenas para alertas e direcionamento por setor.";
+    updatePrimaryUserActionUi();
     renderProjectViewTabs();
     sessionStatusEl.textContent = "visitante";
     logoutButtonEl.classList.add("hidden");
@@ -2055,9 +2077,14 @@ function updateSessionUi() {
     return;
   }
 
+  if (userHasProjectsScope(user)) {
+    state.projectView = 'mine';
+  }
+
   sessionUserNameEl.textContent = user.name || user.username;
   const linkedSectors = getUserAlertSectors(user);
   sessionUserMetaEl.textContent = `${user.role === "admin" ? "Administrador" : "Setor"} • ${sectorLabel(user.sector)}${user.role !== "admin" && linkedSectors.length > 1 ? ` • Alertas: ${formatSectorList(linkedSectors)}` : ""}`;
+  updatePrimaryUserActionUi();
   sessionStatusEl.textContent = "online";
   logoutButtonEl.classList.remove("hidden");
   if (openLoginButtonEl) openLoginButtonEl.classList.add("hidden");
