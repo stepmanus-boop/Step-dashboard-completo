@@ -201,7 +201,7 @@ body.modal-open { overflow: hidden; }
 .summary-card--shipment strong,.summary-card--shipment .summary-label { color: #6ff0ff; }
 
 .content-grid {
-  min-height: 620px;
+  min-height: 585px;
   display: grid;
   grid-template-columns: minmax(0, 1.75fr) minmax(320px, 0.75fr);
   gap: 12px;
