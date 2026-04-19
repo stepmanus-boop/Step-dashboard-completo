@@ -930,9 +930,9 @@ function buildStats(projects) {
         stats.completedTags += tags;
       }
     } else if (state === "awaiting_shipment") {
+      stats.awaitingShipment += 1;
+      stats.awaitingShipmentTags += tags;
       if (!excludeFromCompletedCounts) {
-        stats.awaitingShipment += 1;
-        stats.awaitingShipmentTags += tags;
         stats.completed += 1;
         stats.completedTags += tags;
       }
