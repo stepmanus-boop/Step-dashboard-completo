@@ -415,7 +415,6 @@ function projectUiState(projectStatus, overallProgress, finished, fabricationSta
   if (!fabricationStartDate) return "not_started";
   if (awaitingShipment) return "awaiting_shipment";
   if (finished) return "completed";
-  if (overallProgress >= 100) return "awaiting_shipment";
   if (overallProgress <= 0 && /^on hold$/i.test(projectStatus || "")) return "not_started";
   if (overallProgress <= 0) return "not_started";
   return "in_progress";
@@ -452,7 +451,9 @@ function getOperationalFlow(stageValues, fabricationStartDate, coatingPercent, f
   const inspectionComplete = Boolean(thFinishDate) && finalDimensionalQc >= 100 && ndeQc >= 100 && hydroTestQc >= 100;
   if (!inspectionComplete) return { state: "in_inspection", sector: "Inspeção" };
 
-  if (Number(coatingPercent || 0) >= 100) return { state: "awaiting_shipment", sector: "Pendente de envio" };
+  if (Number(coatingPercent || 0) >= 100 && packageDelivered >= 100 && !projectFinished) {
+    return { state: "awaiting_shipment", sector: "Pendente de envio" };
+  }
   return { state: "in_production", sector: "Pintura" };
 }
 
