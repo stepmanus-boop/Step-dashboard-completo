@@ -414,7 +414,8 @@ function deriveProgress(row) {
 function projectUiState(projectStatus, overallProgress, finished, fabricationStartDate, awaitingShipment = false) {
   if (!fabricationStartDate) return "not_started";
   if (awaitingShipment) return "awaiting_shipment";
-  if (finished || overallProgress >= 100) return "completed";
+  if (finished) return "completed";
+  if (overallProgress >= 100) return "awaiting_shipment";
   if (overallProgress <= 0 && /^on hold$/i.test(projectStatus || "")) return "not_started";
   if (overallProgress <= 0) return "not_started";
   return "in_progress";
