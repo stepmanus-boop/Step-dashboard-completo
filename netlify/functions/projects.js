@@ -811,7 +811,6 @@ function getProjectAlert(project, today = getCurrentBrazilDateObject()) {
   if (!project.fabricationStartDate) return null;
   if (hasProjectFinishedMarker(project)) return null;
   if (project?.uiState === "completed" || project?.operationalState === "completed") return null;
-  if (project?.uiState === "awaiting_shipment" || project?.operationalState === "awaiting_shipment") return null;
 
   const plannedFinish = parseDateObject(project.plannedFinishDate);
   if (!plannedFinish) return null;
