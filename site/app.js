@@ -796,7 +796,7 @@ async function downloadAlertsPdf() {
       String(alert.title || '—'),
       String(alert.plannedFinishDate || '—'),
       daysLabel,
-      String(alert.currentStage || '—'),
+      String(alert.currentStageGroup || alert.currentStage || '—'),
       String(formatPercent(alert.coatingPercent)),
       severity,
       String(alert.message || '—'),
@@ -883,6 +883,50 @@ function translateProjectStatus(projectStatus, uiState) {
   return projectStatus || uiStateLabel(uiState);
 }
 
+function simplifyCurrentStage(project) {
+  const uiState = String(project?.uiState || "").trim().toLowerCase();
+  const sector = normalizeText(project?.operationalSector || "");
+  const stage = normalizeText(project?.currentStage || "");
+
+  if (
+    uiState === "awaiting_shipment" ||
+    uiState === "completed" ||
+    sector.includes("pendente de envio") ||
+    sector.includes("envio") ||
+    stage.includes("unitizacao") ||
+    stage.includes("unitizacao e envio") ||
+    stage.includes("package and delivered") ||
+    stage.includes("envio")
+  ) {
+    return "Envio";
+  }
+
+  if (
+    sector.includes("inspecao") ||
+    stage.includes("inspection") ||
+    stage.includes("inspecao") ||
+    stage.includes("final inspection") ||
+    stage.includes("dimensional") ||
+    stage.includes("hydro test") ||
+    stage.includes("th")
+  ) {
+    return "Inspeção";
+  }
+
+  if (
+    sector.includes("pintura") ||
+    stage.includes("paint") ||
+    stage.includes("coating") ||
+    stage.includes("surface preparation") ||
+    stage.includes("hdg") ||
+    stage.includes("fbe")
+  ) {
+    return "Pintura";
+  }
+
+  return "Produção";
+}
+
 function stageStatusClass(status) {
   if (status === "completed") return "completed";
   if (status === "in_progress") return "in_progress";
@@ -948,6 +992,7 @@ function enrichProjects(projects) {
 
     return {
       ...project,
+      currentStageGroup: simplifyCurrentStage(project),
       _searchText: buildSearchIndex(searchParts),
     };
   });
@@ -965,7 +1010,7 @@ function buildDemandOptions() {
   const options = Array.from(
     new Set(
       state.projects
-        .map((project) => project.currentStage)
+        .map((project) => project.currentStageGroup || simplifyCurrentStage(project))
         .filter(Boolean)
         .filter((option) => !hiddenDemandOptions.has(normalizeText(option)))
     )
@@ -1215,7 +1260,10 @@ function applyFilter() {
   state.filteredProjects = sourceProjects
     .filter((project) => {
       const matchesQuery = !query || project._searchText.includes(query);
-      const matchesDemand = !demand || normalizeText(project.currentStage).includes(demand) || normalizeText(translateProjectStatus(project.projectStatus, project.uiState)).includes(demand);
+      const matchesDemand = !demand
+        || normalizeText(project.currentStageGroup || simplifyCurrentStage(project)).includes(demand)
+        || normalizeText(project.currentStage).includes(demand)
+        || normalizeText(translateProjectStatus(project.projectStatus, project.uiState)).includes(demand);
       return matchesQuery && matchesDemand;
     })
     .sort(compareProjectsByPlannedFinishDate);
@@ -1342,7 +1390,7 @@ function renderTable() {
           <td>
             <span class="stage-pill">
               <span class="stage-dot stage-dot--${stageStatusClass(project.currentStageStatus)}"></span>
-              <span class="stage-text">${project.currentStage}</span>
+              <span class="stage-text">${project.currentStageGroup || simplifyCurrentStage(project)}</span>
             </span>
           </td>
           <td>${formatPercent(project.individualProgress)}</td>
@@ -1404,7 +1452,7 @@ function renderSelectedProjectCard() {
         </div>
         <div class="stage-pill">
           <span class="stage-dot stage-dot--${stageStatusClass(project.currentStageStatus)}"></span>
-          <span class="stage-name">${project.currentStage}</span>
+          <span class="stage-name">${project.currentStageGroup || simplifyCurrentStage(project)}</span>
         </div>
       </div>
 
