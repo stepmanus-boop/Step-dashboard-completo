@@ -454,7 +454,7 @@ function getOperationalFlow(stageValues, fabricationStartDate, coatingPercent, f
   const finalInspection = Number(stageValues["Final Inspection"] || 0);
 
   if (Number(coatingPercent || 0) >= 100 && finalInspection >= 100 && !projectFinished) {
-    return { state: "awaiting_shipment", sector: "Pendente de envio" };
+    return { state: "awaiting_shipment", sector: "Logística" };
   }
   return { state: "in_production", sector: "Pintura" };
 }

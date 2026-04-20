@@ -896,7 +896,7 @@ function simplifyCurrentStage(project) {
     stage.includes("unitizacao e envio") ||
     stage.includes("package and delivered") ||
     stage.includes("envio") ||
-    sector.includes("pendente de envio") ||
+    sector.includes("logistica") || sector.includes("pendente de envio") ||
     sector.includes("envio")
   ) {
     return "Logística";
@@ -1695,7 +1695,7 @@ function renderAlertModal() {
     { key: "calderaria", label: "Calderaria", match: ["Calderaria"] },
     { key: "inspecao", label: "Inspeção", match: ["Inspeção"] },
     { key: "pintura", label: "Pintura", match: ["Pintura"] },
-    { key: "envio", label: "Pendente de envio", match: ["Envio", "Pendente de envio"] },
+    { key: "envio", label: "Logística", match: ["Logística", "Envio", "Pendente de envio"] },
   ];
   const sectorCounts = Object.fromEntries(
     sectorButtons.map((button) => [
