@@ -891,21 +891,21 @@ function simplifyCurrentStage(project) {
   if (
     uiState === "awaiting_shipment" ||
     uiState === "completed" ||
-    sector.includes("pendente de envio") ||
-    sector.includes("envio") ||
+    stage.includes("final inspection") ||
     stage.includes("unitizacao") ||
     stage.includes("unitizacao e envio") ||
     stage.includes("package and delivered") ||
-    stage.includes("envio")
+    stage.includes("envio") ||
+    sector.includes("pendente de envio") ||
+    sector.includes("envio")
   ) {
-    return "Envio";
+    return "Logística";
   }
 
   if (
     sector.includes("inspecao") ||
     stage.includes("inspection") ||
     stage.includes("inspecao") ||
-    stage.includes("final inspection") ||
     stage.includes("dimensional") ||
     stage.includes("hydro test") ||
     stage.includes("th")
