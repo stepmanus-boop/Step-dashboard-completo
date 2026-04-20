@@ -512,6 +512,20 @@ function classifyStageSector(stageValue) {
 }
 
 function classifyAlertSector(project) {
+  const stage = String(project?.currentStage || "").toLowerCase();
+  const uiState = String(project?.uiState || project?.operationalState || "").toLowerCase();
+
+  if (
+    stage.includes("final inspection") ||
+    stage.includes("unitização") ||
+    stage.includes("unitizacao") ||
+    stage.includes("package and delivered") ||
+    stage.includes("envio") ||
+    uiState === "awaiting_shipment"
+  ) {
+    return "Logística";
+  }
+
   if (project?.operationalSector) return project.operationalSector;
   const stageValues = project?.stageValues || {};
   const flow = getOperationalFlow(
