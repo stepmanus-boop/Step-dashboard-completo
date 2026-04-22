@@ -37,6 +37,7 @@ const state = {
   stageUpdates: [],
   stageUpdatesSearchQuery: '',
   stageSubmissionLocks: {},
+  projectSignalSubmitting: false,
 };
 
 const bodyEl = document.getElementById("projects-body");
@@ -1197,7 +1198,7 @@ function renderProjectSignals(project) {
     ? signals.map((alert) => {
         const resolved = getSignalResolutionInfo(alert.id);
         return `
-          <article class="project-signal-item">
+          <article class="project-signal-item ${resolved ? 'project-signal-item--resolved' : ''}">
             <div class="admin-list-item-meta">
               ${getSignalStatusBadge(alert)}
               <span>${escapeHtml(new Date(alert.createdAt).toLocaleString('pt-BR'))}</span>
@@ -1207,7 +1208,7 @@ function renderProjectSignals(project) {
             <p>${escapeHtml(alert.message || '').replace(/\n/g, '<br>')}</p>
             <div class="manual-alert-actions">
               ${resolved
-                ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
+                ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag manual-alert-tag--resolved-time">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
                 : `${canResolveSignal() ? `<button class="ghost-button" type="button" data-resolve-signal="${escapeHtml(alert.id)}">Marcar como resolvida</button>` : ''}`}
             </div>
             ${resolved && resolved.note ? `<div class="response-thread"><div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(resolved.note)}</p></div></div>` : ''}
@@ -3012,7 +3013,7 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
           ${manualAlerts.map((alert) => {
             const resolved = getSignalResolutionInfo(alert.id);
             return `
-            <article class="manual-alert-item manual-alert-item--operational">
+            <article class="manual-alert-item manual-alert-item--operational ${resolved ? 'manual-alert-item--resolved' : ''}">
               <div class="admin-list-item-meta">
                 ${getSignalStatusBadge(alert)}
                 <span class="manual-alert-tag">${escapeHtml(sectorLabel(alert.sector))}</span>
@@ -3023,7 +3024,7 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
               <p>${escapeHtml(alert.message || "").replace(/\n/g, '<br>')}</p>
               <div class="manual-alert-actions">
                 ${resolved
-                  ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
+                  ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag manual-alert-tag--resolved-time">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
                   : `${canResolveSignal() ? `<button class="primary-button" type="button" data-resolve-signal="${escapeHtml(alert.id)}">Marcar como resolvida</button>` : ''}`}
               </div>
               ${resolved && resolved.note ? `<div class="response-thread"><div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(resolved.note)}</p></div></div>` : ''}
@@ -3124,7 +3125,7 @@ function renderMyProjectSignals(targetEl = sectorAlertsContentEl) {
         ${signals.map((alert) => {
           const resolved = getSignalResolutionInfo(alert.id);
           return `
-            <article class="manual-alert-item manual-alert-item--operational">
+            <article class="manual-alert-item manual-alert-item--operational ${resolved ? 'manual-alert-item--resolved' : ''}">
               <div class="admin-list-item-meta">
                 ${getSignalStatusBadge(alert)}
                 <span class="manual-alert-tag">PCP</span>
@@ -3135,7 +3136,7 @@ function renderMyProjectSignals(targetEl = sectorAlertsContentEl) {
               <div class="manual-alert-actions">
                 <span class="manual-alert-tag">Aberta por: ${escapeHtml(alert.createdBy || 'Usuário')}</span>
                 ${resolved
-                  ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
+                  ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag manual-alert-tag--resolved-time">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
                   : `<span class="manual-alert-tag manual-alert-tag--pending">Aguardando PCP</span>`}
               </div>
               ${resolved && resolved.note ? `<div class="response-thread"><div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(resolved.note)}</p></div></div>` : ''}
@@ -3173,7 +3174,7 @@ function renderProjectUserSignals(targetEl = sectorAlertsContentEl) {
         ${signals.map((alert) => {
           const resolved = getSignalResolutionInfo(alert.id);
           return `
-            <article class="manual-alert-item manual-alert-item--operational">
+            <article class="manual-alert-item manual-alert-item--operational ${resolved ? 'manual-alert-item--resolved' : ''}">
               <div class="admin-list-item-meta">
                 ${getSignalStatusBadge(alert)}
                 <span class="manual-alert-tag">PCP</span>
@@ -3184,7 +3185,7 @@ function renderProjectUserSignals(targetEl = sectorAlertsContentEl) {
               TEMP
               <div class="manual-alert-actions">
                 ${resolved
-                  ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
+                  ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag manual-alert-tag--resolved-time">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
                   : `${canResolveSignal() ? `<button class="primary-button" type="button" data-resolve-signal="${escapeHtml(alert.id)}">Marcar como resolvida</button>` : ''}`}
               </div>
               ${resolved && resolved.note ? `<div class="response-thread"><div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(resolved.note)}</p></div></div>` : ''}
@@ -3348,6 +3349,7 @@ function openProjectSignalModal(project) {
   if (projectSignalTitleEl) projectSignalTitleEl.value = '';
   if (projectSignalDescriptionEl) projectSignalDescriptionEl.value = '';
   if (projectSignalFeedbackEl) projectSignalFeedbackEl.textContent = '';
+  setProjectSignalSubmitting(false);
   projectSignalModalEl.classList.remove('hidden');
   projectSignalModalEl.setAttribute('aria-hidden', 'false');
   document.body.classList.add('modal-open');
@@ -3359,6 +3361,7 @@ function closeProjectSignalModal() {
   projectSignalModalEl.classList.add('hidden');
   projectSignalModalEl.setAttribute('aria-hidden', 'true');
   state.selectedProjectForSignal = null;
+  setProjectSignalSubmitting(false);
   if (
     modalEl.classList.contains('hidden') &&
     alertModalEl.classList.contains('hidden') &&
@@ -3371,9 +3374,24 @@ function closeProjectSignalModal() {
   }
 }
 
+function setProjectSignalSubmitting(isSubmitting) {
+  state.projectSignalSubmitting = !!isSubmitting;
+  if (!projectSignalFormEl) return;
+  const submitButton = projectSignalFormEl.querySelector('button[type="submit"]');
+  if (submitButton) {
+    submitButton.disabled = !!isSubmitting;
+    submitButton.textContent = isSubmitting ? 'Enviando...' : 'Enviar ao PCP';
+  }
+  if (projectSignalCancelEl) projectSignalCancelEl.disabled = !!isSubmitting;
+  if (projectSignalCloseEl) projectSignalCloseEl.disabled = !!isSubmitting;
+}
+
 async function handleProjectSignalSubmit(event) {
   event.preventDefault();
   if (!projectSignalFeedbackEl) return;
+  if (state.projectSignalSubmitting) {
+    return;
+  }
   const projectId = String(projectSignalProjectIdEl?.value || '').trim();
   const project = state.projects.find((item) => String(item.rowId) === projectId);
   const title = String(projectSignalTitleEl?.value || '').trim();
@@ -3386,6 +3404,7 @@ async function handleProjectSignalSubmit(event) {
     projectSignalFeedbackEl.textContent = 'Você só pode enviar sinalização para BSPs que estejam vinculadas ao seu nome.';
     return;
   }
+  setProjectSignalSubmitting(true);
   projectSignalFeedbackEl.textContent = 'Enviando sinalização ao PCP...';
   const projectRef = project.projectNumber || project.projectDisplay || `Projeto ${project.rowId}`;
   const payload = {
@@ -3414,8 +3433,12 @@ ${description}`,
     if (state.selectedProjectId && String(state.selectedProjectId) === projectId) {
       renderModal(project);
     }
-    window.setTimeout(closeProjectSignalModal, 500);
+    window.setTimeout(() => {
+      setProjectSignalSubmitting(false);
+      closeProjectSignalModal();
+    }, 500);
   } catch (error) {
+    setProjectSignalSubmitting(false);
     projectSignalFeedbackEl.textContent = error.message || 'Falha ao criar sinalização.';
   }
 }
