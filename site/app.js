@@ -72,6 +72,7 @@ const sessionStatusEl = document.getElementById("session-status");
 const logoutButtonEl = document.getElementById("logout-button");
 const openLoginButtonEl = document.getElementById("open-login-button");
 const openSectorAlertsEl = document.getElementById("open-sector-alerts");
+const openMyProjectSignalsEl = document.getElementById("open-my-project-signals");
 const openProjectSignalsEl = document.getElementById("open-project-signals");
 const sectorAlertsModalEl = document.getElementById("sector-alerts-modal");
 const sectorAlertsCloseEl = document.getElementById("sector-alerts-close");
@@ -948,6 +949,26 @@ function canViewProjectSignals(user = state.user) {
   return normalizeSectorValue(user.sector) === 'pcp' || getUserAlertSectors(user).includes('pcp');
 }
 
+function isMyCreatedSignal(alert, user = state.user) {
+  if (!alert || !user) return false;
+  return String(alert.createdBy || '').trim().toLowerCase() === String(user.username || '').trim().toLowerCase();
+}
+
+function getMyProjectSignals(user = state.user, source = null) {
+  const list = Array.isArray(source)
+    ? source
+    : (Array.isArray(state.projectSignals) && state.projectSignals.length ? state.projectSignals : (Array.isArray(state.manualAlerts) ? state.manualAlerts : []));
+  return list
+    .filter((alert) => isProjectUserSignal(alert) && isMyCreatedSignal(alert, user))
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+}
+
+function canViewMyProjectSignals(user = state.user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  return normalizeSectorValue(user.sector) === 'projetos' || userHasProjectsScope(user);
+}
+
 function renderProjectSignals(project) {
   const signals = getProjectSignals(project);
   const actionButton = canCreateProjectSignal(project)
@@ -1327,6 +1348,15 @@ function updatePrimaryUserActionUi() {
   const titleEl = document.getElementById("sector-alerts-title");
   if (titleEl && state.sectorAlertsMode !== 'project-signals') {
     titleEl.textContent = projectsScope ? "Meus projetos" : "Meus alertas por setor";
+  }
+  if (openMyProjectSignalsEl) {
+    const canViewMine = canViewMyProjectSignals();
+    const pendingCount = getMyProjectSignals().filter((alert) => !getSignalResolutionInfo(alert.id)).length;
+    openMyProjectSignalsEl.classList.toggle('hidden', !canViewMine);
+    openMyProjectSignalsEl.title = 'Acompanhar as sinalizações que você enviou ao PCP';
+    openMyProjectSignalsEl.textContent = canViewMine && pendingCount > 0
+      ? `Minhas sinalizações (${pendingCount})`
+      : 'Minhas sinalizações';
   }
   if (openProjectSignalsEl) {
     const canView = canViewProjectSignals();
@@ -2295,6 +2325,19 @@ if (openSectorAlertsEl) {
   });
 }
 
+if (openMyProjectSignalsEl) {
+  openMyProjectSignalsEl.addEventListener('click', () => {
+    if (!state.user) {
+      openLoginModal();
+      return;
+    }
+    state.sectorAlertsMode = 'my-project-signals';
+    const titleEl = document.getElementById('sector-alerts-title');
+    if (titleEl) titleEl.textContent = 'Minhas sinalizações ao PCP';
+    openSectorAlertsModal();
+  });
+}
+
 if (openProjectSignalsEl) {
   openProjectSignalsEl.addEventListener('click', () => {
     if (!state.user) {
@@ -2753,6 +2796,58 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
   `;
 }
 
+function renderMyProjectSignals(targetEl = sectorAlertsContentEl) {
+  if (!targetEl) return;
+  if (!state.user) {
+    targetEl.innerHTML = '<div class="detail-placeholder">Faça login para visualizar as sinalizações que você enviou ao PCP.</div>';
+    return;
+  }
+  const signals = getMyProjectSignals();
+  if (!signals.length) {
+    targetEl.innerHTML = '<div class="detail-placeholder">Você ainda não enviou nenhuma sinalização ao PCP.</div>';
+    return;
+  }
+  const pendingCount = signals.filter((alert) => !getSignalResolutionInfo(alert.id)).length;
+  const resolvedCount = signals.length - pendingCount;
+  targetEl.innerHTML = `
+    <div class="manual-alert-summary">
+      <span class="manual-alert-tag">Minhas sinalizações</span>
+      <span class="manual-alert-tag">Enviadas ao PCP</span>
+      <span class="manual-alert-tag">Pendentes: ${pendingCount}</span>
+      <span class="manual-alert-tag">Resolvidas: ${resolvedCount}</span>
+    </div>
+    <section class="manual-alert-section">
+      <div class="admin-list-item-meta">
+        <span class="manual-alert-tag">Acompanhamento do usuário</span>
+        <span>${signals.length} registro(s)</span>
+      </div>
+      <div class="manual-alert-section-list">
+        ${signals.map((alert) => {
+          const resolved = getSignalResolutionInfo(alert.id);
+          return `
+            <article class="manual-alert-item manual-alert-item--operational">
+              <div class="admin-list-item-meta">
+                ${getSignalStatusBadge(alert)}
+                <span class="manual-alert-tag">PCP</span>
+                <span>${escapeHtml(new Date(alert.createdAt).toLocaleString('pt-BR'))}</span>
+              </div>
+              <strong>${escapeHtml(alert.title || 'Sinalização')}</strong>
+              <p>${escapeHtml(alert.message || '').replace(/\n/g, '<br>')}</p>
+              <div class="manual-alert-actions">
+                <span class="manual-alert-tag">Aberta por: ${escapeHtml(alert.createdBy || 'Usuário')}</span>
+                ${resolved
+                  ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
+                  : `<span class="manual-alert-tag manual-alert-tag--pending">Aguardando PCP</span>`}
+              </div>
+              ${resolved && resolved.note ? `<div class="response-thread"><div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(resolved.note)}</p></div></div>` : ''}
+            </article>
+          `;
+        }).join('')}
+      </div>
+    </section>
+  `;
+}
+
 function renderProjectUserSignals(targetEl = sectorAlertsContentEl) {
   if (!targetEl) return;
   if (!state.user) {
@@ -2836,6 +2931,8 @@ function openSectorAlertsModal() {
   if (!sectorAlertsModalEl) return;
   if (state.sectorAlertsMode === 'project-signals') {
     renderProjectUserSignals();
+  } else if (state.sectorAlertsMode === 'my-project-signals') {
+    renderMyProjectSignals();
   } else {
     renderManualAlerts();
   }
