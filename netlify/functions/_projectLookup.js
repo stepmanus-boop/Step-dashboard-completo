@@ -24,23 +24,62 @@ function findProjectByRow(projects, projectRowId) {
   return projects.find((item) => Number(item?.rowId || 0) === target || Number(item?.rowNumber || 0) === target) || null;
 }
 
+function buildLookupCandidates(value, project = null) {
+  const raw = String(value || '').trim();
+  if (!raw) return [];
+
+  const normalizedRaw = normalizeLookupValue(raw);
+  const compactRaw = raw.replace(/\s+/g, ' ').trim();
+  const projectNumber = String(project?.projectNumber || project?.projectDisplay || '').trim();
+  const normalizedProjectNumber = normalizeLookupValue(projectNumber);
+  const suffixRaw = projectNumber && raw.toLowerCase().startsWith(projectNumber.toLowerCase())
+    ? raw.slice(projectNumber.length).trim()
+    : raw;
+  const normalizedSuffix = normalizeLookupValue(suffixRaw);
+  const tokens = raw.split(/\s+/g).map((item) => normalizeLookupValue(item)).filter(Boolean);
+
+  const candidates = new Set([normalizedRaw, normalizedSuffix, ...tokens]);
+
+  if (normalizedProjectNumber && normalizedRaw.startsWith(normalizedProjectNumber)) {
+    candidates.add(normalizedRaw.slice(normalizedProjectNumber.length));
+  }
+
+  const isoMatch = raw.match(/ISO[-\s_]*([A-Z0-9]+)/i);
+  const splMatch = raw.match(/SPL[-\s_]*([A-Z0-9]+)/i);
+  if (isoMatch) {
+    candidates.add(normalizeLookupValue(`ISO-${isoMatch[1]}`));
+    candidates.add(normalizeLookupValue(`ISO ${isoMatch[1]}`));
+  }
+  if (splMatch) {
+    candidates.add(normalizeLookupValue(`SPL-${splMatch[1]}`));
+    candidates.add(normalizeLookupValue(`SPL ${splMatch[1]}`));
+  }
+  if (isoMatch && splMatch) {
+    candidates.add(normalizeLookupValue(`ISO-${isoMatch[1]}-SPL-${splMatch[1]}`));
+    candidates.add(normalizeLookupValue(`ISO ${isoMatch[1]} SPL ${splMatch[1]}`));
+  }
+
+  return Array.from(candidates).filter(Boolean);
+}
+
 function findSpoolInProject(project, spoolIso) {
   const spools = Array.isArray(project?.spools) ? project.spools : [];
-  const targetRaw = String(spoolIso || '').trim();
-  const target = normalizeLookupValue(targetRaw);
-  if (!target) return null;
+  const targets = buildLookupCandidates(spoolIso, project);
+  if (!targets.length) return null;
 
   return spools.find((item) => {
-    const iso = String(item?.iso || '').trim();
-    const drawing = String(item?.drawing || '').trim();
-    const normalizedIso = normalizeLookupValue(iso);
-    const normalizedDrawing = normalizeLookupValue(drawing);
-    return normalizedIso === target
-      || normalizedDrawing === target
-      || normalizedIso.includes(target)
-      || target.includes(normalizedIso)
-      || normalizedDrawing.includes(target)
-      || target.includes(normalizedDrawing);
+    const variants = [
+      String(item?.iso || '').trim(),
+      String(item?.drawing || '').trim(),
+      String(item?.description || '').trim(),
+    ].filter(Boolean);
+    const normalizedVariants = variants.map((value) => normalizeLookupValue(value)).filter(Boolean);
+
+    return targets.some((target) => normalizedVariants.some((candidate) => (
+      candidate === target
+      || candidate.includes(target)
+      || target.includes(candidate)
+    )));
   }) || null;
 }
 

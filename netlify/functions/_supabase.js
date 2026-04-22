@@ -348,6 +348,7 @@ async function createStageUpdate(input) {
     status: input.status || 'pending',
     created_by: input.createdBy || '',
     created_by_name: input.createdByName || '',
+    created_at: input.createdAt || null,
     resolved_by: input.resolvedBy || null,
     resolved_by_name: input.resolvedByName || null,
     resolved_at: input.resolvedAt || null,
@@ -358,7 +359,29 @@ async function createStageUpdate(input) {
     headers: getSupabaseHeaders('return=representation'),
     body: JSON.stringify(payload),
   });
-  return mapStageUpdate(Array.isArray(rows) ? rows[0] : null);
+  const mapped = mapStageUpdate(Array.isArray(rows) ? rows[0] : null);
+  if (mapped) return mapped;
+  return {
+    id: input.id,
+    projectRowId: Number(input.projectRowId || 0),
+    projectNumber: input.projectNumber || '',
+    projectDisplay: input.projectDisplay || '',
+    client: input.client || '',
+    spoolIso: input.spoolIso || '',
+    spoolDescription: input.spoolDescription || '',
+    sector: normalizeSectorValue(input.sector || ''),
+    progress: Number(input.progress || 0),
+    completionDate: input.completionDate || '',
+    note: input.note || '',
+    status: input.status || 'pending',
+    createdBy: input.createdBy || '',
+    createdByName: input.createdByName || '',
+    createdAt: input.createdAt || null,
+    resolvedBy: input.resolvedBy || '',
+    resolvedByName: input.resolvedByName || '',
+    resolvedAt: input.resolvedAt || null,
+    resolutionNote: input.resolutionNote || '',
+  };
 }
 
 async function updateStageUpdate(id, updates) {
@@ -374,7 +397,29 @@ async function updateStageUpdate(id, updates) {
     headers: getSupabaseHeaders('return=representation'),
     body: JSON.stringify(payload),
   });
-  return mapStageUpdate(Array.isArray(rows) ? rows[0] : null);
+  const mapped = mapStageUpdate(Array.isArray(rows) ? rows[0] : null);
+  if (mapped) return mapped;
+  return {
+    id: String(id || '').trim(),
+    projectRowId: Number(updates.projectRowId || 0),
+    projectNumber: updates.projectNumber || '',
+    projectDisplay: updates.projectDisplay || '',
+    client: updates.client || '',
+    spoolIso: updates.spoolIso || '',
+    spoolDescription: updates.spoolDescription || '',
+    sector: normalizeSectorValue(updates.sector || ''),
+    progress: Number(updates.progress || 0),
+    completionDate: updates.completionDate || '',
+    note: updates.note || '',
+    status: updates.status || 'resolved',
+    createdBy: updates.createdBy || '',
+    createdByName: updates.createdByName || '',
+    createdAt: updates.createdAt || null,
+    resolvedBy: updates.resolvedBy || '',
+    resolvedByName: updates.resolvedByName || '',
+    resolvedAt: updates.resolvedAt || null,
+    resolutionNote: updates.resolutionNote || '',
+  };
 }
 
 module.exports = {

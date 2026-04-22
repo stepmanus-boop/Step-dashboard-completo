@@ -1001,12 +1001,31 @@ function canValidateStageWorkspace(user = state.user) {
 }
 
 function stageWorkspaceSearchProjects() {
-  const query = normalizeText(state.stageUpdatesSearchQuery || '');
+  const queryRaw = String(state.stageUpdatesSearchQuery || '').trim();
+  const query = normalizeText(queryRaw);
+  const queryCompact = normalizeCompactText(queryRaw);
   const source = Array.isArray(state.projects) ? state.projects : [];
-  if (!query) return source.slice(0, 8);
+  if (!query && !queryCompact) return source.slice(0, 8);
+
   return source.filter((project) => {
-    return [project.projectNumber, project.projectDisplay, project.client, project.currentStage]
-      .some((value) => normalizeText(value).includes(query));
+    const spools = Array.isArray(project?.spools) ? project.spools : [];
+    const spoolParts = spools.slice(0, 100).flatMap((spool) => [
+      spool?.iso,
+      spool?.drawing,
+      spool?.description,
+      spool?.spool,
+      spool?.spoolNumber,
+    ]);
+    const haystack = buildSearchIndex([
+      project?.projectNumber,
+      project?.projectDisplay,
+      project?.projectPrefix,
+      project?.client,
+      project?.currentStage,
+      ...spoolParts,
+    ]);
+    return (!query || haystack.includes(query))
+      || (!queryCompact || haystack.includes(queryCompact));
   }).slice(0, 8);
 }
 
