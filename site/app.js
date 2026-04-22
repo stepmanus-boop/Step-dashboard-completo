@@ -1302,6 +1302,9 @@ function getActiveWeekLabel() {
 }
 
 function getStatsProjectsSource() {
+  if (canOpenStageWorkspace() && !canValidateStageWorkspace() && !userHasProjectsScope(state.user)) {
+    return state.projects;
+  }
   return getVisibleProjectsSource();
 }
 
@@ -1433,7 +1436,7 @@ function updatePrimaryUserActionUi() {
   const projectsScope = userHasProjectsScope();
   const stageScope = canOpenStageWorkspace() && !canValidateStageWorkspace() && !projectsScope;
   const viewingMine = projectsScope && state.projectView === "mine";
-  const viewingStageMine = stageScope && state.sectorAlertsMode === 'stage-projects';
+  const viewingStageMine = stageScope && state.projectView === 'mine';
   openSectorAlertsEl.textContent = projectsScope
     ? (viewingMine ? "Todos os projetos" : "Meus projetos")
     : (stageScope
@@ -1512,6 +1515,9 @@ function projectBelongsToUser(project, user = state.user) {
 function getVisibleProjectsSource() {
   if (state.projectView === 'mine' && userHasProjectsScope()) {
     return state.projects.filter((project) => projectBelongsToUser(project));
+  }
+  if (state.projectView === 'mine' && canOpenStageWorkspace() && !canValidateStageWorkspace() && !userHasProjectsScope(state.user)) {
+    return getProjectsForUserSector(state.user, state.projects);
   }
   return state.projects;
 }
@@ -2436,15 +2442,14 @@ if (openSectorAlertsEl) {
       return;
     }
     if (canOpenStageWorkspace() && !canValidateStageWorkspace()) {
-      state.sectorAlertsMode = state.sectorAlertsMode === 'stage-projects' ? 'default' : 'stage-projects';
-      const titleEl = document.getElementById('sector-alerts-title');
-      if (titleEl) {
-        titleEl.textContent = state.sectorAlertsMode === 'stage-projects'
-          ? `BSPs em ${getStageWorkspaceLabel()}`
-          : 'Meus alertas por setor';
-      }
+      state.projectView = state.projectView === 'mine' ? 'all' : 'mine';
+      state.sectorAlertsMode = 'default';
       updatePrimaryUserActionUi();
-      openSectorAlertsModal();
+      applyFilter();
+      renderStats();
+      renderTable();
+      renderSelectedProjectCard();
+      if (tableShellEl) tableShellEl.scrollTop = 0;
       return;
     }
     state.sectorAlertsMode = 'default';
