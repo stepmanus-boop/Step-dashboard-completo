@@ -1473,7 +1473,7 @@ function updatePrimaryUserActionUi() {
   const projectsScope = userHasProjectsScope();
   const stageScope = canOpenStageWorkspace() && !canValidateStageWorkspace() && !projectsScope;
   const viewingMine = projectsScope && state.projectView === "mine";
-  const viewingStageMine = stageScope && state.projectView === 'mine';
+  const viewingStageMine = stageScope && state.sectorDemandFilterActive;
   openSectorAlertsEl.textContent = projectsScope
     ? (viewingMine ? "Todos os projetos" : "Meus projetos")
     : (stageScope
@@ -1553,7 +1553,7 @@ function getVisibleProjectsSource() {
   if (state.projectView === 'mine' && userHasProjectsScope()) {
     return state.projects.filter((project) => projectBelongsToUser(project));
   }
-  if (state.projectView === 'mine' && canOpenStageWorkspace() && !canValidateStageWorkspace() && !userHasProjectsScope(state.user)) {
+  if (state.sectorDemandFilterActive && canOpenStageWorkspace() && !canValidateStageWorkspace() && !userHasProjectsScope(state.user)) {
     return getProjectsForUserSector(state.user, state.projects);
   }
   return state.projects;
@@ -2479,7 +2479,7 @@ if (openSectorAlertsEl) {
       return;
     }
     if (canOpenStageWorkspace() && !canValidateStageWorkspace()) {
-      state.projectView = state.projectView === 'mine' ? 'all' : 'mine';
+      state.sectorDemandFilterActive = !state.sectorDemandFilterActive;
       state.sectorAlertsMode = 'default';
       updatePrimaryUserActionUi();
       applyFilter();
@@ -3172,6 +3172,47 @@ function renderProjectUserSignals(targetEl = sectorAlertsContentEl) {
   `;
 }
 
+
+async function handleDeleteAdminAlert(alertId) {
+  const id = String(alertId || '').trim();
+  if (!id) return;
+  const confirmed = window.confirm('Deseja apagar este alerta?');
+  if (!confirmed) return;
+  const response = await fetch('/.netlify/functions/sector-alerts', {
+    method: 'DELETE',
+    headers: buildJsonHeaders(),
+    body: JSON.stringify({ id }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.error || 'Falha ao apagar alerta.');
+  }
+  await loadManualAlerts();
+  renderAdminAlertsList();
+}
+
+async function handleDeleteAllFilteredAdminAlerts() {
+  const alerts = getFilteredAdminAlerts();
+  const ids = alerts.map((alert) => String(alert?.id || '').trim()).filter(Boolean);
+  if (!ids.length) {
+    window.alert('Não há alertas visíveis para apagar.');
+    return;
+  }
+  const confirmed = window.confirm(`Deseja apagar ${ids.length} alerta(s) visível(is)?`);
+  if (!confirmed) return;
+  const response = await fetch('/.netlify/functions/sector-alerts', {
+    method: 'DELETE',
+    headers: buildJsonHeaders(),
+    body: JSON.stringify({ ids }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.error || 'Falha ao apagar alertas.');
+  }
+  await loadManualAlerts();
+  renderAdminAlertsList();
+}
+
 async function loadManualAlerts() {
   if (!state.user) return;
   try {
@@ -3602,65 +3643,94 @@ function renderAdminAlertsList() {
     adminAlertsListEl.innerHTML = `<div class="empty-state">${state.adminAlertSearchQuery ? "Nenhum alerta encontrado para a pesquisa informada." : "Nenhum alerta operacional registrado."}</div>`;
     return;
   }
-  adminAlertsListEl.innerHTML = filteredAlerts.map((alert) => {
-    const acknowledgements = Array.isArray(alert.acknowledgements) ? alert.acknowledgements : [];
-    const ackHtml = alert.requiresAck
-      ? (acknowledgements.length
-        ? `
-          <div class="admin-alert-ack-box">
-            <strong>Registro de confirmações</strong>
-            <div class="admin-list-item-meta">
-              <span>${acknowledgements.length} confirmação(ões)</span>
-              <span>Última: ${escapeHtml(new Date(acknowledgements[0].acknowledgedAt).toLocaleString("pt-BR"))}</span>
+  adminAlertsListEl.innerHTML = `
+    <div class="manual-alert-actions" style="margin-bottom: 12px;">
+      <button class="ghost-button ghost-button--compact" type="button" id="admin-delete-filtered-alerts">Apagar alertas visíveis</button>
+    </div>
+    ${filteredAlerts.map((alert) => {
+      const acknowledgements = Array.isArray(alert.acknowledgements) ? alert.acknowledgements : [];
+      const ackHtml = alert.requiresAck
+        ? (acknowledgements.length
+          ? `
+            <div class="admin-alert-ack-box">
+              <strong>Registro de confirmações</strong>
+              <div class="admin-list-item-meta">
+                <span>${acknowledgements.length} confirmação(ões)</span>
+                <span>Última: ${escapeHtml(new Date(acknowledgements[0].acknowledgedAt).toLocaleString("pt-BR"))}</span>
+              </div>
+              <div class="admin-alert-ack-list">
+                ${acknowledgements.map((ack) => `
+                  <div class="admin-alert-ack-item">
+                    <span><strong>${escapeHtml(ack.username || ack.userId || "Usuário")}</strong></span>
+                    <span>Setor: ${escapeHtml(sectorLabel(ack.sector))}</span>
+                    <span>${escapeHtml(new Date(ack.acknowledgedAt).toLocaleString("pt-BR"))}</span>
+                  </div>
+                `).join("")}
+              </div>
             </div>
-            <div class="admin-alert-ack-list">
-              ${acknowledgements.map((ack) => `
-                <div class="admin-alert-ack-item">
-                  <span><strong>${escapeHtml(ack.username || ack.userId || "Usuário")}</strong></span>
-                  <span>Setor: ${escapeHtml(sectorLabel(ack.sector))}</span>
-                  <span>${escapeHtml(new Date(ack.acknowledgedAt).toLocaleString("pt-BR"))}</span>
-                </div>
-              `).join("")}
+          `
+          : `
+            <div class="admin-alert-ack-box">
+              <strong>Registro de confirmações</strong>
+              <div class="admin-list-item-meta">
+                <span>Aguardando confirmação do setor.</span>
+              </div>
             </div>
-          </div>
-        `
+          `)
         : `
           <div class="admin-alert-ack-box">
             <strong>Registro de confirmações</strong>
             <div class="admin-list-item-meta">
-              <span>Aguardando confirmação do setor.</span>
+              <span>Alerta informativo sem exigência de leitura.</span>
             </div>
           </div>
-        `)
-      : `
-        <div class="admin-alert-ack-box">
-          <strong>Registro de confirmações</strong>
-          <div class="admin-list-item-meta">
-            <span>Alerta informativo sem exigência de leitura.</span>
-          </div>
-        </div>
-      `;
+        `;
 
-    return `
-      <article class="admin-list-item">
-        <strong>${escapeHtml(alert.title || "Alerta Operacional")}</strong>
-        <div class="admin-list-item-meta">
-          <span>Setor: ${escapeHtml(sectorLabel(alert.sector))}</span>
-          <span>Prioridade: ${escapeHtml(priorityLabel(alert.priority))}</span>
-          <span>${escapeHtml(new Date(alert.createdAt).toLocaleString("pt-BR"))}</span>
-          <span>${alert.requiresAck ? "Exige leitura" : "Informativo"}</span>
-          <span>${alert.lastAckAt ? `Última confirmação: ${escapeHtml(new Date(alert.lastAckAt).toLocaleString("pt-BR"))}` : "Sem confirmação ainda"}</span>
-        </div>
-        <p>${escapeHtml(alert.message || "")}</p>
-        <div class="admin-list-item-meta">
-          <span>${alert.lastAckAt ? "Permaneceu 24h no setor após a leitura" : "Ainda visível no setor até a primeira leitura"}</span>
-          <span>Registro permanente no admin</span>
-        </div>
-        ${ackHtml}
-        ${renderAdminResponsesThread(alert.id)}
-      </article>
-    `;
-  }).join("");
+      return `
+        <article class="admin-list-item">
+          <strong>${escapeHtml(alert.title || "Alerta Operacional")}</strong>
+          <div class="admin-list-item-meta">
+            <span>Setor: ${escapeHtml(sectorLabel(alert.sector))}</span>
+            <span>Prioridade: ${escapeHtml(priorityLabel(alert.priority))}</span>
+            <span>${escapeHtml(new Date(alert.createdAt).toLocaleString("pt-BR"))}</span>
+            <span>${alert.requiresAck ? "Exige leitura" : "Informativo"}</span>
+            <span>${alert.lastAckAt ? `Última confirmação: ${escapeHtml(new Date(alert.lastAckAt).toLocaleString("pt-BR"))}` : "Sem confirmação ainda"}</span>
+          </div>
+          <p>${escapeHtml(alert.message || "")}</p>
+          <div class="admin-list-item-meta">
+            <span>${alert.lastAckAt ? "Permaneceu 24h no setor após a leitura" : "Ainda visível no setor até a primeira leitura"}</span>
+            <span>Registro permanente no admin</span>
+          </div>
+          <div class="manual-alert-actions" style="margin-bottom: 10px;">
+            <button class="ghost-button ghost-button--compact" type="button" data-admin-delete-alert="${escapeHtml(alert.id)}">Apagar</button>
+          </div>
+          ${ackHtml}
+          ${renderAdminResponsesThread(alert.id)}
+        </article>
+      `;
+    }).join("")}
+  `;
+
+  const deleteAllButton = document.getElementById('admin-delete-filtered-alerts');
+  if (deleteAllButton) {
+    deleteAllButton.addEventListener('click', async () => {
+      try {
+        await handleDeleteAllFilteredAdminAlerts();
+      } catch (error) {
+        window.alert(error.message || 'Falha ao apagar alertas.');
+      }
+    });
+  }
+
+  adminAlertsListEl.querySelectorAll('[data-admin-delete-alert]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      try {
+        await handleDeleteAdminAlert(button.getAttribute('data-admin-delete-alert'));
+      } catch (error) {
+        window.alert(error.message || 'Falha ao apagar alerta.');
+      }
+    });
+  });
 }
 
 async function loadAdminData() {
@@ -3822,6 +3892,11 @@ async function loadStageUpdates() {
 
 function renderStageSectorWorkspace() {
   if (!stageUpdatesContentEl) return;
+  const activeElement = document.activeElement;
+  const shouldRestoreSearch = activeElement?.matches?.('[data-stage-search="true"]');
+  const searchValueBeforeRender = shouldRestoreSearch ? String(activeElement.value || '') : null;
+  const selectionStart = shouldRestoreSearch && typeof activeElement.selectionStart === 'number' ? activeElement.selectionStart : null;
+  const selectionEnd = shouldRestoreSearch && typeof activeElement.selectionEnd === 'number' ? activeElement.selectionEnd : null;
   const sector = getStageWorkspaceSector();
   const stageLabel = getStageWorkspaceLabel(sector);
   const matchedProjects = stageWorkspaceSearchProjects();
@@ -3914,6 +3989,21 @@ function renderStageSectorWorkspace() {
         </section>
       </div>
     </div>`;
+
+  if (shouldRestoreSearch) {
+    const searchInput = stageUpdatesContentEl.querySelector('[data-stage-search="true"]');
+    if (searchInput) {
+      if (searchValueBeforeRender !== null && searchInput.value !== searchValueBeforeRender) {
+        searchInput.value = searchValueBeforeRender;
+      }
+      searchInput.focus();
+      try {
+        const start = typeof selectionStart === 'number' ? selectionStart : searchInput.value.length;
+        const end = typeof selectionEnd === 'number' ? selectionEnd : start;
+        searchInput.setSelectionRange(start, end);
+      } catch (_) {}
+    }
+  }
 }
 
 function renderStageValidationWorkspace() {

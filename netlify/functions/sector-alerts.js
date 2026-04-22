@@ -1,10 +1,10 @@
 const webpush = require('web-push');
 const { jsonResponse, requireSession, normalizeSectorList, normalizeText, normalizeSectorValue } = require('./_auth');
-const { listManualAlerts, listAcknowledgements, createManualAlert, addAcknowledgement, findAcknowledgement, isSupabaseConfigured, getUserById, getUserByUsername, listUsers, listPushSubscriptions, removePushSubscription } = require('./_supabase');
+const { listManualAlerts, listAcknowledgements, createManualAlert, deleteManualAlert, deleteManyManualAlerts, addAcknowledgement, findAcknowledgement, isSupabaseConfigured, getUserById, getUserByUsername, listUsers, listPushSubscriptions, removePushSubscription } = require('./_supabase');
 const { buildPayload } = require('./projects');
 
 function alertVisibleToUser(alert, session) {
-  if (!alert || alert.active === false) return false;
+  if (!alert || alert.active === false || alert.deleted === true || String(alert.status || '').toLowerCase() === 'deleted') return false;
   if (session.role === 'admin') return true;
   const allowedSectors = normalizeSectorList(session.sector, session.alertSectors);
   const alertSector = normalizeSectorValue(alert.sector);
@@ -252,6 +252,32 @@ exports.handler = async (event) => {
       return jsonResponse(200, { ok: true });
     } catch (error) {
       return jsonResponse(500, { ok: false, error: error.message || 'Falha ao confirmar alerta.' });
+    }
+  }
+
+
+  if (event.httpMethod === 'DELETE') {
+    const auth = requireSession(event);
+    if (!auth.ok) return auth.response;
+    try {
+      const effectiveSession = await getEffectiveSession(auth.session);
+      if (effectiveSession.role !== 'admin') {
+        return jsonResponse(403, { ok: false, error: 'Apenas administradores podem apagar alertas.' });
+      }
+      const body = JSON.parse(event.body || '{}');
+      const ids = Array.isArray(body.ids) ? body.ids : [];
+      const id = String(body.id || '').trim();
+      if (ids.length) {
+        const deleted = await deleteManyManualAlerts(ids, effectiveSession.username);
+        return jsonResponse(200, { ok: true, count: deleted.length });
+      }
+      if (!id) {
+        return jsonResponse(400, { ok: false, error: 'Informe o alerta para apagar.' });
+      }
+      const deleted = await deleteManualAlert(id, effectiveSession.username);
+      return jsonResponse(200, { ok: true, alert: deleted });
+    } catch (error) {
+      return jsonResponse(500, { ok: false, error: error.message || 'Falha ao apagar alerta.' });
     }
   }
 
