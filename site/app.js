@@ -2305,6 +2305,7 @@ function setupAdminPasswordToggle() {
 function updateSessionUi() {
   const user = state.user;
   if (!user) {
+    document.body.classList.add("auth-required");
     state.projectView = 'all';
     sessionUserNameEl.textContent = "Acesso bloqueado";
     sessionUserMetaEl.textContent = "Faça login para visualizar os projetos, indicadores e detalhes do painel.";
@@ -2316,6 +2317,8 @@ function updateSessionUi() {
     if (openLoginButtonEl) openLoginButtonEl.classList.remove("hidden");
     return;
   }
+
+  document.body.classList.remove("auth-required");
 
   if (!userHasProjectsScope(user)) {
     state.projectView = 'all';
@@ -3939,3 +3942,15 @@ async function init() {
 }
 
 init();
+
+
+window.openLoginModal = openLoginModal;
+window.closeLoginModal = closeLoginModal;
+
+document.addEventListener('click', (event) => {
+  const loginTrigger = event.target.closest('#open-login-button');
+  if (!loginTrigger) return;
+  event.preventDefault();
+  event.stopPropagation();
+  openLoginModal();
+});

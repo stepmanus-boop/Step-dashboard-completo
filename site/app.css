@@ -2648,3 +2648,12 @@ button.alert-badge {
     flex-direction: column;
   }
 }
+
+
+body.auth-required {
+  overflow: hidden;
+}
+
+body.auth-required .page-shell {
+  display: none;
+}
