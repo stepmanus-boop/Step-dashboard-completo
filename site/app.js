@@ -1024,9 +1024,47 @@ function stageWorkspaceSearchProjects() {
       project?.currentStage,
       ...spoolParts,
     ]);
-    return (!query || haystack.includes(query))
-      || (!queryCompact || haystack.includes(queryCompact));
+    return Boolean((query && haystack.includes(query))
+      || (queryCompact && haystack.includes(queryCompact)));
   }).slice(0, 8);
+}
+
+function filterStageWorkspaceSpools(project, queryRaw = state.stageUpdatesSearchQuery || '') {
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  const raw = String(queryRaw || '').trim();
+  const query = normalizeText(raw);
+  const queryCompact = normalizeCompactText(raw);
+  if (!query && !queryCompact) return spools;
+
+  const projectHaystack = buildSearchIndex([
+    project?.projectNumber,
+    project?.projectDisplay,
+    project?.projectPrefix,
+    project?.client,
+    project?.currentStage,
+  ]);
+  const matchesProjectOnly = Boolean(
+    (query && projectHaystack.includes(query)) || (queryCompact && projectHaystack.includes(queryCompact))
+  );
+
+  const matchedSpools = spools.filter((spool) => {
+    const spoolHaystack = buildSearchIndex([
+      spool?.iso,
+      spool?.drawing,
+      spool?.description,
+      spool?.spool,
+      spool?.spoolNumber,
+      project?.projectNumber,
+      project?.projectDisplay,
+      project?.projectPrefix,
+      project?.client,
+    ]);
+    return Boolean(
+      (query && spoolHaystack.includes(query)) || (queryCompact && spoolHaystack.includes(queryCompact))
+    );
+  });
+
+  return matchedSpools.length ? matchedSpools : (matchesProjectOnly ? spools : []);
 }
 
 function getStageUpdatesForCurrentSector(source = null, sector = getStageWorkspaceSector()) {
@@ -2498,7 +2536,7 @@ if (stageUpdatesModalEl) {
     }
     const progressEl = event.target.closest('[data-stage-progress="true"]');
     if (progressEl) {
-      const formEl = progressEl.closest('form');
+      const formEl = progressEl.closest('[data-stage-update-form="true"]');
       const dateEl = formEl?.querySelector('[name="completionDate"]');
       if (dateEl && Number(progressEl.value) === 100 && !dateEl.value) {
         dateEl.value = new Date().toISOString().slice(0, 10);
@@ -3737,7 +3775,7 @@ function renderStageSectorWorkspace() {
         <section class="admin-card admin-card--wide">
           <div class="admin-card-head"><h4>Lançar avanço da etapa</h4></div>
           ${matchedProjects.length ? `<div class="stage-project-list">${matchedProjects.map((project) => {
-            const spools = Array.isArray(project.spools) ? project.spools : [];
+            const spools = filterStageWorkspaceSpools(project);
             return `
               <article class="stage-project-card">
                 <div class="stage-project-head">
