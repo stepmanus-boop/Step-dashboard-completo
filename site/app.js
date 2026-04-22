@@ -1431,22 +1431,28 @@ function userHasProjectsScope(user = state.user) {
 function updatePrimaryUserActionUi() {
   if (!openSectorAlertsEl) return;
   const projectsScope = userHasProjectsScope();
+  const stageScope = canOpenStageWorkspace() && !canValidateStageWorkspace() && !projectsScope;
   const viewingMine = projectsScope && state.projectView === "mine";
+  const viewingStageMine = stageScope && state.sectorAlertsMode === 'stage-projects';
   openSectorAlertsEl.textContent = projectsScope
     ? (viewingMine ? "Todos os projetos" : "Meus projetos")
-    : "Meus alertas";
+    : (stageScope
+        ? (viewingStageMine ? "Todos os alertas" : "Meus alertas")
+        : "Meus alertas");
   openSectorAlertsEl.title = projectsScope
     ? (viewingMine
         ? "Voltar para a visualização com todos os projetos"
         : "Visualizar apenas os projetos vinculados ao seu nome na coluna PM")
-    : (canOpenStageWorkspace() && !canValidateStageWorkspace()
-        ? "Visualizar as BSPs que estão atualmente na etapa do seu setor"
+    : (stageScope
+        ? (viewingStageMine
+            ? "Voltar para a visualização com todos os alertas do seu setor"
+            : "Visualizar apenas as BSPs que estão atualmente na etapa do seu setor")
         : "Visualizar alertas direcionados ao seu setor");
   const titleEl = document.getElementById("sector-alerts-title");
   if (titleEl && state.sectorAlertsMode !== 'project-signals' && state.sectorAlertsMode !== 'my-project-signals') {
     titleEl.textContent = projectsScope
       ? "Meus projetos"
-      : (canOpenStageWorkspace() && !canValidateStageWorkspace()
+      : (stageScope && viewingStageMine
           ? `BSPs em ${getStageWorkspaceLabel()}`
           : "Meus alertas por setor");
   }
@@ -2418,7 +2424,6 @@ if (openSectorAlertsEl) {
       openLoginModal();
       return;
     }
-    state.sectorAlertsMode = 'default';
     if (userHasProjectsScope()) {
       state.projectView = state.projectView === 'mine' ? 'all' : 'mine';
       updatePrimaryUserActionUi();
@@ -2430,6 +2435,19 @@ if (openSectorAlertsEl) {
       if (tableShellEl) tableShellEl.scrollTop = 0;
       return;
     }
+    if (canOpenStageWorkspace() && !canValidateStageWorkspace()) {
+      state.sectorAlertsMode = state.sectorAlertsMode === 'stage-projects' ? 'default' : 'stage-projects';
+      const titleEl = document.getElementById('sector-alerts-title');
+      if (titleEl) {
+        titleEl.textContent = state.sectorAlertsMode === 'stage-projects'
+          ? `BSPs em ${getStageWorkspaceLabel()}`
+          : 'Meus alertas por setor';
+      }
+      updatePrimaryUserActionUi();
+      openSectorAlertsModal();
+      return;
+    }
+    state.sectorAlertsMode = 'default';
     openSectorAlertsModal();
   });
 }
@@ -3152,7 +3170,7 @@ function openSectorAlertsModal() {
     renderProjectUserSignals();
   } else if (state.sectorAlertsMode === 'my-project-signals') {
     renderMyProjectSignals();
-  } else if (canOpenStageWorkspace() && !canValidateStageWorkspace() && !userHasProjectsScope(state.user)) {
+  } else if (state.sectorAlertsMode === 'stage-projects') {
     renderSectorProjectsWorkspace();
   } else {
     renderManualAlerts();
