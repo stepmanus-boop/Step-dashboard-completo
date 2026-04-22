@@ -979,6 +979,25 @@ function canViewMyProjectSignals(user = state.user) {
 const STAGE_WORKSPACE_SECTORS = ['pintura', 'inspecao', 'pendente_envio', 'producao', 'calderaria', 'solda'];
 const STAGE_PROGRESS_OPTIONS = [25, 50, 75, 100];
 
+function getSectorProjectStageLabels(sector = getStageWorkspaceSector()) {
+  const normalized = normalizeSectorValue(sector);
+  if (normalized === 'pintura') return ['Pintura'];
+  if (normalized === 'inspecao') return ['Inspeção'];
+  if (normalized === 'pendente_envio' || normalized === 'logistica' || normalized === 'pcp') return ['Logística'];
+  if (['solda', 'calderaria', 'producao'].includes(normalized)) return ['Produção'];
+  return [];
+}
+
+function getProjectsForUserSector(user = state.user, source = null) {
+  if (!user) return [];
+  const labels = getSectorProjectStageLabels(user.sector);
+  if (!labels.length) return [];
+  const list = Array.isArray(source) ? source : (Array.isArray(state.projects) ? state.projects : []);
+  return list
+    .filter((project) => labels.includes(project?.currentStageGroup || simplifyCurrentStage(project)))
+    .sort((a, b) => String(a?.projectDisplay || a?.projectNumber || '').localeCompare(String(b?.projectDisplay || b?.projectNumber || ''), 'pt-BR'));
+}
+
 function getStageWorkspaceSector(user = state.user) {
   return normalizeSectorValue(user?.sector);
 }
@@ -1420,10 +1439,16 @@ function updatePrimaryUserActionUi() {
     ? (viewingMine
         ? "Voltar para a visualização com todos os projetos"
         : "Visualizar apenas os projetos vinculados ao seu nome na coluna PM")
-    : "Visualizar alertas direcionados ao seu setor";
+    : (canOpenStageWorkspace() && !canValidateStageWorkspace()
+        ? "Visualizar as BSPs que estão atualmente na etapa do seu setor"
+        : "Visualizar alertas direcionados ao seu setor");
   const titleEl = document.getElementById("sector-alerts-title");
-  if (titleEl && state.sectorAlertsMode !== 'project-signals') {
-    titleEl.textContent = projectsScope ? "Meus projetos" : "Meus alertas por setor";
+  if (titleEl && state.sectorAlertsMode !== 'project-signals' && state.sectorAlertsMode !== 'my-project-signals') {
+    titleEl.textContent = projectsScope
+      ? "Meus projetos"
+      : (canOpenStageWorkspace() && !canValidateStageWorkspace()
+          ? `BSPs em ${getStageWorkspaceLabel()}`
+          : "Meus alertas por setor");
   }
   if (openMyProjectSignalsEl) {
     const canViewMine = canViewMyProjectSignals();
@@ -2827,6 +2852,56 @@ function getUserAutomaticAlerts() {
     });
 }
 
+function renderSectorProjectsWorkspace(targetEl = sectorAlertsContentEl) {
+  if (!targetEl) return;
+  if (!state.user) {
+    targetEl.innerHTML = '<div class="detail-placeholder">Faça login para visualizar as BSPs da sua etapa.</div>';
+    return;
+  }
+  const stageLabel = getStageWorkspaceLabel();
+  const projects = getProjectsForUserSector();
+  if (!projects.length) {
+    targetEl.innerHTML = `<div class="detail-placeholder">Nenhuma BSP encontrada atualmente na etapa ${escapeHtml(stageLabel)}.</div>`;
+    return;
+  }
+
+  targetEl.innerHTML = `
+    <div class="manual-alert-summary">
+      <span class="manual-alert-tag">Etapa do seu setor</span>
+      <span class="manual-alert-tag">${escapeHtml(stageLabel)}</span>
+      <span class="manual-alert-tag">${projects.length} BSP(s)</span>
+    </div>
+    <section class="manual-alert-section">
+      <div class="admin-list-item-meta">
+        <span class="manual-alert-tag">${escapeHtml(stageLabel)}</span>
+        <span>Projetos em andamento nesta etapa</span>
+      </div>
+      <div class="manual-alert-section-list">
+        ${projects.map((project) => {
+          const spools = Array.isArray(project?.spools) ? project.spools : [];
+          const deadline = project?.plannedFinishDate || project?.deliveryDate || 'Sem data';
+          return `
+            <article class="manual-alert-item manual-alert-item--automatic">
+              <div class="admin-list-item-meta">
+                <span class="manual-alert-tag">${escapeHtml(stageLabel)}</span>
+                <span class="manual-alert-tag">${escapeHtml(project.projectNumber || project.projectDisplay || 'BSP')}</span>
+                <span>${escapeHtml(deadline)}</span>
+              </div>
+              <strong>${escapeHtml(project.projectDisplay || project.projectNumber || 'Projeto')}</strong>
+              <p>Cliente: ${escapeHtml(project.client || '—')}<br>Etapa atual: ${escapeHtml(project.currentStageGroup || simplifyCurrentStage(project))}</p>
+              <div class="manual-alert-actions">
+                <span class="manual-alert-tag">Spools: ${escapeHtml(String(spools.length || 0))}</span>
+                <span class="manual-alert-tag">PM: ${escapeHtml(project.pm || '—')}</span>
+                <span class="manual-alert-tag">Peso: ${escapeHtml(formatNumber(project.kilos || 0, 0))} kg</span>
+              </div>
+            </article>
+          `;
+        }).join('')}
+      </div>
+    </section>
+  `;
+}
+
 function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sectorAlertsContentEl) {
   if (!targetEl) return;
   if (!state.user) {
@@ -3049,7 +3124,11 @@ async function loadManualAlerts() {
     state.manualAlerts = data.alerts || [];
     state.projectSignals = data.projectSignals || [];
     updateSessionUi();
-    renderManualAlerts();
+    if (sectorAlertsModalEl && !sectorAlertsModalEl.classList.contains('hidden')) {
+      openSectorAlertsModal();
+    } else {
+      renderManualAlerts();
+    }
     detectNewUserAlerts();
     if (state.user?.role === "admin") {
       renderAdminAlertsList();
@@ -3073,6 +3152,8 @@ function openSectorAlertsModal() {
     renderProjectUserSignals();
   } else if (state.sectorAlertsMode === 'my-project-signals') {
     renderMyProjectSignals();
+  } else if (canOpenStageWorkspace() && !canValidateStageWorkspace() && !userHasProjectsScope(state.user)) {
+    renderSectorProjectsWorkspace();
   } else {
     renderManualAlerts();
   }
