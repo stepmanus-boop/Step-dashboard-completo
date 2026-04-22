@@ -911,10 +911,12 @@ function getSignalStatusBadge(alert) {
     : '<span class="manual-alert-tag manual-alert-tag--pending">Pendente</span>';
 }
 
-function canCreateProjectSignal(user = state.user) {
+function canCreateProjectSignal(project = null, user = state.user) {
   if (!user) return false;
   if (user.role === 'admin') return true;
-  return normalizeSectorValue(user.sector) === 'projetos' || userHasProjectsScope(user);
+  if (!(normalizeSectorValue(user.sector) === 'projetos' || userHasProjectsScope(user))) return false;
+  if (!project) return true;
+  return projectBelongsToUser(project, user);
 }
 
 function canResolveSignal(user = state.user) {
@@ -948,7 +950,7 @@ function canViewProjectSignals(user = state.user) {
 
 function renderProjectSignals(project) {
   const signals = getProjectSignals(project);
-  const actionButton = canCreateProjectSignal()
+  const actionButton = canCreateProjectSignal(project)
     ? `<button class="primary-button" type="button" data-open-project-signal="${escapeHtml(project.rowId)}">Nova sinalização ao PCP</button>`
     : '';
   const itemsHtml = signals.length
@@ -2938,6 +2940,10 @@ function closeAlertResponseModal() {
 
 function openProjectSignalModal(project) {
   if (!projectSignalModalEl || !project) return;
+  if (!canCreateProjectSignal(project)) {
+    window.alert('Você só pode enviar sinalização para BSPs que estejam vinculadas ao seu nome.');
+    return;
+  }
   state.selectedProjectForSignal = project;
   if (projectSignalProjectIdEl) projectSignalProjectIdEl.value = String(project.rowId || '');
   if (projectSignalHeadingEl) projectSignalHeadingEl.textContent = `Nova sinalização • ${project.projectDisplay || project.projectNumber || 'Projeto'}`;
@@ -2978,10 +2984,15 @@ async function handleProjectSignalSubmit(event) {
     projectSignalFeedbackEl.textContent = 'Preencha título e descrição da sinalização.';
     return;
   }
+  if (!canCreateProjectSignal(project)) {
+    projectSignalFeedbackEl.textContent = 'Você só pode enviar sinalização para BSPs que estejam vinculadas ao seu nome.';
+    return;
+  }
   projectSignalFeedbackEl.textContent = 'Enviando sinalização ao PCP...';
   const projectRef = project.projectNumber || project.projectDisplay || `Projeto ${project.rowId}`;
   const payload = {
     sector: 'pcp',
+    projectRowId: project.rowId,
     title: `${projectRef} • ${title}`,
     message: `Projeto: ${projectDisplayWithClient(project)}
 Informado por: ${state.user?.name || state.user?.username || 'Usuário'}

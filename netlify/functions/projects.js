@@ -1099,3 +1099,4 @@ exports.handler = async (event) => {
     return jsonResponse(500, { ok: false, error: error.message });
   }
 };
+exports.buildPayload = buildPayload;

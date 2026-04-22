@@ -1,6 +1,7 @@
 const webpush = require('web-push');
 const { jsonResponse, requireSession, normalizeSectorList, normalizeText, normalizeSectorValue } = require('./_auth');
 const { listManualAlerts, listAcknowledgements, createManualAlert, addAcknowledgement, findAcknowledgement, isSupabaseConfigured, getUserById, getUserByUsername, listUsers, listPushSubscriptions, removePushSubscription } = require('./_supabase');
+const { buildPayload } = require('./projects');
 
 function alertVisibleToUser(alert, session) {
   if (!alert || alert.active === false) return false;
@@ -12,6 +13,36 @@ function alertVisibleToUser(alert, session) {
 }
 
 
+
+
+function tokenizeNormalizedNames(values = []) {
+  const set = new Set();
+  const source = Array.isArray(values) ? values : [values];
+  for (const value of source) {
+    const normalized = normalizeText(value).trim();
+    if (!normalized) continue;
+    set.add(normalized);
+    for (const part of normalized.split(/[^a-z0-9]+/)) {
+      if (part) set.add(part);
+    }
+  }
+  return set;
+}
+
+function projectBelongsToUser(project, user) {
+  if (!project || !user) return false;
+  const pmValue = String(project.pm || '').trim();
+  if (!pmValue) return false;
+  const candidates = tokenizeNormalizedNames([user.name, user.username, String(user.username || '').split('@')[0]]);
+  if (!candidates.size) return false;
+  const normalizedPm = normalizeText(pmValue).trim();
+  const pmTokens = tokenizeNormalizedNames(pmValue.split(/[;,|/]+/));
+  for (const candidate of candidates) {
+    if (normalizedPm === candidate || normalizedPm.includes(candidate)) return true;
+    if (pmTokens.has(candidate)) return true;
+  }
+  return false;
+}
 
 function configureWebPush() {
   const publicKey = String(process.env.VAPID_PUBLIC_KEY || '');
@@ -144,6 +175,7 @@ exports.handler = async (event) => {
       const sector = normalizeSectorValue(body.sector);
       const priority = String(body.priority || 'normal').trim().toLowerCase();
       const requiresAck = body.requiresAck !== false;
+      const projectRowId = Number(body.projectRowId || 0);
       const effectiveSession = await getEffectiveSession(auth.session);
       const userSector = normalizeSectorValue(effectiveSession.sector);
       const allowedProjectSectors = normalizeSectorList(effectiveSession.sector, effectiveSession.alertSectors);
@@ -157,6 +189,21 @@ exports.handler = async (event) => {
 
       if (!canCreateGeneralAlert && !(canCreateProjectSignal && isProjectSignalToPcp)) {
         return jsonResponse(403, { ok: false, error: 'Apenas administradores podem criar alertas gerais. Usuários de Projetos podem enviar sinalizações ao PCP.' });
+      }
+
+      if (!canCreateGeneralAlert && canCreateProjectSignal) {
+        if (!projectRowId) {
+          return jsonResponse(400, { ok: false, error: 'BSP não informada para validação.' });
+        }
+        const payload = await buildPayload();
+        const projects = Array.isArray(payload?.projects) ? payload.projects : [];
+        const project = projects.find((item) => Number(item?.rowId || 0) === projectRowId);
+        if (!project) {
+          return jsonResponse(404, { ok: false, error: 'BSP não encontrada para validação.' });
+        }
+        if (!projectBelongsToUser(project, effectiveSession)) {
+          return jsonResponse(403, { ok: false, error: 'Você só pode enviar notificações das BSPs que estejam no seu nome.' });
+        }
       }
 
       const alert = await createManualAlert({
