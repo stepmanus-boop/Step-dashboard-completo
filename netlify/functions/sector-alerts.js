@@ -1,5 +1,5 @@
 const webpush = require('web-push');
-const { jsonResponse, requireSession, requireAdmin, normalizeSectorList, normalizeText, normalizeSectorValue } = require('./_auth');
+const { jsonResponse, requireSession, normalizeSectorList, normalizeText, normalizeSectorValue } = require('./_auth');
 const { listManualAlerts, listAcknowledgements, createManualAlert, addAcknowledgement, findAcknowledgement, isSupabaseConfigured, getUserById, getUserByUsername, listUsers, listPushSubscriptions, removePushSubscription } = require('./_supabase');
 
 function alertVisibleToUser(alert, session) {
@@ -135,8 +135,8 @@ exports.handler = async (event) => {
   }
 
   if (event.httpMethod === 'POST') {
-    const admin = requireAdmin(event);
-    if (!admin.ok) return admin.response;
+    const auth = requireSession(event);
+    if (!auth.ok) return auth.response;
     try {
       const body = JSON.parse(event.body || '{}');
       const title = String(body.title || '').trim();
@@ -144,9 +144,19 @@ exports.handler = async (event) => {
       const sector = normalizeSectorValue(body.sector);
       const priority = String(body.priority || 'normal').trim().toLowerCase();
       const requiresAck = body.requiresAck !== false;
+      const effectiveSession = await getEffectiveSession(auth.session);
+      const userSector = normalizeSectorValue(effectiveSession.sector);
+      const allowedProjectSectors = normalizeSectorList(effectiveSession.sector, effectiveSession.alertSectors);
+      const canCreateGeneralAlert = effectiveSession.role === 'admin';
+      const canCreateProjectSignal = userSector === 'projetos' || allowedProjectSectors.includes('projetos');
+      const isProjectSignalToPcp = sector === 'pcp';
 
       if (!title || !message || !sector) {
         return jsonResponse(400, { ok: false, error: 'Informe setor, título e mensagem.' });
+      }
+
+      if (!canCreateGeneralAlert && !(canCreateProjectSignal && isProjectSignalToPcp)) {
+        return jsonResponse(403, { ok: false, error: 'Apenas administradores podem criar alertas gerais. Usuários de Projetos podem enviar sinalizações ao PCP.' });
       }
 
       const alert = await createManualAlert({
@@ -155,7 +165,7 @@ exports.handler = async (event) => {
         sector,
         priority: ['low', 'normal', 'high', 'urgent'].includes(priority) ? priority : 'normal',
         requiresAck,
-        createdBy: admin.session.username,
+        createdBy: effectiveSession.username,
         expiresAfterReadHours: 24,
       });
       const push = await notifySectorPushUsers(alert);
