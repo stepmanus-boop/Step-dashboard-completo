@@ -10,23 +10,62 @@ async function loadProjectPayload() {
   }
 }
 
-function normalizeSpoolIso(value) {
+function normalizeLookupValue(value) {
   return String(value || '')
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '');
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function findProjectByRow(projects, projectRowId) {
+  const target = Number(projectRowId || 0);
+  if (!target) return null;
+  return projects.find((item) => Number(item?.rowId || 0) === target || Number(item?.rowNumber || 0) === target) || null;
+}
+
+function findSpoolInProject(project, spoolIso) {
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  const targetRaw = String(spoolIso || '').trim();
+  const target = normalizeLookupValue(targetRaw);
+  if (!target) return null;
+
+  return spools.find((item) => {
+    const iso = String(item?.iso || '').trim();
+    const drawing = String(item?.drawing || '').trim();
+    const normalizedIso = normalizeLookupValue(iso);
+    const normalizedDrawing = normalizeLookupValue(drawing);
+    return normalizedIso === target
+      || normalizedDrawing === target
+      || normalizedIso.includes(target)
+      || target.includes(normalizedIso)
+      || normalizedDrawing.includes(target)
+      || target.includes(normalizedDrawing);
+  }) || null;
 }
 
 async function findProjectAndSpool(projectRowId, spoolIso) {
   const payload = await loadProjectPayload();
   const projects = Array.isArray(payload?.projects) ? payload.projects : [];
-  const project = projects.find((item) => Number(item?.rowNumber || item?.rowId || 0) === Number(projectRowId || 0));
-  if (!project) return { project: null, spool: null, payload };
-  const spools = Array.isArray(project?.spools) ? project.spools : [];
-  const targetIso = normalizeSpoolIso(spoolIso);
-  const spool = spools.find((item) => normalizeSpoolIso(item?.iso) === targetIso);
-  return { project, spool: spool || null, payload };
+  let project = findProjectByRow(projects, projectRowId);
+  let spool = project ? findSpoolInProject(project, spoolIso) : null;
+
+  if (!project && spoolIso) {
+    for (const item of projects) {
+      const candidate = findSpoolInProject(item, spoolIso);
+      if (candidate) {
+        project = item;
+        spool = candidate;
+        break;
+      }
+    }
+  }
+
+  if (project && !spool) {
+    spool = findSpoolInProject(project, spoolIso);
+  }
+
+  return { project: project || null, spool: spool || null, payload };
 }
 
 module.exports = {

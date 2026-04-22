@@ -2,6 +2,7 @@
 const { jsonResponse, requireSession, normalizeSectorValue } = require('./_auth');
 const { readJson, writeJson } = require('./_githubStore');
 const { findProjectAndSpool } = require('./_projectLookup');
+const { isSupabaseConfigured, listStageUpdates: listStageUpdatesSupabase, createStageUpdate, updateStageUpdate } = require('./_supabase');
 
 const DATA_PATH = 'data/stage-updates.json';
 const SUPPORTED_SECTORS = ['pintura', 'inspecao', 'pendente_envio', 'producao', 'calderaria', 'solda'];
@@ -22,12 +23,44 @@ function getActorSector(session) {
 }
 
 async function listUpdates() {
+  if (isSupabaseConfigured()) {
+    const rows = await listStageUpdatesSupabase();
+    if (Array.isArray(rows) && rows.length) return rows;
+  }
   const rows = await readJson(DATA_PATH, []);
   return Array.isArray(rows) ? rows : [];
 }
 
 async function saveUpdates(rows) {
   return writeJson(DATA_PATH, rows, 'chore: atualiza apontamentos setoriais');
+}
+
+async function createUpdateRecord(record, existingRows) {
+  if (isSupabaseConfigured()) {
+    try {
+      const created = await createStageUpdate(record);
+      if (created) return created;
+    } catch (_) {}
+  }
+  const rows = Array.isArray(existingRows) ? existingRows.slice() : await listUpdates();
+  rows.unshift(record);
+  await saveUpdates(rows);
+  return record;
+}
+
+async function resolveUpdateRecord(id, updates, existingRows) {
+  if (isSupabaseConfigured()) {
+    try {
+      const resolved = await updateStageUpdate(id, updates);
+      if (resolved) return resolved;
+    } catch (_) {}
+  }
+  const rows = Array.isArray(existingRows) ? existingRows.slice() : await listUpdates();
+  const index = rows.findIndex((item) => String(item.id) === String(id));
+  if (index < 0) return null;
+  rows[index] = { ...rows[index], ...updates };
+  await saveUpdates(rows);
+  return rows[index];
 }
 
 exports.handler = async (event) => {
@@ -59,6 +92,7 @@ exports.handler = async (event) => {
       const body = JSON.parse(event.body || '{}');
       const projectRowId = Number(body.projectRowId || 0);
       const spoolIso = String(body.spoolIso || '').trim();
+      const spoolIsoCompact = spoolIso.replace(/\s+/g, ' ');
       const progress = Number(body.progress || 0);
       const completionDate = String(body.completionDate || '').trim();
       const note = String(body.note || '').trim();
@@ -66,13 +100,13 @@ exports.handler = async (event) => {
         ? normalizeSectorValue(body.sector || session.sector)
         : getActorSector(session);
 
-      if (!projectRowId || !spoolIso || !SUPPORTED_SECTORS.includes(sector)) {
+      if (!projectRowId || !spoolIsoCompact || !SUPPORTED_SECTORS.includes(sector)) {
         return jsonResponse(400, { ok: false, error: 'Informe BSP, spool e uma etapa válida.' });
       }
       if (!PROGRESS_OPTIONS.includes(progress)) {
         return jsonResponse(400, { ok: false, error: 'Selecione um avanço válido: 25%, 50%, 75% ou 100%.' });
       }
-      const { project, spool } = await findProjectAndSpool(projectRowId, spoolIso);
+      const { project, spool } = await findProjectAndSpool(projectRowId, spoolIsoCompact);
       if (!project || !spool) {
         return jsonResponse(404, { ok: false, error: 'BSP ou spool não localizado para este apontamento.' });
       }
@@ -80,7 +114,7 @@ exports.handler = async (event) => {
       const pendingExists = updates.find((item) =>
         String(item.status || 'pending') === 'pending'
         && Number(item.projectRowId || 0) === projectRowId
-        && String(item.spoolIso || '').trim().toLowerCase() === spoolIso.toLowerCase()
+        && String(item.spoolIso || '').trim().toLowerCase() === spoolIsoCompact.toLowerCase()
         && normalizeSectorValue(item.sector) === sector
       );
       if (pendingExists) {
@@ -93,7 +127,7 @@ exports.handler = async (event) => {
         projectNumber: project.projectNumber || project.projectDisplay || `Projeto ${projectRowId}`,
         projectDisplay: project.projectDisplay || project.projectNumber || `Projeto ${projectRowId}`,
         client: project.client || '',
-        spoolIso,
+        spoolIso: spool?.iso || spoolIsoCompact,
         spoolDescription: spool.description || '',
         sector,
         progress,
@@ -108,9 +142,8 @@ exports.handler = async (event) => {
         resolvedAt: '',
         resolutionNote: '',
       };
-      updates.unshift(record);
-      await saveUpdates(updates);
-      return jsonResponse(200, { ok: true, update: record });
+      const created = await createUpdateRecord(record, updates);
+      return jsonResponse(200, { ok: true, update: created || record });
     }
 
     if (event.httpMethod === 'PATCH') {
@@ -124,16 +157,15 @@ exports.handler = async (event) => {
       const updates = await listUpdates();
       const index = updates.findIndex((item) => String(item.id) === id);
       if (index < 0) return jsonResponse(404, { ok: false, error: 'Apontamento não encontrado.' });
-      updates[index] = {
-        ...updates[index],
+      const resolvedPayload = {
         status: 'resolved',
         resolvedBy: session.username || '',
         resolvedByName: session.name || session.username || 'Usuário',
         resolvedAt: new Date().toISOString(),
         resolutionNote,
       };
-      await saveUpdates(updates);
-      return jsonResponse(200, { ok: true, update: updates[index] });
+      const resolved = await resolveUpdateRecord(id, resolvedPayload, updates);
+      return jsonResponse(200, { ok: true, update: resolved || { ...updates[index], ...resolvedPayload } });
     }
 
     return jsonResponse(405, { ok: false, error: 'Método não permitido.' });

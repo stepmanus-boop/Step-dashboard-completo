@@ -1001,20 +1001,12 @@ function canValidateStageWorkspace(user = state.user) {
 }
 
 function stageWorkspaceSearchProjects() {
-  const rawQuery = String(state.stageUpdatesSearchQuery || '');
-  const query = normalizeText(rawQuery);
-  const compactQuery = normalizeCompactText(rawQuery);
-  const digitsQuery = rawQuery.replace(/\D+/g, '');
+  const query = normalizeText(state.stageUpdatesSearchQuery || '');
   const source = Array.isArray(state.projects) ? state.projects : [];
-  if (!query && !compactQuery && !digitsQuery) return source.slice(0, 8);
+  if (!query) return source.slice(0, 8);
   return source.filter((project) => {
-    const searchIndex = buildSearchIndex([
-      project.projectNumber,
-      project.projectDisplay,
-      project.client,
-      project.currentStage,
-    ]);
-    return [query, compactQuery, digitsQuery].filter(Boolean).some((term) => searchIndex.includes(term));
+    return [project.projectNumber, project.projectDisplay, project.client, project.currentStage]
+      .some((value) => normalizeText(value).includes(query));
   }).slice(0, 8);
 }
 
@@ -2465,51 +2457,50 @@ if (stageUpdatesModalEl) {
       closeStageUpdatesModal();
       return;
     }
-    const tabButton = event.target.closest('[data-stage-tab]');
-    if (tabButton) {
-      state.stageUpdatesTab = tabButton.dataset.stageTab || 'workspace';
-      renderStageUpdatesModal();
-      return;
-    }
     const concludeButton = event.target.closest('[data-stage-conclude]');
     if (concludeButton) {
       concludeStageUpdate(concludeButton.dataset.stageConclude);
-      return;
-    }
-    const submitButton = event.target.closest('[data-stage-submit="true"]');
-    if (submitButton) {
-      handleStageWorkspaceSubmit(submitButton.closest('[data-stage-update-row="true"]'));
     }
   });
   stageUpdatesModalEl.addEventListener('input', (event) => {
     const searchEl = event.target.closest('[data-stage-search="true"]');
     if (searchEl) {
-      const nextValue = searchEl.value || '';
-      const selectionStart = searchEl.selectionStart ?? nextValue.length;
-      const selectionEnd = searchEl.selectionEnd ?? nextValue.length;
-      state.stageUpdatesSearchQuery = nextValue;
+      const cursorStart = searchEl.selectionStart ?? String(searchEl.value || '').length;
+      const cursorEnd = searchEl.selectionEnd ?? cursorStart;
+      state.stageUpdatesSearchQuery = searchEl.value || '';
       renderStageUpdatesModal();
-      window.requestAnimationFrame(() => {
-        const nextSearchEl = stageUpdatesModalEl.querySelector('[data-stage-search="true"]');
-        if (!nextSearchEl) return;
-        nextSearchEl.focus();
-        const safeStart = Math.min(selectionStart, nextSearchEl.value.length);
-        const safeEnd = Math.min(selectionEnd, nextSearchEl.value.length);
-        nextSearchEl.setSelectionRange(safeStart, safeEnd);
+      requestAnimationFrame(() => {
+        const newSearchEl = stageUpdatesModalEl.querySelector('[data-stage-search="true"]');
+        if (!newSearchEl) return;
+        newSearchEl.focus({ preventScroll: true });
+        try { newSearchEl.setSelectionRange(cursorStart, cursorEnd); } catch (_) {}
       });
       return;
     }
     const progressEl = event.target.closest('[data-stage-progress="true"]');
     if (progressEl) {
-      const rowEl = progressEl.closest('[data-stage-update-row="true"]');
-      const dateEl = rowEl?.querySelector('[name="completionDate"]');
+      const formEl = progressEl.closest('form');
+      const dateEl = formEl?.querySelector('[name="completionDate"]');
       if (dateEl && Number(progressEl.value) === 100 && !dateEl.value) {
         dateEl.value = new Date().toISOString().slice(0, 10);
       }
     }
   });
+  stageUpdatesModalEl.addEventListener('click', (event) => {
+    const submitButton = event.target.closest('[data-stage-submit="true"]');
+    if (!submitButton) return;
+    event.preventDefault();
+    const formEl = submitButton.closest('[data-stage-update-form="true"]');
+    if (!formEl) return;
+    handleStageWorkspaceSubmit(formEl);
+  });
+  stageUpdatesModalEl.addEventListener('submit', (event) => {
+    const formEl = event.target.closest('[data-stage-update-form="true"]');
+    if (!formEl) return;
+    event.preventDefault();
+    handleStageWorkspaceSubmit(formEl);
+  });
 }
-
 
 
 if (sectorAlertsCloseEl) {
@@ -3747,21 +3738,21 @@ function renderStageSectorWorkspace() {
                         const pending = getPendingStageUpdate(project.rowId || project.rowNumber, spool.iso, sector);
                         const lastResolved = getLatestResolvedStageUpdate(project.rowId || project.rowNumber, spool.iso, sector);
                         return `
-                          <tr data-stage-update-row="true" data-project-row-id="${escapeHtml(String(project.rowId || project.rowNumber || ''))}" data-project-number="${escapeHtml(project.projectNumber || '')}" data-spool-iso="${escapeHtml(spool.iso || '')}" class="stage-row-form">
+                          <tr>
                             <td>${escapeHtml(spool.iso || '—')}</td>
                             <td>${escapeHtml(spool.description || '—')}</td>
-                            <td>
-                              <select name="progress" data-stage-progress="true">
-                                ${STAGE_PROGRESS_OPTIONS.map((value) => `<option value="${value}">${value}%</option>`).join('')}
-                              </select>
-                            </td>
-                            <td><input type="date" name="completionDate" value="" /></td>
-                            <td><textarea name="note" rows="2" placeholder="Observação opcional"></textarea></td>
-                            <td>
-                              ${pending
-                                ? `<span class="stage-badge stage-badge--pending">Aguardando PCP</span>`
-                                : `<button class="primary-button" type="button" data-stage-submit="true">Enviar</button>`}
-                              ${lastResolved ? `<div class="stage-muted">Último concluído: ${escapeHtml(formatStageDate(lastResolved.resolvedAt))}</div>` : ''}
+                            <td colspan="4">
+                              <div data-stage-update-form="true" data-project-row-id="${escapeHtml(String(project.rowId || project.rowNumber || ''))}" data-project-number="${escapeHtml(project.projectNumber || '')}" data-spool-iso="${escapeHtml(spool.iso || '')}" class="stage-row-form stage-row-form--inline">
+                                <select name="progress" data-stage-progress="true">
+                                  ${STAGE_PROGRESS_OPTIONS.map((value) => `<option value="${value}">${value}%</option>`).join('')}
+                                </select>
+                                <input type="date" name="completionDate" value="" />
+                                <textarea name="note" rows="2" placeholder="Observação opcional"></textarea>
+                                ${pending
+                                  ? `<span class="stage-badge stage-badge--pending">Aguardando PCP</span>`
+                                  : `<button class="primary-button" type="button" data-stage-submit="true">Enviar</button>`}
+                                ${lastResolved ? `<div class="stage-muted">Último concluído: ${escapeHtml(formatStageDate(lastResolved.resolvedAt))}</div>` : ''}
+                              </div>
                             </td>
                           </tr>`;
                       }).join('')}
@@ -3906,22 +3897,17 @@ function closeStageUpdatesModal() {
   }
 }
 
-async function handleStageWorkspaceSubmit(rowEl) {
-  const projectRowId = String(rowEl?.dataset?.projectRowId || '').trim();
-  const spoolIso = String(rowEl?.dataset?.spoolIso || '').trim();
-  const progress = String(rowEl?.querySelector('[name="progress"]')?.value || '').trim();
-  const completionDate = String(rowEl?.querySelector('[name="completionDate"]')?.value || '').trim();
-  const note = String(rowEl?.querySelector('[name="note"]')?.value || '').trim();
-  const submitButton = rowEl?.querySelector('[data-stage-submit="true"]');
+async function handleStageWorkspaceSubmit(formEl) {
+  const projectRowId = String(formEl?.dataset?.projectRowId || '').trim();
+  const spoolIso = String(formEl?.dataset?.spoolIso || '').trim();
+  const progress = String(formEl?.querySelector('[name="progress"]')?.value || '').trim();
+  const completionDate = String(formEl?.querySelector('[name="completionDate"]')?.value || '').trim();
+  const note = String(formEl?.querySelector('[name="note"]')?.value || '').trim();
   if (!projectRowId || !spoolIso || !progress) {
     window.alert('Preencha o avanço do spool antes de enviar.');
     return;
   }
   try {
-    if (submitButton) {
-      submitButton.disabled = true;
-      submitButton.textContent = 'Enviando...';
-    }
     const response = await fetch('/api/stage-updates', {
       method: 'POST',
       credentials: 'same-origin',
@@ -3933,10 +3919,6 @@ async function handleStageWorkspaceSubmit(rowEl) {
     await loadStageUpdates();
     renderStageUpdatesModal();
   } catch (error) {
-    if (submitButton) {
-      submitButton.disabled = false;
-      submitButton.textContent = 'Enviar';
-    }
     window.alert(error.message || 'Falha ao enviar apontamento.');
   }
 }

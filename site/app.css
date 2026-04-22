@@ -2610,3 +2610,19 @@ button.alert-badge {
 .stage-two-col{display:grid;grid-template-columns:1.4fr 1fr;gap:16px}
 .stage-history-shell{display:grid;gap:12px}
 @media (max-width: 1080px){.stage-two-col{grid-template-columns:1fr}.stage-inline-table{display:block;overflow:auto}}
+
+
+.stage-row-form--inline {
+  display: grid;
+  grid-template-columns: minmax(88px, 110px) minmax(140px, 160px) minmax(180px, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+.stage-row-form--inline .stage-muted {
+  grid-column: 1 / -1;
+}
+@media (max-width: 920px) {
+  .stage-row-form--inline {
+    grid-template-columns: 1fr;
+  }
+}
