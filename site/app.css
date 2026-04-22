@@ -494,6 +494,16 @@ body.modal-open { overflow: hidden; }
   padding: 8px 8px; border-bottom: 1px solid rgba(85, 145, 255, 0.08); font-size: 12px; white-space: nowrap;
 }
 
+.modal-table thead th:first-child,
+.modal-table tbody td:first-child {
+  min-width: 230px;
+  width: 230px;
+  white-space: normal;
+  line-height: 1.28;
+  word-break: break-word;
+}
+
+
 @keyframes pulse {
   0% { box-shadow: 0 0 0 0 rgba(255, 178, 26, 0.55); }
   70% { box-shadow: 0 0 0 10px rgba(255, 178, 26, 0); }
