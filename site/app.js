@@ -1000,13 +1000,49 @@ function canValidateStageWorkspace(user = state.user) {
   return getStageWorkspaceSector(user) === 'pcp';
 }
 
+function normalizeStageWorkspaceSearchVariants(value) {
+  const normalized = normalizeText(value || '').trim();
+  const digits = normalized.replace(/\D+/g, '');
+  const variants = new Set();
+  if (normalized) variants.add(normalized);
+  if (digits) {
+    variants.add(digits);
+    if (digits.length >= 4) {
+      variants.add(`${digits.slice(0, 2)}-${digits.slice(2)}`);
+      variants.add(`${digits.slice(0, 2)} ${digits.slice(2)}`);
+      variants.add(`bsp ${digits.slice(0, 2)}-${digits.slice(2)}`);
+      variants.add(`bsp ${digits.slice(0, 2)} ${digits.slice(2)}`);
+    }
+  }
+  return Array.from(variants);
+}
+
 function stageWorkspaceSearchProjects() {
   const query = normalizeText(state.stageUpdatesSearchQuery || '');
   const source = Array.isArray(state.projects) ? state.projects : [];
   if (!query) return source.slice(0, 8);
+  const variants = normalizeStageWorkspaceSearchVariants(query);
+
   return source.filter((project) => {
-    return [project.projectNumber, project.projectDisplay, project.client, project.currentStage]
-      .some((value) => normalizeText(value).includes(query));
+    const values = [
+      project.projectNumber,
+      project.projectDisplay,
+      project.projectAlias,
+      project.client,
+      project.currentStage,
+    ].map((value) => normalizeText(value || ''));
+
+    const projectDigits = normalizeText([
+      project.projectNumber,
+      project.projectDisplay,
+      project.projectAlias,
+    ].join(' ')).replace(/\D+/g, '');
+
+    return variants.some((variant) => {
+      if (!variant) return false;
+      if (/^\d+$/.test(variant) && projectDigits.includes(variant)) return true;
+      return values.some((value) => value.includes(variant));
+    });
   }).slice(0, 8);
 }
 
@@ -2471,15 +2507,17 @@ if (stageUpdatesModalEl) {
     }
     const progressEl = event.target.closest('[data-stage-progress="true"]');
     if (progressEl) {
-      const formEl = progressEl.closest('form');
+      const formEl = progressEl.closest('.stage-row-form');
       const dateEl = formEl?.querySelector('[name="completionDate"]');
       if (dateEl && Number(progressEl.value) === 100 && !dateEl.value) {
         dateEl.value = new Date().toISOString().slice(0, 10);
       }
     }
   });
-  stageUpdatesModalEl.addEventListener('submit', (event) => {
-    const formEl = event.target.closest('[data-stage-update-form="true"]');
+  stageUpdatesModalEl.addEventListener('click', (event) => {
+    const submitButton = event.target.closest('[data-stage-submit="true"]');
+    if (!submitButton) return;
+    const formEl = submitButton.closest('[data-stage-update-form="true"]');
     if (!formEl) return;
     event.preventDefault();
     handleStageWorkspaceSubmit(formEl);
@@ -3726,7 +3764,7 @@ function renderStageSectorWorkspace() {
                             <td>${escapeHtml(spool.iso || '—')}</td>
                             <td>${escapeHtml(spool.description || '—')}</td>
                             <td>
-                              <form data-stage-update-form="true" data-project-row-id="${escapeHtml(String(project.rowId || project.rowNumber || ''))}" data-project-number="${escapeHtml(project.projectNumber || '')}" data-spool-iso="${escapeHtml(spool.iso || '')}" class="stage-row-form">
+                              <div data-stage-update-form="true" data-project-row-id="${escapeHtml(String(project.rowId || project.rowNumber || ''))}" data-project-number="${escapeHtml(project.projectNumber || '')}" data-spool-iso="${escapeHtml(spool.iso || '')}" class="stage-row-form">
                                 <select name="progress" data-stage-progress="true">
                                   ${STAGE_PROGRESS_OPTIONS.map((value) => `<option value="${value}">${value}%</option>`).join('')}
                                 </select>
@@ -3736,9 +3774,9 @@ function renderStageSectorWorkspace() {
                             <td>
                               ${pending
                                 ? `<span class="stage-badge stage-badge--pending">Aguardando PCP</span>`
-                                : `<button class="primary-button" type="submit">Enviar</button>`}
+                                : `<button class="primary-button" type="button" data-stage-submit="true">Enviar</button>`}
                               ${lastResolved ? `<div class="stage-muted">Último concluído: ${escapeHtml(formatStageDate(lastResolved.resolvedAt))}</div>` : ''}
-                              </form>
+                              </div>
                             </td>
                           </tr>`;
                       }).join('')}
@@ -3889,23 +3927,50 @@ async function handleStageWorkspaceSubmit(formEl) {
   const progress = String(formEl?.querySelector('[name="progress"]')?.value || '').trim();
   const completionDate = String(formEl?.querySelector('[name="completionDate"]')?.value || '').trim();
   const note = String(formEl?.querySelector('[name="note"]')?.value || '').trim();
+  const submitButton = formEl?.querySelector('[data-stage-submit="true"]');
+
   if (!projectRowId || !spoolIso || !progress) {
     window.alert('Preencha o avanço do spool antes de enviar.');
     return;
   }
+
+  if (Number(progress) === 100 && !completionDate) {
+    window.alert('Informe a data de conclusão para avanço 100%.');
+    return;
+  }
+
   try {
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Enviando...';
+    }
+
     const response = await fetch('/api/stage-updates', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectRowId, spoolIso, progress, completionDate, note }),
+      body: JSON.stringify({
+        projectRowId: Number(projectRowId),
+        spoolIso,
+        progress: Number(progress),
+        completionDate,
+        note
+      }),
     });
+
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao enviar apontamento.');
+
     await loadStageUpdates();
     renderStageUpdatesModal();
+    window.alert('Apontamento enviado com sucesso.');
   } catch (error) {
     window.alert(error.message || 'Falha ao enviar apontamento.');
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = 'Enviar';
+    }
   }
 }
 
