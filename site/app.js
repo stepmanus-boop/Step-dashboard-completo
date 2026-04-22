@@ -4046,6 +4046,25 @@ function closeStageUpdatesModal() {
   }
 }
 
+function stageUpdateMatchesSubmission(item, projectRowId, spoolIso, sector, progress = '') {
+  return Number(item?.projectRowId || 0) === Number(projectRowId || 0)
+    && String(item?.spoolIso || '').trim().toLowerCase() === String(spoolIso || '').trim().toLowerCase()
+    && normalizeSectorValue(item?.sector) === normalizeSectorValue(sector)
+    && (!progress || Number(item?.progress || 0) === Number(progress || 0));
+}
+
+async function reconcileStageSubmission(projectRowId, spoolIso, sector, progress = '') {
+  await loadStageUpdates();
+  const myUpdates = getMyStageUpdates();
+  const now = Date.now();
+  return myUpdates.find((item) => {
+    if (!stageUpdateMatchesSubmission(item, projectRowId, spoolIso, sector, progress)) return false;
+    const createdAtMs = new Date(item?.createdAt || 0).getTime();
+    if (!Number.isFinite(createdAtMs)) return true;
+    return Math.abs(now - createdAtMs) <= (5 * 60 * 1000);
+  }) || null;
+}
+
 async function handleStageWorkspaceSubmit(formEl) {
   const projectRowId = String(formEl?.dataset?.projectRowId || '').trim();
   const spoolIso = String(formEl?.dataset?.spoolIso || '').trim();
@@ -4071,11 +4090,29 @@ async function handleStageWorkspaceSubmit(formEl) {
       body: JSON.stringify({ projectRowId, spoolIso, progress, completionDate, note }),
     });
     const data = await response.json().catch(() => null);
-    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao enviar apontamento.');
+
+    if (!response.ok || !data?.ok) {
+      if (response.status === 409) {
+        const pendingExisting = await reconcileStageSubmission(projectRowId, spoolIso, sector, progress);
+        if (pendingExisting) {
+          setStageSubmissionLock(projectRowId, spoolIso, { status: 'sent', resendAt: Date.now() + STAGE_SUBMISSION_LOCK_MS, sector });
+          renderStageUpdatesModal();
+          return;
+        }
+      }
+      throw new Error(data?.error || 'Falha ao enviar apontamento.');
+    }
+
     setStageSubmissionLock(projectRowId, spoolIso, { status: 'sent', resendAt: Date.now() + STAGE_SUBMISSION_LOCK_MS, sector });
     await loadStageUpdates();
     renderStageUpdatesModal();
   } catch (error) {
+    const recovered = await reconcileStageSubmission(projectRowId, spoolIso, sector, progress).catch(() => null);
+    if (recovered) {
+      setStageSubmissionLock(projectRowId, spoolIso, { status: 'sent', resendAt: Date.now() + STAGE_SUBMISSION_LOCK_MS, sector });
+      renderStageUpdatesModal();
+      return;
+    }
     clearStageSubmissionLock(projectRowId, spoolIso, sector);
     renderStageUpdatesModal();
     window.alert(error.message || 'Falha ao enviar apontamento.');
