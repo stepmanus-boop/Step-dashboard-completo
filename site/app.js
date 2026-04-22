@@ -251,7 +251,7 @@ async function syncPushSubscription(forcePrompt = false) {
     permission = await Notification.requestPermission();
   }
   if (permission !== 'granted') return false;
-  const statusRes = await fetch('/api/push-subscriptions', { credentials: 'same-origin', cache: 'no-store' }).catch(() => null);
+  const statusRes = await fetch('/api/push-subscriptions', { credentials: 'include', cache: 'no-store' }).catch(() => null);
   const status = statusRes ? await statusRes.json().catch(() => null) : null;
   const vapidPublicKey = status?.vapidPublicKey || '';
   if (!vapidPublicKey) return false;
@@ -264,7 +264,7 @@ async function syncPushSubscription(forcePrompt = false) {
   }
   await fetch('/api/push-subscriptions', {
     method: 'POST',
-    credentials: 'same-origin',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ subscription }),
   });
@@ -2364,7 +2364,7 @@ function resetDashboardForLoggedOutState() {
 
 async function bootstrapSession() {
   try {
-    const response = await fetch("/api/auth-me", { credentials: "same-origin", cache: "no-store" });
+    const response = await fetch("/api/auth-me", { credentials: "include", cache: "no-store" });
     const data = await response.json().catch(() => null);
     if (!data?.authenticated) {
       state.user = null;
@@ -3071,7 +3071,7 @@ ${description}`,
   try {
     const response = await fetch('/api/sector-alerts', {
       method: 'POST',
-      credentials: 'same-origin',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
@@ -3095,7 +3095,7 @@ async function resolveSignal(alertId) {
   try {
     const response = await fetch('/api/alert-responses', {
       method: 'POST',
-      credentials: 'same-origin',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ alertId, responseText: String(note || '').trim(), status: 'resolvida' }),
     });
@@ -3123,7 +3123,7 @@ async function handleAlertResponseSubmit(event) {
   try {
     const response = await fetch('/api/alert-responses', {
       method: 'POST',
-      credentials: 'same-origin',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ alertId, responseText }),
     });
@@ -3144,7 +3144,7 @@ async function loadAlertResponses() {
     return;
   }
   try {
-    const response = await fetch('/api/alert-responses', { credentials: 'same-origin', cache: 'no-store' });
+    const response = await fetch('/api/alert-responses', { credentials: 'include', cache: 'no-store' });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao carregar respostas das sinalizações.');
     state.alertResponses = Array.isArray(data.responses) ? data.responses : [];
@@ -3524,7 +3524,7 @@ async function loadStageUpdates() {
     return;
   }
   try {
-    const response = await fetch('/api/stage-updates', { credentials: 'same-origin', cache: 'no-store' });
+    const response = await fetch('/api/stage-updates', { credentials: 'include', cache: 'no-store' });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao carregar apontamentos setoriais.');
     state.stageUpdates = Array.isArray(data.updates) ? data.updates : [];
@@ -3773,7 +3773,7 @@ async function handleStageWorkspaceSubmit(formEl) {
   try {
     const response = await fetch('/api/stage-updates', {
       method: 'POST',
-      credentials: 'same-origin',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectRowId, spoolIso, progress, completionDate, note }),
     });
@@ -3795,7 +3795,7 @@ async function concludeStageUpdate(id) {
   try {
     const response = await fetch('/api/stage-updates', {
       method: 'PATCH',
-      credentials: 'same-origin',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, resolutionNote }),
     });
@@ -3944,7 +3944,7 @@ async function forceHandleLoginSubmit(event) {
     const response = await fetch('/api/auth-login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
+      credentials: 'include',
       body: JSON.stringify({ username, password }),
     });
 
@@ -3953,11 +3953,17 @@ async function forceHandleLoginSubmit(event) {
       throw new Error(data?.error || 'Usuário ou senha inválidos.');
     }
 
-    state.user = data.user || null;
-    if (typeof closeLoginModal === 'function') closeLoginModal();
     if (typeof bootstrapSession === 'function') {
       await bootstrapSession();
+    } else {
+      state.user = data.user || null;
     }
+
+    if (!state.user) {
+      throw new Error('Login realizado, mas a sessão não foi confirmada. Tente novamente.');
+    }
+
+    if (typeof closeLoginModal === 'function') closeLoginModal();
     if (typeof loadProjects === 'function') {
       await loadProjects();
     }
