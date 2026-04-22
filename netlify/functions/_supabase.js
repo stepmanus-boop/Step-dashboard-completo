@@ -66,9 +66,6 @@ function mapAlert(row) {
     createdBy: row.created_by || '',
     createdAt: row.created_at || null,
     active: row.active !== false,
-    deleted: row.deleted === true || row.status === 'deleted',
-    deletedBy: row.deleted_by || '',
-    deletedAt: row.deleted_at || null,
     expiresAfterReadHours: Number(row.expires_after_read_hours || 24),
     readExpiresAt: row.read_expires_at || null,
     updatedAt: row.updated_at || null,
@@ -179,42 +176,6 @@ async function createManualAlert(input) {
     body: JSON.stringify(payload),
   });
   return mapAlert(Array.isArray(rows) ? rows[0] : null);
-}
-
-
-async function deleteManualAlert(alertId, deletedBy = '') {
-  const id = String(alertId || '').trim();
-  if (!id) throw new Error('Alerta inválido.');
-  const rows = await supabaseFetch(`/rest/v1/manual_alerts?id=eq.${encodeURIComponent(id)}&select=*`, {
-    method: 'PATCH',
-    headers: getSupabaseHeaders('return=representation'),
-    body: JSON.stringify({
-      deleted: true,
-      status: 'deleted',
-      active: false,
-      deleted_by: deletedBy || '',
-      deleted_at: new Date().toISOString(),
-    }),
-  });
-  return mapAlert(Array.isArray(rows) ? rows[0] : null);
-}
-
-async function deleteManyManualAlerts(alertIds = [], deletedBy = '') {
-  const ids = Array.isArray(alertIds) ? alertIds.map((id) => String(id || '').trim()).filter(Boolean) : [];
-  if (!ids.length) throw new Error('Nenhum alerta informado.');
-  const inList = ids.map((id) => `"${id.replace(/"/g, '')}"`).join(',');
-  const rows = await supabaseFetch(`/rest/v1/manual_alerts?id=in.(${encodeURIComponent(inList)})&select=*`, {
-    method: 'PATCH',
-    headers: getSupabaseHeaders('return=representation'),
-    body: JSON.stringify({
-      deleted: true,
-      status: 'deleted',
-      active: false,
-      deleted_by: deletedBy || '',
-      deleted_at: new Date().toISOString(),
-    }),
-  });
-  return (Array.isArray(rows) ? rows : []).map(mapAlert);
 }
 
 async function listAcknowledgements() {
@@ -346,8 +307,6 @@ module.exports = {
   updateUser,
   listManualAlerts,
   createManualAlert,
-  deleteManualAlert,
-  deleteManyManualAlerts,
   listAcknowledgements,
   addAcknowledgement,
   findAcknowledgement,

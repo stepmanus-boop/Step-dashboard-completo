@@ -979,78 +979,508 @@ function canViewMyProjectSignals(user = state.user) {
 const STAGE_WORKSPACE_SECTORS = ['pintura', 'inspecao', 'pendente_envio', 'producao', 'calderaria', 'solda'];
 const STAGE_PROGRESS_OPTIONS = [25, 50, 75, 100];
 
-function getSectorProjectStageLabels(sector = getStageWorkspaceSector()) {
-  const normalized = normalizeSectorValue(sector);
-  if (normalized === 'pintura') return ['Pintura'];
-  if (normalized === 'inspecao') return ['Inspeção'];
-  if (normalized === 'pendente_envio' || normalized === 'logistica' || normalized === 'pcp') return ['Logística'];
-  if (normalized === 'solda') return ['Solda'];
-  if (normalized === 'calderaria') return ['Calderaria'];
-  if (normalized === 'producao') return ['Produção'];
-  return [];
+function getStageWorkspaceSector(user = state.user) {
+  return normalizeSectorValue(user?.sector);
 }
 
-function getSectorDemandPercent(project, sector = state.user?.sector) {
-  const normalized = normalizeSectorValue(sector);
-  const toNumber = (value) => {
-    if (value == null || value === '') return 0;
-    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-    const cleaned = String(value).replace('%', '').replace(',', '.').trim();
-    const parsed = Number(cleaned);
-    return Number.isFinite(parsed) ? parsed : 0;
+function getStageWorkspaceLabel(sector = getStageWorkspaceSector()) {
+  return sectorLabel(sector) || 'Etapa';
+}
+
+function canOpenStageWorkspace(user = state.user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  const sector = getStageWorkspaceSector(user);
+  return sector === 'pcp' || STAGE_WORKSPACE_SECTORS.includes(sector);
+}
+
+function canValidateStageWorkspace(user = state.user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  return getStageWorkspaceSector(user) === 'pcp';
+}
+
+function stageWorkspaceSearchProjects() {
+  const query = normalizeText(state.stageUpdatesSearchQuery || '');
+  const source = Array.isArray(state.projects) ? state.projects : [];
+  if (!query) return source.slice(0, 8);
+  return source.filter((project) => {
+    return [project.projectNumber, project.projectDisplay, project.client, project.currentStage]
+      .some((value) => normalizeText(value).includes(query));
+  }).slice(0, 8);
+}
+
+function getStageUpdatesForCurrentSector(source = null, sector = getStageWorkspaceSector()) {
+  const list = Array.isArray(source) ? source : (Array.isArray(state.stageUpdates) ? state.stageUpdates : []);
+  return list.filter((item) => normalizeSectorValue(item?.sector) === sector);
+}
+
+function getPendingStageUpdate(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
+  return getStageUpdatesForCurrentSector().find((item) =>
+    String(item.status || 'pending') === 'pending'
+    && Number(item.projectRowId || 0) === Number(projectRowId || 0)
+    && String(item.spoolIso || '').trim().toLowerCase() === String(spoolIso || '').trim().toLowerCase()
+  ) || null;
+}
+
+function getLatestResolvedStageUpdate(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
+  return getStageUpdatesForCurrentSector().filter((item) =>
+    String(item.status || '').toLowerCase() === 'resolved'
+    && Number(item.projectRowId || 0) === Number(projectRowId || 0)
+    && String(item.spoolIso || '').trim().toLowerCase() === String(spoolIso || '').trim().toLowerCase()
+  ).sort((a,b)=> new Date(b.resolvedAt || b.createdAt || 0) - new Date(a.resolvedAt || a.createdAt || 0))[0] || null;
+}
+
+function getMyStageUpdates() {
+  const username = String(state.user?.username || '').trim().toLowerCase();
+  return (Array.isArray(state.stageUpdates) ? state.stageUpdates : [])
+    .filter((item) => String(item.createdBy || '').trim().toLowerCase() === username)
+    .sort((a,b)=> new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+}
+
+function formatStageDate(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (!Number.isNaN(date.getTime())) return date.toLocaleString('pt-BR');
+  return escapeHtml(String(value));
+}
+
+function renderProjectSignals(project) {
+  const signals = getProjectSignals(project);
+  const actionButton = canCreateProjectSignal(project)
+    ? `<button class="primary-button" type="button" data-open-project-signal="${escapeHtml(project.rowId)}">Nova sinalização ao PCP</button>`
+    : '';
+  const itemsHtml = signals.length
+    ? signals.map((alert) => {
+        const resolved = getSignalResolutionInfo(alert.id);
+        return `
+          <article class="project-signal-item">
+            <div class="admin-list-item-meta">
+              ${getSignalStatusBadge(alert)}
+              <span>${escapeHtml(new Date(alert.createdAt).toLocaleString('pt-BR'))}</span>
+              <span>Aberta por: ${escapeHtml(alert.createdBy || 'Usuário')}</span>
+            </div>
+            <strong>${escapeHtml(alert.title || 'Sinalização')}</strong>
+            <p>${escapeHtml(alert.message || '').replace(/\n/g, '<br>')}</p>
+            <div class="manual-alert-actions">
+              ${resolved
+                ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
+                : `${canResolveSignal() ? `<button class="ghost-button" type="button" data-resolve-signal="${escapeHtml(alert.id)}">Marcar como resolvida</button>` : ''}`}
+            </div>
+            ${resolved && resolved.note ? `<div class="response-thread"><div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(resolved.note)}</p></div></div>` : ''}
+          </article>
+        `;
+      }).join('')
+    : '<div class="empty-inline">Nenhuma sinalização registrada para esta BSP.</div>';
+  return `
+    <section class="project-signals-section">
+      <div class="project-signals-head">
+        <div>
+          <span class="manual-alert-tag">Sinalizações</span>
+          <strong>Sinalizações do projeto</strong>
+        </div>
+        ${actionButton}
+      </div>
+      <div class="project-signals-list">${itemsHtml}</div>
+    </section>
+  `;
+}
+
+function uiStateLabel(stateValue) {
+  if (stateValue === "completed") return "Finalizado";
+  if (stateValue === "awaiting_shipment") return "Aguardando envio";
+  if (stateValue === "in_progress") return "Em produção";
+  return "Não iniciado";
+}
+
+function translateProjectStatus(projectStatus, uiState) {
+  if (uiState === "completed") return "Finalizado";
+  if (uiState === "awaiting_shipment") return "Aguardando envio";
+  if (uiState === "not_started") return "Não iniciado";
+
+  const normalized = String(projectStatus || "").trim().toUpperCase().replace(/\s+/g, " ");
+  if (["ONGOING", "ON GOING", "IN PROGRESS", "EM PRODUCAO", "EM PRODUÇÃO"].includes(normalized)) {
+    return "Em produção";
+  }
+  if (["ON HOLD", "HOLD", "PAUSED", "EM ESPERA"].includes(normalized)) {
+    return uiState === "not_started" ? "Em espera" : "Em produção";
+  }
+  if (["COMPLETED", "DONE", "FINISHED", "CONCLUIDO", "CONCLUÍDO", "FINALIZADO"].includes(normalized)) {
+    return "Finalizado";
+  }
+  return projectStatus || uiStateLabel(uiState);
+}
+
+function simplifyCurrentStage(project) {
+  const uiState = String(project?.uiState || "").trim().toLowerCase();
+  const sector = normalizeText(project?.operationalSector || "");
+  const stage = normalizeText(project?.currentStage || "");
+
+  if (
+    uiState === "awaiting_shipment" ||
+    uiState === "completed" ||
+    stage.includes("final inspection") ||
+    stage.includes("unitizacao") ||
+    stage.includes("unitizacao e envio") ||
+    stage.includes("package and delivered") ||
+    stage.includes("envio") ||
+    sector.includes("logistica") || sector.includes("pendente de envio") ||
+    sector.includes("envio")
+  ) {
+    return "Logística";
+  }
+
+  if (
+    sector.includes("inspecao") ||
+    stage.includes("inspection") ||
+    stage.includes("inspecao") ||
+    stage.includes("dimensional") ||
+    stage.includes("hydro test") ||
+    stage.includes("th")
+  ) {
+    return "Inspeção";
+  }
+
+  if (
+    sector.includes("pintura") ||
+    stage.includes("paint") ||
+    stage.includes("coating") ||
+    stage.includes("surface preparation") ||
+    stage.includes("hdg") ||
+    stage.includes("fbe")
+  ) {
+    return "Pintura";
+  }
+
+  return "Produção";
+}
+
+function stageStatusClass(status) {
+  if (status === "completed") return "completed";
+  if (status === "in_progress") return "in_progress";
+  if (status === "waiting") return "waiting";
+  return "ignored";
+}
+
+function setClock(targetTimeId, targetDateId, locale, timeZone) {
+  const now = new Date();
+  const timeText = new Intl.DateTimeFormat(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZone,
+  }).format(now);
+
+  const dateText = new Intl.DateTimeFormat(locale, {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone,
+  }).format(now);
+
+  document.getElementById(targetTimeId).textContent = timeText;
+  document.getElementById(targetDateId).textContent = dateText;
+}
+
+
+function percentStateClass(value) {
+  if (value == null || Number.isNaN(value)) return "";
+  if (Number(value) >= 100) return "value-complete";
+  if (Number(value) > 0) return "value-progress";
+  return "";
+}
+
+function tableCellClass(value, type = "percent") {
+  if (type !== "percent") return "";
+  return percentStateClass(value);
+}
+
+function startClocks() {
+  const tick = () => {
+    setClock("clock-br-time", "clock-br-date", "pt-BR", "America/Sao_Paulo");
+    setClock("clock-pt-time", "clock-pt-date", "pt-PT", "Europe/Lisbon");
+  };
+  tick();
+  window.setInterval(tick, 1000);
+}
+
+function enrichProjects(projects) {
+  return (projects || []).map((project) => {
+    const searchParts = [
+      project.projectDisplay,
+      project.projectNumber,
+      project.projectPrefix,
+      project.currentStage,
+      project.projectStatus,
+      project.client,
+      ...(project.spools || []).flatMap((spool) => [spool.iso, spool.description, spool.drawing]),
+    ];
+
+    return {
+      ...project,
+      currentStageGroup: simplifyCurrentStage(project),
+      _searchText: buildSearchIndex(searchParts),
+    };
+  });
+}
+
+function buildDemandOptions() {
+  if (!demandFilterEl) return;
+  const selected = state.demandFilter || "";
+  const hiddenDemandOptions = new Set([
+    normalizeText("Project Finished?"),
+    normalizeText("Drawing Execution"),
+    normalizeText("Emissão de detalhamento"),
+  ]);
+
+  const options = Array.from(
+    new Set(
+      state.projects
+        .map((project) => project.currentStageGroup || simplifyCurrentStage(project))
+        .filter(Boolean)
+        .filter((option) => !hiddenDemandOptions.has(normalizeText(option)))
+    )
+  ).sort((a, b) => a.localeCompare(b, "pt-BR"));
+
+  demandFilterEl.innerHTML = [
+    '<option value="">Todas as demandas</option>',
+    ...options.map((option) => `<option value="${option}">${option}</option>`),
+  ].join("");
+
+  demandFilterEl.value = options.includes(selected) ? selected : "";
+  if (!options.includes(selected)) state.demandFilter = "";
+}
+
+function buildWeekOptions() {
+  if (!weekFilterEl) return;
+  const selected = state.weekFilter || "";
+  const currentWeek = getCurrentProductionWeekLabel();
+  const weekLabels = Array.from(
+    new Set([
+      currentWeek,
+      ...state.projects.flatMap((project) => {
+        const spoolWeeks = (project.spools || []).map((spool) => spool.weldingWeek).filter(Boolean);
+        if (spoolWeeks.length) return spoolWeeks;
+        return project.weldingWeek ? [project.weldingWeek] : [];
+      }),
+    ])
+  ).sort(compareWeekLabels);
+
+  const options = ['<option value="">Todas as semanas</option>'];
+  for (const label of weekLabels) {
+    options.push(`<option value="${label}">${label}</option>`);
+  }
+
+  weekFilterEl.innerHTML = options.join("");
+  weekFilterEl.value = weekLabels.includes(selected) ? selected : "";
+  if (!weekLabels.includes(selected)) state.weekFilter = "";
+}
+
+function getActiveWeekLabel() {
+  return state.weekFilter || "Todas as semanas";
+}
+
+function getStatsProjectsSource() {
+  return getVisibleProjectsSource();
+}
+
+function buildClientStats(projects) {
+  const stats = {
+    totalProjects: projects.length,
+    totalSpools: 0,
+    totalWeightKg: 0,
+    totalWeldedWeightKg: 0,
+    totalPaintingM2: 0,
+    completed: 0,
+    completedTags: 0,
+    inProgress: 0,
+    inProgressTags: 0,
+    inspectionProjects: 0,
+    inspectionTags: 0,
+    paintingProjects: 0,
+    paintingTags: 0,
+    awaitingShipment: 0,
+    awaitingShipmentTags: 0,
+    notStarted: 0,
+    notStartedTags: 0,
+    notStartedHold: 0,
+    notStartedHoldTags: 0,
+    averageOverallProgress: 0,
   };
 
-  if (normalized === 'solda') return toNumber(project?.weldingPreparation ?? project?.soldaPercent ?? project?.solda ?? 0);
-  if (normalized === 'calderaria') return toNumber(project?.boilermakerFinishDatePercent ?? project?.calderariaPercent ?? project?.calderaria ?? 0);
-  if (normalized === 'producao') return toNumber(project?.individualPercent ?? project?.productionPercent ?? project?.generalPercent ?? 0);
-  if (normalized === 'pintura') return toNumber(project?.paintingPercent ?? project?.painting ?? 0);
-  if (normalized === 'inspecao') return toNumber(project?.inspectionPercent ?? project?.inspecao ?? project?.hydroTest ?? project?.th ?? 0);
-  if (normalized === 'pendente_envio' || normalized === 'logistica' || normalized === 'pcp') {
-    return toNumber(project?.logisticaPercent ?? project?.shippingPercent ?? project?.packageAndDelivered ?? project?.unitizacao ?? 0);
+  let progressAccumulator = 0;
+  for (const project of projects) {
+    const tags = Number(project.quantitySpools || 0);
+    stats.totalSpools += tags;
+    stats.totalWeightKg += Number(project.kilos || 0);
+    stats.totalWeldedWeightKg += Number(project.weldedWeightKg || 0);
+    stats.totalPaintingM2 += Number(project.m2Painting || 0);
+    progressAccumulator += Number(project.overallProgress || 0);
+
+    const stateValue = project.operationalState || project.uiState;
+    const statusCandidates = [
+      project?.projectStatus,
+      project?.currentStage,
+      project?.operationalState,
+      project?.uiState,
+    ].filter(Boolean).map((value) => String(value).trim().toLowerCase());
+    const excludeFromCompletedCounts = Boolean(project?.projectFinishedFlag) || statusCandidates.some((value) => value.includes("project finished"));
+
+    if (stateValue === "completed") {
+      if (!excludeFromCompletedCounts) {
+        stats.completed += 1;
+        stats.completedTags += tags;
+      }
+    } else if (stateValue === "awaiting_shipment") {
+      stats.awaitingShipment += 1;
+      stats.awaitingShipmentTags += tags;
+      if (!excludeFromCompletedCounts) {
+        stats.completed += 1;
+        stats.completedTags += tags;
+      }
+    } else if (stateValue === "in_inspection") {
+      stats.inspectionProjects += 1;
+      stats.inspectionTags += tags;
+    } else if (stateValue === "in_production") {
+      if (project.operationalSector === "Pintura") {
+        stats.paintingProjects += 1;
+        stats.paintingTags += tags;
+      } else {
+        stats.inProgress += 1;
+        stats.inProgressTags += tags;
+      }
+    } else {
+      const normalizedProjectStatus = String(project?.projectStatus || "").trim().toUpperCase().replace(/\s+/g, " ");
+      const isHoldProject = ["ON HOLD", "HOLD", "PAUSED", "EM ESPERA"].includes(normalizedProjectStatus);
+
+      stats.notStarted += 1;
+      stats.notStartedTags += tags;
+
+      if (isHoldProject) {
+        stats.notStartedHold += 1;
+        stats.notStartedHoldTags += tags;
+      }
+    }
   }
-  return 0;
+
+  stats.averageOverallProgress = projects.length ? progressAccumulator / projects.length : 0;
+  return stats;
 }
 
-function projectMatchesSectorDemand(project, user = state.user) {
-  if (!project || !user) return false;
-  const normalized = normalizeSectorValue(user.sector);
-  const labels = getSectorProjectStageLabels(user.sector);
-  const operationalSector = String(project?.operationalSector || '').trim();
-  const currentStage = String(project?.currentStage || '').trim();
-  const currentStageGroup = String(project?.currentStageGroup || simplifyCurrentStage(project) || '').trim();
-  const sectorPercent = getSectorDemandPercent(project, user.sector);
+function getTotalWeldedWeightAllProjects() {
+  return getStatsProjectsSource().reduce((total, project) => {
+    const spools = project.spools || [];
+    if (spools.length) {
+      return total + spools.reduce((spoolTotal, spool) => spoolTotal + (spool.weldedWeightKg || 0), 0);
+    }
 
-  if (normalized === 'solda') {
-    return sectorPercent >= 25;
-  }
-
-  if (['calderaria', 'pintura', 'inspecao', 'pendente_envio', 'logistica', 'pcp'].includes(normalized)) {
-    return sectorPercent >= 25 || labels.includes(operationalSector) || labels.includes(currentStage) || labels.includes(currentStageGroup);
-  }
-
-  if (normalized === 'producao') {
-    return sectorPercent >= 25 || labels.includes(operationalSector) || labels.includes(currentStage) || labels.includes(currentStageGroup);
-  }
-
-  return labels.includes(operationalSector) || labels.includes(currentStage) || labels.includes(currentStageGroup);
+    return total + (project.weldedWeightKg || 0);
+  }, 0);
 }
 
-function getProjectsForUserSector(user = state.user, source = null) {
-  if (!user) return [];
-  const labels = getSectorProjectStageLabels(user.sector);
-  if (!labels.length) return [];
-  const list = Array.isArray(source) ? source : (Array.isArray(state.projects) ? state.projects : []);
-  return list
-    .filter((project) => projectMatchesSectorDemand(project, user))
-    .sort((a, b) => String(a?.projectDisplay || a?.projectNumber || '').localeCompare(String(b?.projectDisplay || b?.projectNumber || ''), 'pt-BR'));
+function getTotalFinishedWeightAllProjects() {
+  return getStatsProjectsSource().reduce((total, project) => {
+    const isFinished = Boolean(project?.finished) || normalizeText(project?.projectStatus).includes("project finished") || normalizeText(project?.jobProcessStatus).includes("project finished");
+    if (!isFinished) return total;
+    return total + Number(project?.kilos || 0);
+  }, 0);
+}
+
+function getWeldedWeightForWeek(weekLabel) {
+  if (!weekLabel || weekLabel === "Todas as semanas") return getTotalWeldedWeightAllProjects();
+  return getStatsProjectsSource().reduce((total, project) => {
+    const spools = project.spools || [];
+    if (spools.length) {
+      return total + spools.reduce((spoolTotal, spool) => {
+        if (spool.weldingWeek !== weekLabel) return spoolTotal;
+        return spoolTotal + (spool.weldedWeightKg || 0);
+      }, 0);
+    }
+
+    if (project.weldingWeek !== weekLabel) return total;
+    return total + (project.weldedWeightKg || 0);
+  }, 0);
+}
+
+function userHasProjectsScope(user = state.user) {
+  if (!user || user.role === "admin") return false;
+  return getUserAlertSectors(user).includes("projetos") || normalizeSectorValue(user.sector) === "projetos";
+}
+
+function updatePrimaryUserActionUi() {
+  if (!openSectorAlertsEl) return;
+  const projectsScope = userHasProjectsScope();
+  const viewingMine = projectsScope && state.projectView === "mine";
+  openSectorAlertsEl.textContent = projectsScope
+    ? (viewingMine ? "Todos os projetos" : "Meus projetos")
+    : "Meus alertas";
+  openSectorAlertsEl.title = projectsScope
+    ? (viewingMine
+        ? "Voltar para a visualização com todos os projetos"
+        : "Visualizar apenas os projetos vinculados ao seu nome na coluna PM")
+    : "Visualizar alertas direcionados ao seu setor";
+  const titleEl = document.getElementById("sector-alerts-title");
+  if (titleEl && state.sectorAlertsMode !== 'project-signals') {
+    titleEl.textContent = projectsScope ? "Meus projetos" : "Meus alertas por setor";
+  }
+  if (openMyProjectSignalsEl) {
+    const canViewMine = canViewMyProjectSignals();
+    const pendingCount = getMyProjectSignals().filter((alert) => !getSignalResolutionInfo(alert.id)).length;
+    openMyProjectSignalsEl.classList.toggle('hidden', !canViewMine);
+    openMyProjectSignalsEl.title = 'Acompanhar as sinalizações que você enviou ao PCP';
+    openMyProjectSignalsEl.textContent = canViewMine && pendingCount > 0
+      ? `Minhas sinalizações (${pendingCount})`
+      : 'Minhas sinalizações';
+  }
+  if (openProjectSignalsEl) {
+    const canView = canViewProjectSignals();
+    openProjectSignalsEl.classList.toggle('hidden', !canView);
+    openProjectSignalsEl.title = 'Visualizar apenas os alertas enviados pelos usuários de Projetos';
+  }
+  if (openStageUpdatesEl) {
+    const canOpen = canOpenStageWorkspace();
+    openStageUpdatesEl.classList.toggle('hidden', !canOpen);
+    openStageUpdatesEl.textContent = canValidateStageWorkspace() ? 'Validação PCP' : 'Apontamentos';
+    openStageUpdatesEl.title = canValidateStageWorkspace()
+      ? 'Validar apontamentos enviados pelos setores e consultar o histórico'
+      : 'Informar o avanço da sua etapa por spool';
+  }
+}
+
+function tokenizeNormalizedNames(values = []) {
+  const set = new Set();
+  const source = Array.isArray(values) ? values : [values];
+  for (const value of source) {
+    const normalized = normalizeText(value).trim();
+    if (!normalized) continue;
+    set.add(normalized);
+    for (const part of normalized.split(/[^a-z0-9]+/)) {
+      if (part) set.add(part);
+    }
+  }
+  return set;
+}
+
+function projectBelongsToUser(project, user = state.user) {
+  if (!project || !userHasProjectsScope(user)) return false;
+  const pmValue = String(project.pm || '').trim();
+  if (!pmValue) return false;
+  const candidates = tokenizeNormalizedNames([user.name, user.username, String(user.username || '').split('@')[0]]);
+  if (!candidates.size) return false;
+  const normalizedPm = normalizeText(pmValue).trim();
+  const pmTokens = tokenizeNormalizedNames(pmValue.split(/[;,|/]+/));
+  for (const candidate of candidates) {
+    if (normalizedPm === candidate || normalizedPm.includes(candidate)) return true;
+    if (pmTokens.has(candidate)) return true;
+  }
+  return false;
 }
 
 function getVisibleProjectsSource() {
   if (state.projectView === 'mine' && userHasProjectsScope()) {
     return state.projects.filter((project) => projectBelongsToUser(project));
-  }
-  if (state.sectorDemandFilterActive && canOpenStageWorkspace() && !canValidateStageWorkspace() && !userHasProjectsScope(state.user)) {
-    return getProjectsForUserSector(state.user, state.projects);
   }
   return state.projects;
 }
@@ -1963,6 +2393,7 @@ if (openSectorAlertsEl) {
       openLoginModal();
       return;
     }
+    state.sectorAlertsMode = 'default';
     if (userHasProjectsScope()) {
       state.projectView = state.projectView === 'mine' ? 'all' : 'mine';
       updatePrimaryUserActionUi();
@@ -1974,18 +2405,6 @@ if (openSectorAlertsEl) {
       if (tableShellEl) tableShellEl.scrollTop = 0;
       return;
     }
-    if (canOpenStageWorkspace() && !canValidateStageWorkspace()) {
-      state.sectorDemandFilterActive = !state.sectorDemandFilterActive;
-      state.sectorAlertsMode = 'default';
-      updatePrimaryUserActionUi();
-      applyFilter();
-      renderStats();
-      renderTable();
-      renderSelectedProjectCard();
-      if (tableShellEl) tableShellEl.scrollTop = 0;
-      return;
-    }
-    state.sectorAlertsMode = 'default';
     openSectorAlertsModal();
   });
 }
@@ -2305,12 +2724,8 @@ function setupAdminPasswordToggle() {
 function updateSessionUi() {
   const user = state.user;
   if (!user) {
-    document.body.classList.add("auth-required");
     state.projectView = 'all';
     sessionUserNameEl.textContent = "Acesso bloqueado";
-    setTimeout(() => {
-      if (typeof openLoginModal === 'function') openLoginModal();
-    }, 50);
     sessionUserMetaEl.textContent = "Faça login para visualizar os projetos, indicadores e detalhes do painel.";
     updatePrimaryUserActionUi();
     renderProjectViewTabs();
@@ -2320,8 +2735,6 @@ function updateSessionUi() {
     if (openLoginButtonEl) openLoginButtonEl.classList.remove("hidden");
     return;
   }
-
-  document.body.classList.remove("auth-required");
 
   if (!userHasProjectsScope(user)) {
     state.projectView = 'all';
@@ -2412,56 +2825,6 @@ function getUserAutomaticAlerts() {
       }
       return String(a?.projectDisplay || "").localeCompare(String(b?.projectDisplay || ""), "pt-BR");
     });
-}
-
-function renderSectorProjectsWorkspace(targetEl = sectorAlertsContentEl) {
-  if (!targetEl) return;
-  if (!state.user) {
-    targetEl.innerHTML = '<div class="detail-placeholder">Faça login para visualizar as BSPs da sua etapa.</div>';
-    return;
-  }
-  const stageLabel = getStageWorkspaceLabel();
-  const projects = getProjectsForUserSector();
-  if (!projects.length) {
-    targetEl.innerHTML = `<div class="detail-placeholder">Nenhuma BSP encontrada atualmente na etapa ${escapeHtml(stageLabel)}.</div>`;
-    return;
-  }
-
-  targetEl.innerHTML = `
-    <div class="manual-alert-summary">
-      <span class="manual-alert-tag">Etapa do seu setor</span>
-      <span class="manual-alert-tag">${escapeHtml(stageLabel)}</span>
-      <span class="manual-alert-tag">${projects.length} BSP(s)</span>
-    </div>
-    <section class="manual-alert-section">
-      <div class="admin-list-item-meta">
-        <span class="manual-alert-tag">${escapeHtml(stageLabel)}</span>
-        <span>Projetos em andamento nesta etapa</span>
-      </div>
-      <div class="manual-alert-section-list">
-        ${projects.map((project) => {
-          const spools = Array.isArray(project?.spools) ? project.spools : [];
-          const deadline = project?.plannedFinishDate || project?.deliveryDate || 'Sem data';
-          return `
-            <article class="manual-alert-item manual-alert-item--automatic">
-              <div class="admin-list-item-meta">
-                <span class="manual-alert-tag">${escapeHtml(stageLabel)}</span>
-                <span class="manual-alert-tag">${escapeHtml(project.projectNumber || project.projectDisplay || 'BSP')}</span>
-                <span>${escapeHtml(deadline)}</span>
-              </div>
-              <strong>${escapeHtml(project.projectDisplay || project.projectNumber || 'Projeto')}</strong>
-              <p>Cliente: ${escapeHtml(project.client || '—')}<br>Etapa atual: ${escapeHtml(project.currentStageGroup || simplifyCurrentStage(project))}</p>
-              <div class="manual-alert-actions">
-                <span class="manual-alert-tag">Spools: ${escapeHtml(String(spools.length || 0))}</span>
-                <span class="manual-alert-tag">PM: ${escapeHtml(project.pm || '—')}</span>
-                <span class="manual-alert-tag">Peso: ${escapeHtml(formatNumber(project.kilos || 0, 0))} kg</span>
-              </div>
-            </article>
-          `;
-        }).join('')}
-      </div>
-    </section>
-  `;
 }
 
 function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sectorAlertsContentEl) {
@@ -2674,191 +3037,6 @@ function renderProjectUserSignals(targetEl = sectorAlertsContentEl) {
   `;
 }
 
-
-async function handleDeleteAdminAlert(alertId) {
-  const id = String(alertId || '').trim();
-  if (!id) return;
-  const confirmed = window.confirm('Deseja apagar este alerta?');
-  if (!confirmed) return;
-  const response = await fetch('/.netlify/functions/sector-alerts', {
-    method: 'DELETE',
-    headers: buildJsonHeaders(),
-    body: JSON.stringify({ id }),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.ok === false) {
-    throw new Error(data.error || 'Falha ao apagar alerta.');
-  }
-  await loadManualAlerts();
-  renderAdminAlertsList();
-}
-
-async function handleDeleteAllFilteredAdminAlerts() {
-  const alerts = getFilteredAdminAlerts();
-  const ids = alerts.map((alert) => String(alert?.id || '').trim()).filter(Boolean);
-  if (!ids.length) {
-    window.alert('Não há alertas visíveis para apagar.');
-    return;
-  }
-  const confirmed = window.confirm(`Deseja apagar ${ids.length} alerta(s) visível(is)?`);
-  if (!confirmed) return;
-  const response = await fetch('/.netlify/functions/sector-alerts', {
-    method: 'DELETE',
-    headers: buildJsonHeaders(),
-    body: JSON.stringify({ ids }),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.ok === false) {
-    throw new Error(data.error || 'Falha ao apagar alertas.');
-  }
-  await loadManualAlerts();
-  renderAdminAlertsList();
-}
-
-
-
-function getMyStageUpdates() {
-  if (!state.user) return [];
-  const userSector = normalizeSectorValue(getStageWorkspaceSector());
-  const username = normalizeText(state.user?.username || '');
-  const userId = normalizeText(state.user?.id || state.user?.sub || '');
-  const items = Array.isArray(state.stageUpdates) ? state.stageUpdates : [];
-  return items
-    .filter((item) => {
-      const itemSector = normalizeSectorValue(item?.sector || '');
-      const createdBy = normalizeText(item?.createdBy || '');
-      const createdByName = normalizeText(item?.createdByName || '');
-      return itemSector === userSector && (
-        (username && (createdBy === username || createdByName === username)) ||
-        (userId && normalizeText(item?.createdById || '') === userId) ||
-        (!username && !userId && createdByName)
-      );
-    })
-    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-}
-
-function getPendingStageUpdate(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
-  const rowId = String(projectRowId || '').trim();
-  const spool = normalizeText(spoolIso || '');
-  const sectorKey = normalizeSectorValue(sector);
-  return (Array.isArray(state.stageUpdates) ? state.stageUpdates : []).find((item) =>
-    String(item?.status || 'pending') === 'pending' &&
-    String(item?.projectRowId || '') === rowId &&
-    normalizeText(item?.spoolIso || '') === spool &&
-    normalizeSectorValue(item?.sector || '') === sectorKey
-  ) || null;
-}
-
-function getLatestResolvedStageUpdate(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
-  const rowId = String(projectRowId || '').trim();
-  const spool = normalizeText(spoolIso || '');
-  const sectorKey = normalizeSectorValue(sector);
-  return (Array.isArray(state.stageUpdates) ? state.stageUpdates : [])
-    .filter((item) =>
-      String(item?.status || '') === 'resolved' &&
-      String(item?.projectRowId || '') === rowId &&
-      normalizeText(item?.spoolIso || '') === spool &&
-      normalizeSectorValue(item?.sector || '') === sectorKey
-    )
-    .sort((a, b) => new Date(b.resolvedAt || b.createdAt || 0).getTime() - new Date(a.resolvedAt || a.createdAt || 0).getTime())[0] || null;
-}
-
-function getMyStageUpdatesForExport() {
-  const sector = getStageWorkspaceSector();
-  return getMyStageUpdates()
-    .filter((item) => normalizeSectorValue(item.sector) === normalizeSectorValue(sector))
-    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-}
-
-function buildStageUpdatesPdfHtml() {
-  const sector = getStageWorkspaceSector();
-  const stageLabel = getStageWorkspaceLabel(sector);
-  const updates = getMyStageUpdatesForExport();
-  const generatedAt = new Date().toLocaleString('pt-BR');
-  const userName = state.user?.name || state.user?.username || 'Usuário';
-  const rows = updates.map((item) => {
-    const resolvedBy = item.resolvedBy || '—';
-    const resolvedAt = item.resolvedAt ? new Date(item.resolvedAt).toLocaleString('pt-BR') : '—';
-    const percent = item.progress != null ? `${Number(item.progress).toLocaleString('pt-BR')}%` : '—';
-    return `
-      <tr>
-        <td>${escapeHtml(item.projectNumber || item.bsp || '—')}</td>
-        <td>${escapeHtml(item.spool || '—')}</td>
-        <td>${escapeHtml(percent)}</td>
-        <td>${escapeHtml(item.completionDate || '—')}</td>
-        <td>${escapeHtml(item.note || '—')}</td>
-        <td>${escapeHtml(item.status === 'resolved' ? 'Resolvido' : 'Pendente')}</td>
-        <td>${escapeHtml(resolvedBy)}</td>
-        <td>${escapeHtml(resolvedAt)}</td>
-      </tr>
-    `;
-  }).join('');
-
-  return `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8" />
-  <title>Apontamentos ${escapeHtml(stageLabel)}</title>
-  <style>
-    body { font-family: Arial, Helvetica, sans-serif; padding: 24px; color: #0f172a; }
-    h1 { margin: 0 0 8px; font-size: 24px; }
-    p { margin: 0 0 6px; font-size: 12px; }
-    .meta { margin-bottom: 18px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 11px; }
-    th, td { border: 1px solid #cbd5e1; padding: 8px; vertical-align: top; text-align: left; }
-    th { background: #e2e8f0; }
-    .empty { margin-top: 24px; padding: 12px; border: 1px solid #cbd5e1; }
-  </style>
-</head>
-<body>
-  <h1>Apontamentos da etapa • ${escapeHtml(stageLabel)}</h1>
-  <div class="meta">
-    <p><strong>Usuário:</strong> ${escapeHtml(userName)}</p>
-    <p><strong>Setor:</strong> ${escapeHtml(stageLabel)}</p>
-    <p><strong>Gerado em:</strong> ${escapeHtml(generatedAt)}</p>
-    <p><strong>Total de apontamentos:</strong> ${updates.length}</p>
-  </div>
-  ${updates.length ? `
-    <table>
-      <thead>
-        <tr>
-          <th>BSP</th>
-          <th>Spool</th>
-          <th>Andamento</th>
-          <th>Data conclusão</th>
-          <th>Observação</th>
-          <th>Status</th>
-          <th>Resolvido por</th>
-          <th>Data resolução</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-  ` : `<div class="empty">Nenhum apontamento encontrado para exportação.</div>`}
-</body>
-</html>`;
-}
-
-function exportStageUpdatesPdf() {
-  const html = buildStageUpdatesPdfHtml();
-  const stageLabel = getStageWorkspaceLabel(getStageWorkspaceSector())
-    .toLowerCase()
-    .replace(/\s+/g, '-');
-  const printWindow = window.open('', '_blank', 'width=980,height=720');
-  if (!printWindow) {
-    window.alert('Não foi possível abrir a janela de exportação. Verifique se o navegador bloqueou pop-ups.');
-    return;
-  }
-  printWindow.document.open();
-  printWindow.document.write(html);
-  printWindow.document.close();
-  printWindow.focus();
-  printWindow.document.title = `apontamentos-${stageLabel}`;
-  setTimeout(() => {
-    printWindow.print();
-  }, 250);
-}
-
 async function loadManualAlerts() {
   if (!state.user) return;
   try {
@@ -2871,11 +3049,7 @@ async function loadManualAlerts() {
     state.manualAlerts = data.alerts || [];
     state.projectSignals = data.projectSignals || [];
     updateSessionUi();
-    if (sectorAlertsModalEl && !sectorAlertsModalEl.classList.contains('hidden')) {
-      openSectorAlertsModal();
-    } else {
-      renderManualAlerts();
-    }
+    renderManualAlerts();
     detectNewUserAlerts();
     if (state.user?.role === "admin") {
       renderAdminAlertsList();
@@ -2899,8 +3073,6 @@ function openSectorAlertsModal() {
     renderProjectUserSignals();
   } else if (state.sectorAlertsMode === 'my-project-signals') {
     renderMyProjectSignals();
-  } else if (state.sectorAlertsMode === 'stage-projects') {
-    renderSectorProjectsWorkspace();
   } else {
     renderManualAlerts();
   }
@@ -3289,94 +3461,65 @@ function renderAdminAlertsList() {
     adminAlertsListEl.innerHTML = `<div class="empty-state">${state.adminAlertSearchQuery ? "Nenhum alerta encontrado para a pesquisa informada." : "Nenhum alerta operacional registrado."}</div>`;
     return;
   }
-  adminAlertsListEl.innerHTML = `
-    <div class="manual-alert-actions" style="margin-bottom: 12px;">
-      <button class="ghost-button ghost-button--compact" type="button" id="admin-delete-filtered-alerts">Apagar alertas visíveis</button>
-    </div>
-    ${filteredAlerts.map((alert) => {
-      const acknowledgements = Array.isArray(alert.acknowledgements) ? alert.acknowledgements : [];
-      const ackHtml = alert.requiresAck
-        ? (acknowledgements.length
-          ? `
-            <div class="admin-alert-ack-box">
-              <strong>Registro de confirmações</strong>
-              <div class="admin-list-item-meta">
-                <span>${acknowledgements.length} confirmação(ões)</span>
-                <span>Última: ${escapeHtml(new Date(acknowledgements[0].acknowledgedAt).toLocaleString("pt-BR"))}</span>
-              </div>
-              <div class="admin-alert-ack-list">
-                ${acknowledgements.map((ack) => `
-                  <div class="admin-alert-ack-item">
-                    <span><strong>${escapeHtml(ack.username || ack.userId || "Usuário")}</strong></span>
-                    <span>Setor: ${escapeHtml(sectorLabel(ack.sector))}</span>
-                    <span>${escapeHtml(new Date(ack.acknowledgedAt).toLocaleString("pt-BR"))}</span>
-                  </div>
-                `).join("")}
-              </div>
+  adminAlertsListEl.innerHTML = filteredAlerts.map((alert) => {
+    const acknowledgements = Array.isArray(alert.acknowledgements) ? alert.acknowledgements : [];
+    const ackHtml = alert.requiresAck
+      ? (acknowledgements.length
+        ? `
+          <div class="admin-alert-ack-box">
+            <strong>Registro de confirmações</strong>
+            <div class="admin-list-item-meta">
+              <span>${acknowledgements.length} confirmação(ões)</span>
+              <span>Última: ${escapeHtml(new Date(acknowledgements[0].acknowledgedAt).toLocaleString("pt-BR"))}</span>
             </div>
-          `
-          : `
-            <div class="admin-alert-ack-box">
-              <strong>Registro de confirmações</strong>
-              <div class="admin-list-item-meta">
-                <span>Aguardando confirmação do setor.</span>
-              </div>
+            <div class="admin-alert-ack-list">
+              ${acknowledgements.map((ack) => `
+                <div class="admin-alert-ack-item">
+                  <span><strong>${escapeHtml(ack.username || ack.userId || "Usuário")}</strong></span>
+                  <span>Setor: ${escapeHtml(sectorLabel(ack.sector))}</span>
+                  <span>${escapeHtml(new Date(ack.acknowledgedAt).toLocaleString("pt-BR"))}</span>
+                </div>
+              `).join("")}
             </div>
-          `)
+          </div>
+        `
         : `
           <div class="admin-alert-ack-box">
             <strong>Registro de confirmações</strong>
             <div class="admin-list-item-meta">
-              <span>Alerta informativo sem exigência de leitura.</span>
+              <span>Aguardando confirmação do setor.</span>
             </div>
           </div>
-        `;
-
-      return `
-        <article class="admin-list-item">
-          <strong>${escapeHtml(alert.title || "Alerta Operacional")}</strong>
+        `)
+      : `
+        <div class="admin-alert-ack-box">
+          <strong>Registro de confirmações</strong>
           <div class="admin-list-item-meta">
-            <span>Setor: ${escapeHtml(sectorLabel(alert.sector))}</span>
-            <span>Prioridade: ${escapeHtml(priorityLabel(alert.priority))}</span>
-            <span>${escapeHtml(new Date(alert.createdAt).toLocaleString("pt-BR"))}</span>
-            <span>${alert.requiresAck ? "Exige leitura" : "Informativo"}</span>
-            <span>${alert.lastAckAt ? `Última confirmação: ${escapeHtml(new Date(alert.lastAckAt).toLocaleString("pt-BR"))}` : "Sem confirmação ainda"}</span>
+            <span>Alerta informativo sem exigência de leitura.</span>
           </div>
-          <p>${escapeHtml(alert.message || "")}</p>
-          <div class="admin-list-item-meta">
-            <span>${alert.lastAckAt ? "Permaneceu 24h no setor após a leitura" : "Ainda visível no setor até a primeira leitura"}</span>
-            <span>Registro permanente no admin</span>
-          </div>
-          <div class="manual-alert-actions" style="margin-bottom: 10px;">
-            <button class="ghost-button ghost-button--compact" type="button" data-admin-delete-alert="${escapeHtml(alert.id)}">Apagar</button>
-          </div>
-          ${ackHtml}
-          ${renderAdminResponsesThread(alert.id)}
-        </article>
+        </div>
       `;
-    }).join("")}
-  `;
 
-  const deleteAllButton = document.getElementById('admin-delete-filtered-alerts');
-  if (deleteAllButton) {
-    deleteAllButton.addEventListener('click', async () => {
-      try {
-        await handleDeleteAllFilteredAdminAlerts();
-      } catch (error) {
-        window.alert(error.message || 'Falha ao apagar alertas.');
-      }
-    });
-  }
-
-  adminAlertsListEl.querySelectorAll('[data-admin-delete-alert]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      try {
-        await handleDeleteAdminAlert(button.getAttribute('data-admin-delete-alert'));
-      } catch (error) {
-        window.alert(error.message || 'Falha ao apagar alerta.');
-      }
-    });
-  });
+    return `
+      <article class="admin-list-item">
+        <strong>${escapeHtml(alert.title || "Alerta Operacional")}</strong>
+        <div class="admin-list-item-meta">
+          <span>Setor: ${escapeHtml(sectorLabel(alert.sector))}</span>
+          <span>Prioridade: ${escapeHtml(priorityLabel(alert.priority))}</span>
+          <span>${escapeHtml(new Date(alert.createdAt).toLocaleString("pt-BR"))}</span>
+          <span>${alert.requiresAck ? "Exige leitura" : "Informativo"}</span>
+          <span>${alert.lastAckAt ? `Última confirmação: ${escapeHtml(new Date(alert.lastAckAt).toLocaleString("pt-BR"))}` : "Sem confirmação ainda"}</span>
+        </div>
+        <p>${escapeHtml(alert.message || "")}</p>
+        <div class="admin-list-item-meta">
+          <span>${alert.lastAckAt ? "Permaneceu 24h no setor após a leitura" : "Ainda visível no setor até a primeira leitura"}</span>
+          <span>Registro permanente no admin</span>
+        </div>
+        ${ackHtml}
+        ${renderAdminResponsesThread(alert.id)}
+      </article>
+    `;
+  }).join("");
 }
 
 async function loadAdminData() {
@@ -3538,11 +3681,6 @@ async function loadStageUpdates() {
 
 function renderStageSectorWorkspace() {
   if (!stageUpdatesContentEl) return;
-  const activeElement = document.activeElement;
-  const shouldRestoreSearch = activeElement?.matches?.('[data-stage-search="true"]');
-  const searchValueBeforeRender = shouldRestoreSearch ? String(activeElement.value || '') : null;
-  const selectionStart = shouldRestoreSearch && typeof activeElement.selectionStart === 'number' ? activeElement.selectionStart : null;
-  const selectionEnd = shouldRestoreSearch && typeof activeElement.selectionEnd === 'number' ? activeElement.selectionEnd : null;
   const sector = getStageWorkspaceSector();
   const stageLabel = getStageWorkspaceLabel(sector);
   const matchedProjects = stageWorkspaceSearchProjects();
@@ -3635,21 +3773,6 @@ function renderStageSectorWorkspace() {
         </section>
       </div>
     </div>`;
-
-  if (shouldRestoreSearch) {
-    const searchInput = stageUpdatesContentEl.querySelector('[data-stage-search="true"]');
-    if (searchInput) {
-      if (searchValueBeforeRender !== null && searchInput.value !== searchValueBeforeRender) {
-        searchInput.value = searchValueBeforeRender;
-      }
-      searchInput.focus();
-      try {
-        const start = typeof selectionStart === 'number' ? selectionStart : searchInput.value.length;
-        const end = typeof selectionEnd === 'number' ? selectionEnd : start;
-        searchInput.setSelectionRange(start, end);
-      } catch (_) {}
-    }
-  }
 }
 
 function renderStageValidationWorkspace() {
@@ -3779,9 +3902,6 @@ async function handleStageWorkspaceSubmit(formEl) {
     });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao enviar apontamento.');
-    formEl.querySelector('[name="note"]').value = '';
-    formEl.querySelector('[name="completionDate"]').value = '';
-    formEl.querySelector('[name="progress"]').value = '25';
     await loadStageUpdates();
     renderStageUpdatesModal();
   } catch (error) {
@@ -3944,27 +4064,4 @@ async function init() {
   }
 }
 
-
-if (!window.__loginBootPrompted) {
-  window.__loginBootPrompted = true;
-  setTimeout(() => {
-    const locked = document.body.classList.contains('auth-required');
-    if (locked && typeof openLoginModal === 'function') {
-      openLoginModal();
-    }
-  }, 150);
-}
-
 init();
-
-
-window.openLoginModal = openLoginModal;
-window.closeLoginModal = closeLoginModal;
-
-document.addEventListener('click', (event) => {
-  const loginTrigger = event.target.closest('#open-login-button');
-  if (!loginTrigger) return;
-  event.preventDefault();
-  event.stopPropagation();
-  openLoginModal();
-});
