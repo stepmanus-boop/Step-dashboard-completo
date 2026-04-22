@@ -2654,6 +2654,9 @@ body.auth-required {
   overflow: hidden;
 }
 
+
 body.auth-required .page-shell {
-  display: none;
+  filter: blur(2px);
+  pointer-events: none;
+  user-select: none;
 }

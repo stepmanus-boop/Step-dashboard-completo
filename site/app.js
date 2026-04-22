@@ -2308,6 +2308,9 @@ function updateSessionUi() {
     document.body.classList.add("auth-required");
     state.projectView = 'all';
     sessionUserNameEl.textContent = "Acesso bloqueado";
+    setTimeout(() => {
+      if (typeof openLoginModal === 'function') openLoginModal();
+    }, 50);
     sessionUserMetaEl.textContent = "Faça login para visualizar os projetos, indicadores e detalhes do painel.";
     updatePrimaryUserActionUi();
     renderProjectViewTabs();
@@ -3939,6 +3942,17 @@ async function init() {
     }
     startPolling();
   }
+}
+
+
+if (!window.__loginBootPrompted) {
+  window.__loginBootPrompted = true;
+  setTimeout(() => {
+    const locked = document.body.classList.contains('auth-required');
+    if (locked && typeof openLoginModal === 'function') {
+      openLoginModal();
+    }
+  }, 150);
 }
 
 init();
