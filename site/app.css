@@ -2587,3 +2587,26 @@ button.alert-badge {
 .manual-alert-tag--resolved { color: #7ee7a2; }
 .manual-alert-tag--resolved-by { color: #9ae2ff; }
 @media (max-width: 900px) { .project-signals-head { flex-direction: column; align-items: flex-start; } }
+
+
+
+.stage-workspace-shell{display:grid;gap:16px}
+.stage-toolbar{display:flex;gap:12px;align-items:end;flex-wrap:wrap}
+.stage-toolbar .stack-field{min-width:280px;flex:1}
+.stage-project-list,.stage-update-list{display:grid;gap:14px}
+.stage-project-card,.stage-update-card{border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:14px;background:rgba(6,18,32,.55)}
+.stage-project-head,.stage-update-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:10px}
+.stage-inline-table{width:100%;border-collapse:collapse;font-size:.92rem}
+.stage-inline-table th,.stage-inline-table td{padding:8px;border-bottom:1px solid rgba(255,255,255,.08);vertical-align:top}
+.stage-inline-table select,.stage-inline-table input,.stage-inline-table textarea{width:100%;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:8px}
+.stage-inline-table textarea{min-height:42px;resize:vertical}
+.stage-inline-table .ghost-button,.stage-inline-table .primary-button{white-space:nowrap}
+.stage-update-meta{display:flex;flex-wrap:wrap;gap:8px;margin:.35rem 0 .75rem}
+.stage-badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 10px;font-size:.78rem;background:rgba(255,255,255,.08)}
+.stage-badge--pending{background:rgba(245,158,11,.16);color:#fbbf24}
+.stage-badge--resolved{background:rgba(34,197,94,.16);color:#4ade80}
+.stage-badge--sector{background:rgba(59,130,246,.16);color:#93c5fd}
+.stage-muted{opacity:.75;font-size:.88rem}
+.stage-two-col{display:grid;grid-template-columns:1.4fr 1fr;gap:16px}
+.stage-history-shell{display:grid;gap:12px}
+@media (max-width: 1080px){.stage-two-col{grid-template-columns:1fr}.stage-inline-table{display:block;overflow:auto}}

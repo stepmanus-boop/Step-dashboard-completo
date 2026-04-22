@@ -34,6 +34,8 @@ const state = {
   pushSubscribed: false,
   selectedProjectForSignal: null,
   sectorAlertsMode: 'default',
+  stageUpdates: [],
+  stageUpdatesSearchQuery: '',
 };
 
 const bodyEl = document.getElementById("projects-body");
@@ -74,6 +76,7 @@ const openLoginButtonEl = document.getElementById("open-login-button");
 const openSectorAlertsEl = document.getElementById("open-sector-alerts");
 const openMyProjectSignalsEl = document.getElementById("open-my-project-signals");
 const openProjectSignalsEl = document.getElementById("open-project-signals");
+const openStageUpdatesEl = document.getElementById("open-stage-updates");
 const sectorAlertsModalEl = document.getElementById("sector-alerts-modal");
 const sectorAlertsCloseEl = document.getElementById("sector-alerts-close");
 const sectorAlertsContentEl = document.getElementById("sector-alerts-content");
@@ -115,6 +118,9 @@ const projectSignalDescriptionEl = document.getElementById('project-signal-descr
 const projectSignalFeedbackEl = document.getElementById('project-signal-feedback');
 const projectSignalHeadingEl = document.getElementById('project-signal-heading');
 const projectSignalSubtitleEl = document.getElementById('project-signal-subtitle');
+const stageUpdatesModalEl = document.getElementById('stage-updates-modal');
+const stageUpdatesCloseEl = document.getElementById('stage-updates-close');
+const stageUpdatesContentEl = document.getElementById('stage-updates-content');
 
 const installAppButtonEl = document.getElementById("install-app-button");
 const connectionStatusEl = document.getElementById("connection-status");
@@ -969,6 +975,76 @@ function canViewMyProjectSignals(user = state.user) {
   return normalizeSectorValue(user.sector) === 'projetos' || userHasProjectsScope(user);
 }
 
+
+const STAGE_WORKSPACE_SECTORS = ['pintura', 'inspecao', 'pendente_envio', 'producao', 'calderaria', 'solda'];
+const STAGE_PROGRESS_OPTIONS = [25, 50, 75, 100];
+
+function getStageWorkspaceSector(user = state.user) {
+  return normalizeSectorValue(user?.sector);
+}
+
+function getStageWorkspaceLabel(sector = getStageWorkspaceSector()) {
+  return sectorLabel(sector) || 'Etapa';
+}
+
+function canOpenStageWorkspace(user = state.user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  const sector = getStageWorkspaceSector(user);
+  return sector === 'pcp' || STAGE_WORKSPACE_SECTORS.includes(sector);
+}
+
+function canValidateStageWorkspace(user = state.user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  return getStageWorkspaceSector(user) === 'pcp';
+}
+
+function stageWorkspaceSearchProjects() {
+  const query = normalizeText(state.stageUpdatesSearchQuery || '');
+  const source = Array.isArray(state.projects) ? state.projects : [];
+  if (!query) return source.slice(0, 8);
+  return source.filter((project) => {
+    return [project.projectNumber, project.projectDisplay, project.client, project.currentStage]
+      .some((value) => normalizeText(value).includes(query));
+  }).slice(0, 8);
+}
+
+function getStageUpdatesForCurrentSector(source = null, sector = getStageWorkspaceSector()) {
+  const list = Array.isArray(source) ? source : (Array.isArray(state.stageUpdates) ? state.stageUpdates : []);
+  return list.filter((item) => normalizeSectorValue(item?.sector) === sector);
+}
+
+function getPendingStageUpdate(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
+  return getStageUpdatesForCurrentSector().find((item) =>
+    String(item.status || 'pending') === 'pending'
+    && Number(item.projectRowId || 0) === Number(projectRowId || 0)
+    && String(item.spoolIso || '').trim().toLowerCase() === String(spoolIso || '').trim().toLowerCase()
+  ) || null;
+}
+
+function getLatestResolvedStageUpdate(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
+  return getStageUpdatesForCurrentSector().filter((item) =>
+    String(item.status || '').toLowerCase() === 'resolved'
+    && Number(item.projectRowId || 0) === Number(projectRowId || 0)
+    && String(item.spoolIso || '').trim().toLowerCase() === String(spoolIso || '').trim().toLowerCase()
+  ).sort((a,b)=> new Date(b.resolvedAt || b.createdAt || 0) - new Date(a.resolvedAt || a.createdAt || 0))[0] || null;
+}
+
+function getMyStageUpdates() {
+  const username = String(state.user?.username || '').trim().toLowerCase();
+  return (Array.isArray(state.stageUpdates) ? state.stageUpdates : [])
+    .filter((item) => String(item.createdBy || '').trim().toLowerCase() === username)
+    .sort((a,b)=> new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+}
+
+function formatStageDate(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (!Number.isNaN(date.getTime())) return date.toLocaleString('pt-BR');
+  return escapeHtml(String(value));
+}
+
 function renderProjectSignals(project) {
   const signals = getProjectSignals(project);
   const actionButton = canCreateProjectSignal(project)
@@ -1362,6 +1438,14 @@ function updatePrimaryUserActionUi() {
     const canView = canViewProjectSignals();
     openProjectSignalsEl.classList.toggle('hidden', !canView);
     openProjectSignalsEl.title = 'Visualizar apenas os alertas enviados pelos usuários de Projetos';
+  }
+  if (openStageUpdatesEl) {
+    const canOpen = canOpenStageWorkspace();
+    openStageUpdatesEl.classList.toggle('hidden', !canOpen);
+    openStageUpdatesEl.textContent = canValidateStageWorkspace() ? 'Validação PCP' : 'Apontamentos';
+    openStageUpdatesEl.title = canValidateStageWorkspace()
+      ? 'Validar apontamentos enviados pelos setores e consultar o histórico'
+      : 'Informar o avanço da sua etapa por spool';
   }
 }
 
@@ -2351,6 +2435,58 @@ if (openProjectSignalsEl) {
   });
 }
 
+if (openStageUpdatesEl) {
+  openStageUpdatesEl.addEventListener('click', async () => {
+    if (!state.user) {
+      openLoginModal();
+      return;
+    }
+    state.stageUpdatesSearchQuery = '';
+    await loadStageUpdates();
+    openStageUpdatesModal();
+  });
+}
+
+if (stageUpdatesCloseEl) {
+  stageUpdatesCloseEl.addEventListener('click', closeStageUpdatesModal);
+}
+
+if (stageUpdatesModalEl) {
+  stageUpdatesModalEl.addEventListener('click', (event) => {
+    if (event.target.matches('[data-close-stage-updates="true"]')) {
+      closeStageUpdatesModal();
+      return;
+    }
+    const concludeButton = event.target.closest('[data-stage-conclude]');
+    if (concludeButton) {
+      concludeStageUpdate(concludeButton.dataset.stageConclude);
+    }
+  });
+  stageUpdatesModalEl.addEventListener('input', (event) => {
+    const searchEl = event.target.closest('[data-stage-search="true"]');
+    if (searchEl) {
+      state.stageUpdatesSearchQuery = searchEl.value || '';
+      renderStageUpdatesModal();
+      return;
+    }
+    const progressEl = event.target.closest('[data-stage-progress="true"]');
+    if (progressEl) {
+      const formEl = progressEl.closest('form');
+      const dateEl = formEl?.querySelector('[name="completionDate"]');
+      if (dateEl && Number(progressEl.value) === 100 && !dateEl.value) {
+        dateEl.value = new Date().toISOString().slice(0, 10);
+      }
+    }
+  });
+  stageUpdatesModalEl.addEventListener('submit', (event) => {
+    const formEl = event.target.closest('[data-stage-update-form="true"]');
+    if (!formEl) return;
+    event.preventDefault();
+    handleStageWorkspaceSubmit(formEl);
+  });
+}
+
+
 if (sectorAlertsCloseEl) {
   sectorAlertsCloseEl.addEventListener("click", closeSectorAlertsModal);
 }
@@ -2518,6 +2654,10 @@ if (adminUsersListEl) {
     }
     if (sectorAlertsModalEl && !sectorAlertsModalEl.classList.contains("hidden")) {
       closeSectorAlertsModal();
+      return;
+    }
+    if (stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
+      closeStageUpdatesModal();
       return;
     }
     if (alertModalEl && !alertModalEl.classList.contains("hidden")) {
@@ -3028,6 +3168,7 @@ function closeAlertResponseModal() {
     modalEl.classList.contains('hidden') &&
     alertModalEl.classList.contains('hidden') &&
     sectorAlertsModalEl.classList.contains('hidden') &&
+    stageUpdatesModalEl.classList.contains('hidden') &&
     adminModalEl.classList.contains('hidden') &&
     loginModalEl.classList.contains('hidden')
   ) {
@@ -3063,6 +3204,7 @@ function closeProjectSignalModal() {
     modalEl.classList.contains('hidden') &&
     alertModalEl.classList.contains('hidden') &&
     sectorAlertsModalEl.classList.contains('hidden') &&
+    stageUpdatesModalEl.classList.contains('hidden') &&
     adminModalEl.classList.contains('hidden') &&
     loginModalEl.classList.contains('hidden')
   ) {
@@ -3462,6 +3604,7 @@ function closeAdminModal() {
     modalEl.classList.contains("hidden") &&
     alertModalEl.classList.contains("hidden") &&
     sectorAlertsModalEl.classList.contains("hidden") &&
+    stageUpdatesModalEl.classList.contains('hidden') &&
     loginModalEl.classList.contains("hidden")
   ) {
     document.body.classList.remove("modal-open");
@@ -3492,6 +3635,7 @@ async function handleLoginSubmit(event) {
     await loadProjects();
     await loadManualAlerts();
     await loadAlertResponses();
+    await loadStageUpdates();
     if (state.user?.role === "admin") {
       await loadAdminData();
     }
@@ -3507,6 +3651,7 @@ async function handleLogout() {
   state.manualAlerts = [];
   state.projectSignals = [];
   state.alertResponses = [];
+  state.stageUpdates = [];
   window.clearInterval(state.pollTimer);
   updateSessionUi();
   resetDashboardForLoggedOutState();
@@ -3514,6 +3659,274 @@ async function handleLogout() {
 }
 
 
+
+
+async function loadStageUpdates() {
+  if (!state.user) {
+    state.stageUpdates = [];
+    return;
+  }
+  try {
+    const response = await fetch('/api/stage-updates', { credentials: 'same-origin', cache: 'no-store' });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao carregar apontamentos setoriais.');
+    state.stageUpdates = Array.isArray(data.updates) ? data.updates : [];
+  } catch (error) {
+    state.stageUpdates = [];
+    if (stageUpdatesContentEl && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
+      stageUpdatesContentEl.innerHTML = `<div class="empty-state">${escapeHtml(error.message || 'Falha ao carregar apontamentos setoriais.')}</div>`;
+    }
+  }
+}
+
+function renderStageSectorWorkspace() {
+  if (!stageUpdatesContentEl) return;
+  const sector = getStageWorkspaceSector();
+  const stageLabel = getStageWorkspaceLabel(sector);
+  const matchedProjects = stageWorkspaceSearchProjects();
+  const myUpdates = getMyStageUpdates();
+  const pendingMine = myUpdates.filter((item) => String(item.status || 'pending') === 'pending');
+  const resolvedMine = myUpdates.filter((item) => String(item.status || '') === 'resolved').slice(0, 10);
+  stageUpdatesContentEl.innerHTML = `
+    <div class="stage-workspace-shell">
+      <section class="admin-card admin-card--wide">
+        <div class="stage-toolbar">
+          <label class="stack-field">
+            <span>Buscar BSP / cliente</span>
+            <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP 25-1246" />
+          </label>
+          <div class="stage-muted">Etapa atual do seu login: <strong>${escapeHtml(stageLabel)}</strong></div>
+        </div>
+      </section>
+      <div class="stage-two-col">
+        <section class="admin-card admin-card--wide">
+          <div class="admin-card-head"><h4>Lançar avanço da etapa</h4></div>
+          ${matchedProjects.length ? `<div class="stage-project-list">${matchedProjects.map((project) => {
+            const spools = Array.isArray(project.spools) ? project.spools : [];
+            return `
+              <article class="stage-project-card">
+                <div class="stage-project-head">
+                  <div>
+                    <strong>${escapeHtml(project.projectDisplay || project.projectNumber || 'Projeto')}</strong>
+                    <div class="stage-update-meta">
+                      <span class="stage-badge">${escapeHtml(project.client || 'Sem cliente')}</span>
+                      <span class="stage-badge">${spools.length} spool(s)</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="table-shell">
+                  <table class="stage-inline-table">
+                    <thead><tr><th>Spool</th><th>Descrição</th><th>Andamento</th><th>Data conclusão</th><th>Obs.</th><th>Ação</th></tr></thead>
+                    <tbody>
+                      ${spools.map((spool) => {
+                        const pending = getPendingStageUpdate(project.rowId || project.rowNumber, spool.iso, sector);
+                        const lastResolved = getLatestResolvedStageUpdate(project.rowId || project.rowNumber, spool.iso, sector);
+                        return `
+                          <tr>
+                            <td>${escapeHtml(spool.iso || '—')}</td>
+                            <td>${escapeHtml(spool.description || '—')}</td>
+                            <td>
+                              <form data-stage-update-form="true" data-project-row-id="${escapeHtml(String(project.rowId || project.rowNumber || ''))}" data-project-number="${escapeHtml(project.projectNumber || '')}" data-spool-iso="${escapeHtml(spool.iso || '')}" class="stage-row-form">
+                                <select name="progress" data-stage-progress="true">
+                                  ${STAGE_PROGRESS_OPTIONS.map((value) => `<option value="${value}">${value}%</option>`).join('')}
+                                </select>
+                            </td>
+                            <td><input type="date" name="completionDate" value="" /></td>
+                            <td><textarea name="note" rows="2" placeholder="Observação opcional"></textarea></td>
+                            <td>
+                              ${pending
+                                ? `<span class="stage-badge stage-badge--pending">Aguardando PCP</span>`
+                                : `<button class="primary-button" type="submit">Enviar</button>`}
+                              ${lastResolved ? `<div class="stage-muted">Último concluído: ${escapeHtml(formatStageDate(lastResolved.resolvedAt))}</div>` : ''}
+                              </form>
+                            </td>
+                          </tr>`;
+                      }).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              </article>`;
+          }).join('')}</div>` : `<div class="empty-state">Pesquise a BSP para visualizar os spools e lançar o avanço da sua etapa.</div>`}
+        </section>
+        <section class="admin-card admin-card--wide">
+          <div class="admin-card-head"><h4>Meus lançamentos</h4></div>
+          <div class="stage-history-shell">
+            <div class="stage-update-list">
+              ${myUpdates.length ? myUpdates.map((item) => `
+                <article class="stage-update-card">
+                  <div class="stage-update-head">
+                    <div>
+                      <strong>${escapeHtml(item.projectDisplay || item.projectNumber || 'Projeto')} • ${escapeHtml(item.spoolIso || 'Spool')}</strong>
+                      <div class="stage-update-meta">
+                        <span class="stage-badge stage-badge--sector">${escapeHtml(sectorLabel(item.sector))}</span>
+                        <span class="stage-badge ${String(item.status)==='resolved' ? 'stage-badge--resolved' : 'stage-badge--pending'}">${String(item.status)==='resolved' ? 'Resolvido' : 'Pendente PCP'}</span>
+                        <span class="stage-badge">${escapeHtml(String(item.progress || 0))}%</span>
+                      </div>
+                    </div>
+                  </div>
+                  <p>${escapeHtml(item.note || 'Sem observação.')}</p>
+                  <div class="stage-muted">Enviado em: ${escapeHtml(formatStageDate(item.createdAt))}</div>
+                  ${item.status === 'resolved' ? `<div class="stage-muted">Concluído por ${escapeHtml(item.resolvedByName || item.resolvedBy || 'PCP')} em ${escapeHtml(formatStageDate(item.resolvedAt))}</div>${item.resolutionNote ? `<div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(item.resolutionNote)}</p></div>` : ''}` : ''}
+                </article>`).join('') : `<div class="empty-state">Nenhum apontamento enviado ainda.</div>`}
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>`;
+}
+
+function renderStageValidationWorkspace() {
+  if (!stageUpdatesContentEl) return;
+  const query = normalizeText(state.stageUpdatesSearchQuery || '');
+  const all = Array.isArray(state.stageUpdates) ? state.stageUpdates : [];
+  const filtered = all.filter((item) => {
+    if (!query) return true;
+    return [item.projectNumber, item.projectDisplay, item.client, item.spoolIso, item.sector, item.createdByName]
+      .some((value) => normalizeText(value).includes(query));
+  }).sort((a,b)=> new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  const pending = filtered.filter((item) => String(item.status || 'pending') === 'pending');
+  const history = filtered.filter((item) => String(item.status || '') === 'resolved').slice(0, 50);
+  stageUpdatesContentEl.innerHTML = `
+    <div class="stage-workspace-shell">
+      <section class="admin-card admin-card--wide">
+        <div class="stage-toolbar">
+          <label class="stack-field">
+            <span>Buscar BSP / spool / setor</span>
+            <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP 25-1246" />
+          </label>
+          <div class="stage-muted">Pendentes: <strong>${pending.length}</strong> • Histórico: <strong>${history.length}</strong></div>
+        </div>
+      </section>
+      <div class="stage-two-col">
+        <section class="admin-card admin-card--wide">
+          <div class="admin-card-head"><h4>Pendentes para validação do PCP</h4></div>
+          <div class="stage-update-list">
+            ${pending.length ? pending.map((item) => `
+              <article class="stage-update-card">
+                <div class="stage-update-head">
+                  <div>
+                    <strong>${escapeHtml(item.projectDisplay || item.projectNumber || 'Projeto')} • ${escapeHtml(item.spoolIso || 'Spool')}</strong>
+                    <div class="stage-update-meta">
+                      <span class="stage-badge stage-badge--sector">${escapeHtml(sectorLabel(item.sector))}</span>
+                      <span class="stage-badge stage-badge--pending">Pendente</span>
+                      <span class="stage-badge">${escapeHtml(String(item.progress || 0))}%</span>
+                    </div>
+                  </div>
+                  <button class="primary-button" type="button" data-stage-conclude="${escapeHtml(item.id)}">Concluir</button>
+                </div>
+                <p><strong>Spool:</strong> ${escapeHtml(item.spoolDescription || '—')}</p>
+                <p>${escapeHtml(item.note || 'Sem observação do setor.')}</p>
+                <div class="stage-muted">Informado por ${escapeHtml(item.createdByName || item.createdBy || 'Usuário')} em ${escapeHtml(formatStageDate(item.createdAt))}</div>
+              </article>`).join('') : `<div class="empty-state">Nenhum apontamento pendente no momento.</div>`}
+          </div>
+        </section>
+        <section class="admin-card admin-card--wide">
+          <div class="admin-card-head"><h4>Histórico validado</h4></div>
+          <div class="stage-update-list">
+            ${history.length ? history.map((item) => `
+              <article class="stage-update-card">
+                <div class="stage-update-head">
+                  <div>
+                    <strong>${escapeHtml(item.projectDisplay || item.projectNumber || 'Projeto')} • ${escapeHtml(item.spoolIso || 'Spool')}</strong>
+                    <div class="stage-update-meta">
+                      <span class="stage-badge stage-badge--sector">${escapeHtml(sectorLabel(item.sector))}</span>
+                      <span class="stage-badge stage-badge--resolved">Concluído</span>
+                      <span class="stage-badge">${escapeHtml(String(item.progress || 0))}%</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="stage-muted">Informado por ${escapeHtml(item.createdByName || item.createdBy || 'Usuário')} • concluído por ${escapeHtml(item.resolvedByName || item.resolvedBy || 'PCP')} em ${escapeHtml(formatStageDate(item.resolvedAt))}</div>
+                ${item.resolutionNote ? `<div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(item.resolutionNote)}</p></div>` : ''}
+              </article>`).join('') : `<div class="empty-state">Nenhum histórico validado encontrado.</div>`}
+          </div>
+        </section>
+      </div>
+    </div>`;
+}
+
+function renderStageUpdatesModal() {
+  if (!stageUpdatesContentEl) return;
+  if (canValidateStageWorkspace()) {
+    renderStageValidationWorkspace();
+    return;
+  }
+  renderStageSectorWorkspace();
+}
+
+function openStageUpdatesModal() {
+  if (!stageUpdatesModalEl) return;
+  const titleEl = document.getElementById('stage-updates-title');
+  const subtitleEl = document.getElementById('stage-updates-subtitle');
+  if (titleEl) titleEl.textContent = canValidateStageWorkspace() ? 'Validação PCP dos apontamentos' : `Apontamentos da etapa • ${getStageWorkspaceLabel()}`;
+  if (subtitleEl) subtitleEl.textContent = canValidateStageWorkspace()
+    ? 'Conclua os registros validados para que saiam da fila e permaneçam no histórico.'
+    : 'Cada setor informa somente a sua própria etapa por spool. O PCP valida e mantém o histórico.';
+  renderStageUpdatesModal();
+  stageUpdatesModalEl.classList.remove('hidden');
+  stageUpdatesModalEl.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('modal-open');
+}
+
+function closeStageUpdatesModal() {
+  if (!stageUpdatesModalEl) return;
+  stageUpdatesModalEl.classList.add('hidden');
+  stageUpdatesModalEl.setAttribute('aria-hidden', 'true');
+  if (
+    modalEl.classList.contains('hidden') &&
+    alertModalEl.classList.contains('hidden') &&
+    sectorAlertsModalEl.classList.contains('hidden') &&
+    stageUpdatesModalEl.classList.contains('hidden') &&
+    adminModalEl.classList.contains('hidden') &&
+    loginModalEl.classList.contains('hidden')
+  ) {
+    document.body.classList.remove('modal-open');
+  }
+}
+
+async function handleStageWorkspaceSubmit(formEl) {
+  const projectRowId = String(formEl?.dataset?.projectRowId || '').trim();
+  const spoolIso = String(formEl?.dataset?.spoolIso || '').trim();
+  const progress = String(formEl?.querySelector('[name="progress"]')?.value || '').trim();
+  const completionDate = String(formEl?.querySelector('[name="completionDate"]')?.value || '').trim();
+  const note = String(formEl?.querySelector('[name="note"]')?.value || '').trim();
+  if (!projectRowId || !spoolIso || !progress) {
+    window.alert('Preencha o avanço do spool antes de enviar.');
+    return;
+  }
+  try {
+    const response = await fetch('/api/stage-updates', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectRowId, spoolIso, progress, completionDate, note }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao enviar apontamento.');
+    await loadStageUpdates();
+    renderStageUpdatesModal();
+  } catch (error) {
+    window.alert(error.message || 'Falha ao enviar apontamento.');
+  }
+}
+
+async function concludeStageUpdate(id) {
+  if (!id) return;
+  const resolutionNote = window.prompt('Observação de validação do PCP (opcional):', '') || '';
+  try {
+    const response = await fetch('/api/stage-updates', {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, resolutionNote }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao concluir apontamento.');
+    await loadStageUpdates();
+    renderStageUpdatesModal();
+  } catch (error) {
+    window.alert(error.message || 'Falha ao concluir apontamento.');
+  }
+}
 async function handleAdminUserSubmit(event) {
   event.preventDefault();
   const editingId = adminUserIdEl?.value || "";
@@ -3643,6 +4056,7 @@ async function init() {
     await syncPushSubscription(false).catch(() => {});
     await loadManualAlerts();
     await loadAlertResponses();
+    await loadStageUpdates();
     if (state.user?.role === "admin") {
       await loadAdminData();
     }

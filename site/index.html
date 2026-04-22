@@ -40,6 +40,7 @@
               <button id="open-sector-alerts" class="ghost-button ghost-button--compact" type="button">Meus alertas</button>
               <button id="open-my-project-signals" class="ghost-button ghost-button--compact hidden" type="button">Minhas sinalizações</button>
               <button id="open-project-signals" class="ghost-button ghost-button--compact hidden" type="button">Alertas Projetos</button>
+              <button id="open-stage-updates" class="ghost-button ghost-button--compact hidden" type="button">Apontamentos</button>
               <button id="open-admin-panel" class="ghost-button ghost-button--compact hidden" type="button">Admin</button>
               <button id="logout-button" class="ghost-button ghost-button--compact hidden" type="button">Sair</button>
             </div>
@@ -512,6 +513,22 @@
         <p id="project-signal-feedback" class="inline-feedback"></p>
       </form>
     </div>
+  </div>
+</div>
+
+    
+<div id="stage-updates-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-backdrop" data-close-stage-updates="true"></div>
+  <div class="modal-dialog modal-dialog--admin" role="dialog" aria-modal="true" aria-labelledby="stage-updates-title">
+    <div class="modal-head">
+      <div>
+        <p class="modal-eyebrow">Apontamentos por etapa</p>
+        <h3 id="stage-updates-title">Apontamentos setoriais</h3>
+        <p id="stage-updates-subtitle" class="modal-subtitle">Cada setor informa somente o avanço da sua própria etapa e o PCP valida.</p>
+      </div>
+      <button id="stage-updates-close" class="modal-close" type="button" aria-label="Fechar">×</button>
+    </div>
+    <div id="stage-updates-content" class="modal-content admin-modal-shell"></div>
   </div>
 </div>
 
