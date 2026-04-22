@@ -3919,6 +3919,62 @@ async function acknowledgeManualAlert(alertId) {
   }
 }
 
+
+async function forceHandleLoginSubmit(event) {
+  event.preventDefault();
+  const usernameInput = document.getElementById('username');
+  const passwordInput = document.getElementById('password');
+  const feedbackEl = document.getElementById('login-feedback');
+  const submitButton = document.getElementById('login-submit');
+  const username = String(usernameInput?.value || '').trim();
+  const password = String(passwordInput?.value || '').trim();
+
+  if (feedbackEl) feedbackEl.textContent = '';
+  if (!username || !password) {
+    if (feedbackEl) feedbackEl.textContent = 'Informe usuário e senha.';
+    return;
+  }
+
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = 'Entrando...';
+  }
+
+  try {
+    const response = await fetch('/.netlify/functions/auth-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ username, password }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.ok === false) {
+      throw new Error(data?.error || 'Usuário ou senha inválidos.');
+    }
+
+    state.user = data.user || null;
+    if (typeof closeLoginModal === 'function') closeLoginModal();
+    if (typeof updateSessionUi === 'function') updateSessionUi();
+    if (typeof loadProjects === 'function') {
+      await loadProjects();
+    }
+    if (typeof loadManualAlerts === 'function') {
+      await loadManualAlerts();
+    }
+    if (typeof loadAdminData === 'function' && state.user?.role === 'admin') {
+      await loadAdminData();
+    }
+  } catch (error) {
+    if (feedbackEl) feedbackEl.textContent = error.message || 'Falha no login.';
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = 'Entrar';
+    }
+  }
+}
+
 async function init() {
   updateConnectionStatus();
   window.addEventListener("online", updateConnectionStatus);
@@ -3967,4 +4023,19 @@ document.addEventListener('click', (event) => {
   event.preventDefault();
   event.stopPropagation();
   openLoginModal();
+});
+
+
+document.addEventListener('submit', (event) => {
+  const form = event.target.closest('#login-form');
+  if (!form) return;
+  forceHandleLoginSubmit(event);
+});
+
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('#login-submit');
+  if (!button) return;
+  const form = document.getElementById('login-form');
+  if (!form) return;
+  forceHandleLoginSubmit(event);
 });
