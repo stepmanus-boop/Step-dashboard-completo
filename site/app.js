@@ -3884,7 +3884,7 @@ function renderStageSectorWorkspace() {
                         const submissionStatusHtml = submissionLock
                           ? (submissionLock.status === 'sending'
                               ? `<button class="primary-button" type="button" disabled>Enviando...</button>`
-                              : `<div class="stage-submit-status"><button class="primary-button" type="button" disabled>Enviado</button><div class="stage-muted">Novo envio liberado em ${escapeHtml(formatStageSubmissionCountdown(Number(submissionLock.resendAt || 0) - Date.now()))}</div></div>`)
+                              : `<button class="primary-button primary-button--success" type="button" disabled>Enviado</button>`)
                           : (pending
                               ? `<span class="stage-badge stage-badge--pending">Aguardando PCP</span>`
                               : `<button class="primary-button" type="button" data-stage-submit="true">Enviar</button>`);

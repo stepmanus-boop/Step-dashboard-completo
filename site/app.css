@@ -1594,6 +1594,19 @@ button.alert-badge {
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
 }
 
+
+.primary-button--success {
+  border-color: rgba(74, 222, 128, 0.45);
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.38), rgba(22, 163, 74, 0.3));
+  color: #f3fff7;
+}
+
+.primary-button--success:hover {
+  filter: none;
+  transform: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
 .stack-form { gap: 14px; }
 
 .stack-field span {
