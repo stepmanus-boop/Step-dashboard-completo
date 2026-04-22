@@ -110,24 +110,9 @@ async function listUsers() {
 }
 
 async function getUserByUsername(username) {
-  const raw = String(username || '').trim();
-  if (!raw) return null;
-
-  try {
-    const q = encodeURIComponent(raw);
-    const rows = await supabaseFetch(`/rest/v1/users?select=*&username=eq.${q}&limit=1`);
-    const exact = mapUser(Array.isArray(rows) ? rows[0] : null);
-    if (exact) return exact;
-  } catch (_) {}
-
-  const normalizedTarget = normalizeText(raw);
-  const users = await listUsers();
-
-  return users.find((user) => {
-    const usernameMatch = normalizeText(user?.username || '') === normalizedTarget;
-    const nameMatch = normalizeText(user?.name || '') === normalizedTarget;
-    return usernameMatch || nameMatch;
-  }) || null;
+  const q = encodeURIComponent(String(username || '').trim());
+  const rows = await supabaseFetch(`/rest/v1/users?select=*&username=eq.${q}&limit=1`);
+  return mapUser(Array.isArray(rows) ? rows[0] : null);
 }
 
 async function getUserById(userId) {
