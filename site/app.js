@@ -1000,49 +1000,21 @@ function canValidateStageWorkspace(user = state.user) {
   return getStageWorkspaceSector(user) === 'pcp';
 }
 
-function normalizeStageWorkspaceSearchVariants(value) {
-  const normalized = normalizeText(value || '').trim();
-  const digits = normalized.replace(/\D+/g, '');
-  const variants = new Set();
-  if (normalized) variants.add(normalized);
-  if (digits) {
-    variants.add(digits);
-    if (digits.length >= 4) {
-      variants.add(`${digits.slice(0, 2)}-${digits.slice(2)}`);
-      variants.add(`${digits.slice(0, 2)} ${digits.slice(2)}`);
-      variants.add(`bsp ${digits.slice(0, 2)}-${digits.slice(2)}`);
-      variants.add(`bsp ${digits.slice(0, 2)} ${digits.slice(2)}`);
-    }
-  }
-  return Array.from(variants);
-}
-
 function stageWorkspaceSearchProjects() {
-  const query = normalizeText(state.stageUpdatesSearchQuery || '');
+  const rawQuery = String(state.stageUpdatesSearchQuery || '');
+  const query = normalizeText(rawQuery);
+  const compactQuery = normalizeCompactText(rawQuery);
+  const digitsQuery = rawQuery.replace(/\D+/g, '');
   const source = Array.isArray(state.projects) ? state.projects : [];
-  if (!query) return source.slice(0, 8);
-  const variants = normalizeStageWorkspaceSearchVariants(query);
-
+  if (!query && !compactQuery && !digitsQuery) return source.slice(0, 8);
   return source.filter((project) => {
-    const values = [
+    const searchIndex = buildSearchIndex([
       project.projectNumber,
       project.projectDisplay,
-      project.projectAlias,
       project.client,
       project.currentStage,
-    ].map((value) => normalizeText(value || ''));
-
-    const projectDigits = normalizeText([
-      project.projectNumber,
-      project.projectDisplay,
-      project.projectAlias,
-    ].join(' ')).replace(/\D+/g, '');
-
-    return variants.some((variant) => {
-      if (!variant) return false;
-      if (/^\d+$/.test(variant) && projectDigits.includes(variant)) return true;
-      return values.some((value) => value.includes(variant));
-    });
+    ]);
+    return [query, compactQuery, digitsQuery].filter(Boolean).some((term) => searchIndex.includes(term));
   }).slice(0, 8);
 }
 
@@ -2493,36 +2465,51 @@ if (stageUpdatesModalEl) {
       closeStageUpdatesModal();
       return;
     }
+    const tabButton = event.target.closest('[data-stage-tab]');
+    if (tabButton) {
+      state.stageUpdatesTab = tabButton.dataset.stageTab || 'workspace';
+      renderStageUpdatesModal();
+      return;
+    }
     const concludeButton = event.target.closest('[data-stage-conclude]');
     if (concludeButton) {
       concludeStageUpdate(concludeButton.dataset.stageConclude);
+      return;
+    }
+    const submitButton = event.target.closest('[data-stage-submit="true"]');
+    if (submitButton) {
+      handleStageWorkspaceSubmit(submitButton.closest('[data-stage-update-row="true"]'));
     }
   });
   stageUpdatesModalEl.addEventListener('input', (event) => {
     const searchEl = event.target.closest('[data-stage-search="true"]');
     if (searchEl) {
-      state.stageUpdatesSearchQuery = searchEl.value || '';
+      const nextValue = searchEl.value || '';
+      const selectionStart = searchEl.selectionStart ?? nextValue.length;
+      const selectionEnd = searchEl.selectionEnd ?? nextValue.length;
+      state.stageUpdatesSearchQuery = nextValue;
       renderStageUpdatesModal();
+      window.requestAnimationFrame(() => {
+        const nextSearchEl = stageUpdatesModalEl.querySelector('[data-stage-search="true"]');
+        if (!nextSearchEl) return;
+        nextSearchEl.focus();
+        const safeStart = Math.min(selectionStart, nextSearchEl.value.length);
+        const safeEnd = Math.min(selectionEnd, nextSearchEl.value.length);
+        nextSearchEl.setSelectionRange(safeStart, safeEnd);
+      });
       return;
     }
     const progressEl = event.target.closest('[data-stage-progress="true"]');
     if (progressEl) {
-      const formEl = progressEl.closest('.stage-row-form');
-      const dateEl = formEl?.querySelector('[name="completionDate"]');
+      const rowEl = progressEl.closest('[data-stage-update-row="true"]');
+      const dateEl = rowEl?.querySelector('[name="completionDate"]');
       if (dateEl && Number(progressEl.value) === 100 && !dateEl.value) {
         dateEl.value = new Date().toISOString().slice(0, 10);
       }
     }
   });
-  stageUpdatesModalEl.addEventListener('click', (event) => {
-    const submitButton = event.target.closest('[data-stage-submit="true"]');
-    if (!submitButton) return;
-    const formEl = submitButton.closest('[data-stage-update-form="true"]');
-    if (!formEl) return;
-    event.preventDefault();
-    handleStageWorkspaceSubmit(formEl);
-  });
 }
+
 
 
 if (sectorAlertsCloseEl) {
@@ -3760,14 +3747,13 @@ function renderStageSectorWorkspace() {
                         const pending = getPendingStageUpdate(project.rowId || project.rowNumber, spool.iso, sector);
                         const lastResolved = getLatestResolvedStageUpdate(project.rowId || project.rowNumber, spool.iso, sector);
                         return `
-                          <tr>
+                          <tr data-stage-update-row="true" data-project-row-id="${escapeHtml(String(project.rowId || project.rowNumber || ''))}" data-project-number="${escapeHtml(project.projectNumber || '')}" data-spool-iso="${escapeHtml(spool.iso || '')}" class="stage-row-form">
                             <td>${escapeHtml(spool.iso || '—')}</td>
                             <td>${escapeHtml(spool.description || '—')}</td>
                             <td>
-                              <div data-stage-update-form="true" data-project-row-id="${escapeHtml(String(project.rowId || project.rowNumber || ''))}" data-project-number="${escapeHtml(project.projectNumber || '')}" data-spool-iso="${escapeHtml(spool.iso || '')}" class="stage-row-form">
-                                <select name="progress" data-stage-progress="true">
-                                  ${STAGE_PROGRESS_OPTIONS.map((value) => `<option value="${value}">${value}%</option>`).join('')}
-                                </select>
+                              <select name="progress" data-stage-progress="true">
+                                ${STAGE_PROGRESS_OPTIONS.map((value) => `<option value="${value}">${value}%</option>`).join('')}
+                              </select>
                             </td>
                             <td><input type="date" name="completionDate" value="" /></td>
                             <td><textarea name="note" rows="2" placeholder="Observação opcional"></textarea></td>
@@ -3776,7 +3762,6 @@ function renderStageSectorWorkspace() {
                                 ? `<span class="stage-badge stage-badge--pending">Aguardando PCP</span>`
                                 : `<button class="primary-button" type="button" data-stage-submit="true">Enviar</button>`}
                               ${lastResolved ? `<div class="stage-muted">Último concluído: ${escapeHtml(formatStageDate(lastResolved.resolvedAt))}</div>` : ''}
-                              </div>
                             </td>
                           </tr>`;
                       }).join('')}
@@ -3921,56 +3906,38 @@ function closeStageUpdatesModal() {
   }
 }
 
-async function handleStageWorkspaceSubmit(formEl) {
-  const projectRowId = String(formEl?.dataset?.projectRowId || '').trim();
-  const spoolIso = String(formEl?.dataset?.spoolIso || '').trim();
-  const progress = String(formEl?.querySelector('[name="progress"]')?.value || '').trim();
-  const completionDate = String(formEl?.querySelector('[name="completionDate"]')?.value || '').trim();
-  const note = String(formEl?.querySelector('[name="note"]')?.value || '').trim();
-  const submitButton = formEl?.querySelector('[data-stage-submit="true"]');
-
+async function handleStageWorkspaceSubmit(rowEl) {
+  const projectRowId = String(rowEl?.dataset?.projectRowId || '').trim();
+  const spoolIso = String(rowEl?.dataset?.spoolIso || '').trim();
+  const progress = String(rowEl?.querySelector('[name="progress"]')?.value || '').trim();
+  const completionDate = String(rowEl?.querySelector('[name="completionDate"]')?.value || '').trim();
+  const note = String(rowEl?.querySelector('[name="note"]')?.value || '').trim();
+  const submitButton = rowEl?.querySelector('[data-stage-submit="true"]');
   if (!projectRowId || !spoolIso || !progress) {
     window.alert('Preencha o avanço do spool antes de enviar.');
     return;
   }
-
-  if (Number(progress) === 100 && !completionDate) {
-    window.alert('Informe a data de conclusão para avanço 100%.');
-    return;
-  }
-
   try {
     if (submitButton) {
       submitButton.disabled = true;
       submitButton.textContent = 'Enviando...';
     }
-
     const response = await fetch('/api/stage-updates', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        projectRowId: Number(projectRowId),
-        spoolIso,
-        progress: Number(progress),
-        completionDate,
-        note
-      }),
+      body: JSON.stringify({ projectRowId, spoolIso, progress, completionDate, note }),
     });
-
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao enviar apontamento.');
-
     await loadStageUpdates();
     renderStageUpdatesModal();
-    window.alert('Apontamento enviado com sucesso.');
   } catch (error) {
-    window.alert(error.message || 'Falha ao enviar apontamento.');
-  } finally {
     if (submitButton) {
       submitButton.disabled = false;
       submitButton.textContent = 'Enviar';
     }
+    window.alert(error.message || 'Falha ao enviar apontamento.');
   }
 }
 

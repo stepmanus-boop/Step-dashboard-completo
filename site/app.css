@@ -2610,10 +2610,3 @@ button.alert-badge {
 .stage-two-col{display:grid;grid-template-columns:1.4fr 1fr;gap:16px}
 .stage-history-shell{display:grid;gap:12px}
 @media (max-width: 1080px){.stage-two-col{grid-template-columns:1fr}.stage-inline-table{display:block;overflow:auto}}
-
-
-.stage-row-form select,
-.stage-row-form select option {
-  color: #f4f7fb;
-  background: rgba(6, 18, 41, 0.98);
-}
