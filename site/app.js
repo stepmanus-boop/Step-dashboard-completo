@@ -23,6 +23,7 @@ const state = {
   user: null,
   githubSyncEnabled: false,
   manualAlerts: [],
+  projectSignals: [],
   adminAlertSearchQuery: "",
   adminActiveTab: "usuario",
   alertResponses: [],
@@ -31,6 +32,7 @@ const state = {
   automaticAlertSignature: "",
   pushSupported: false,
   pushSubscribed: false,
+  selectedProjectForSignal: null,
 };
 
 const bodyEl = document.getElementById("projects-body");
@@ -62,7 +64,6 @@ const loginUsernameEl = document.getElementById("login-username");
 const loginPasswordEl = document.getElementById("login-password");
 const loginFeedbackEl = document.getElementById("login-feedback");
 const toggleLoginPasswordEl = document.getElementById("toggle-login-password");
-const loginGuestCloseEl = document.getElementById("login-guest-close");
 const loginCloseEl = document.getElementById("login-close");
 const sessionUserNameEl = document.getElementById("session-user-name");
 const sessionUserMetaEl = document.getElementById("session-user-meta");
@@ -101,6 +102,16 @@ const adminUserIdEl = document.getElementById("admin-user-id");
 const adminUserSubmitLabelEl = document.getElementById("admin-user-submit-label");
 const adminTabTriggerEls = Array.from(document.querySelectorAll('[data-admin-tab-trigger]'));
 const adminTabPanelEls = Array.from(document.querySelectorAll('[data-admin-tab-panel]'));
+const projectSignalModalEl = document.getElementById('project-signal-modal');
+const projectSignalCloseEl = document.getElementById('project-signal-close');
+const projectSignalCancelEl = document.getElementById('project-signal-cancel');
+const projectSignalFormEl = document.getElementById('project-signal-form');
+const projectSignalProjectIdEl = document.getElementById('project-signal-project-id');
+const projectSignalTitleEl = document.getElementById('project-signal-title');
+const projectSignalDescriptionEl = document.getElementById('project-signal-description');
+const projectSignalFeedbackEl = document.getElementById('project-signal-feedback');
+const projectSignalHeadingEl = document.getElementById('project-signal-heading');
+const projectSignalSubtitleEl = document.getElementById('project-signal-subtitle');
 
 const installAppButtonEl = document.getElementById("install-app-button");
 const connectionStatusEl = document.getElementById("connection-status");
@@ -421,6 +432,7 @@ const AVAILABLE_SECTORS = [
   { value: "producao", label: "Produção" },
   { value: "calderaria", label: "Calderaria" },
   { value: "solda", label: "Solda" },
+  { value: "pcp", label: "PCP" },
   { value: "projetos", label: "Projetos" },
 ];
 
@@ -436,6 +448,7 @@ function normalizeSectorValue(value) {
   if (["producao", "production"].includes(normalized)) return "producao";
   if (["calderaria", "boilermaker", "fabrication"].includes(normalized)) return "calderaria";
   if (["solda", "welding"].includes(normalized)) return "solda";
+  if (["pcp", "planejamento", "planejamento_controle_producao", "planning", "planning_control"].includes(normalized)) return "pcp";
   if (["projetos", "projeto", "project", "projects", "pm"].includes(normalized)) return "projetos";
   if (normalized === "all") return "all";
   return normalized;
@@ -486,6 +499,7 @@ function sectorLabel(value) {
   if (normalized === "producao") return "Produção";
   if (normalized === "calderaria") return "Calderaria";
   if (normalized === "solda") return "Solda";
+  if (normalized === "pcp") return "PCP";
   if (normalized === "projetos") return "Projetos";
   if (normalized === "all") return "Todos";
   return value || "—";
@@ -856,6 +870,96 @@ function projectDisplayWithClient(project) {
   const projectName = String(project?.projectDisplay || '').trim();
   const clientName = String(project?.client || '').trim();
   return clientName ? `${projectName} - ${clientName}` : (projectName || '—');
+}
+
+function getProjectSignalMatchKey(project) {
+  return normalizeText(project?.projectNumber || project?.projectDisplay || '').trim();
+}
+
+function getProjectSignals(project) {
+  const projectKey = getProjectSignalMatchKey(project);
+  if (!projectKey) return [];
+  const source = Array.isArray(state.projectSignals) && state.projectSignals.length ? state.projectSignals : (Array.isArray(state.manualAlerts) ? state.manualAlerts : []);
+  return source
+    .filter((alert) => {
+      const titleKey = normalizeText(alert?.title || '').trim();
+      const messageKey = normalizeText(alert?.message || '').trim();
+      return titleKey.includes(projectKey) || messageKey.includes(projectKey);
+    })
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+}
+
+function getSignalResolutionInfo(alertId) {
+  const responses = getAlertResponsesForAlert(alertId);
+  const resolved = [...responses]
+    .filter((item) => String(item?.status || '').toLowerCase() === 'resolvida')
+    .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime())[0];
+  if (!resolved) return null;
+  return {
+    username: resolved.username || resolved.userEmail || 'Usuário',
+    date: resolved.updatedAt || resolved.createdAt || null,
+    note: resolved.responseText || '',
+  };
+}
+
+function getSignalStatusBadge(alert) {
+  const resolved = getSignalResolutionInfo(alert?.id);
+  return resolved
+    ? '<span class="manual-alert-tag manual-alert-tag--resolved">Resolvida</span>'
+    : '<span class="manual-alert-tag manual-alert-tag--pending">Pendente</span>';
+}
+
+function canCreateProjectSignal(user = state.user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  return normalizeSectorValue(user.sector) === 'projetos' || userHasProjectsScope(user);
+}
+
+function canResolveSignal(user = state.user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  return normalizeSectorValue(user.sector) === 'pcp' || getUserAlertSectors(user).includes('pcp');
+}
+
+function renderProjectSignals(project) {
+  const signals = getProjectSignals(project);
+  const actionButton = canCreateProjectSignal()
+    ? `<button class="primary-button" type="button" data-open-project-signal="${escapeHtml(project.rowId)}">Nova sinalização ao PCP</button>`
+    : '';
+  const itemsHtml = signals.length
+    ? signals.map((alert) => {
+        const resolved = getSignalResolutionInfo(alert.id);
+        return `
+          <article class="project-signal-item">
+            <div class="admin-list-item-meta">
+              ${getSignalStatusBadge(alert)}
+              <span>${escapeHtml(new Date(alert.createdAt).toLocaleString('pt-BR'))}</span>
+              <span>Aberta por: ${escapeHtml(alert.createdBy || 'Usuário')}</span>
+            </div>
+            <strong>${escapeHtml(alert.title || 'Sinalização')}</strong>
+            <p>${escapeHtml(alert.message || '').replace(/\n/g, '<br>')}</p>
+            <div class="manual-alert-actions">
+              ${resolved
+                ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
+                : `${canResolveSignal() ? `<button class="ghost-button" type="button" data-resolve-signal="${escapeHtml(alert.id)}">Marcar como resolvida</button>` : ''}`}
+            </div>
+            ${resolved && resolved.note ? `<div class="response-thread"><div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(resolved.note)}</p></div></div>` : ''}
+          </article>
+        `;
+      }).join('')
+    : '<div class="empty-inline">Nenhuma sinalização registrada para esta BSP.</div>';
+  return `
+    <section class="project-signals-section">
+      <div class="project-signals-head">
+        <div>
+          <span class="manual-alert-tag">Sinalizações</span>
+          <strong>Sinalizações do projeto</strong>
+        </div>
+        ${actionButton}
+      </div>
+      <div class="project-signals-list">${itemsHtml}</div>
+    </section>
+  `;
 }
 
 function uiStateLabel(stateValue) {
@@ -1544,6 +1648,8 @@ function renderModal(project) {
       ${milestoneList || '<div class="empty-inline">Nenhum marco de data disponível.</div>'}
     </section>
 
+    ${renderProjectSignals(project)}
+
     <section class="modal-table-wrap">
       <table class="modal-table">
         <thead>
@@ -1821,6 +1927,14 @@ async function loadProjects() {
       throw new Error("Falha ao atualizar dados da planilha.");
     }
 
+    if (response.status === 401) {
+      state.user = null;
+      updateSessionUi();
+      resetDashboardForLoggedOutState();
+      openLoginModal(data?.error || "Faça login para visualizar o painel.");
+      return;
+    }
+
     if (!response.ok || !data.ok) {
       throw new Error(data?.error || "Falha ao carregar projetos.");
     }
@@ -1874,6 +1988,7 @@ function startPolling() {
     await loadProjects();
     if (state.user) {
       await loadManualAlerts();
+      await loadAlertResponses();
     }
   }, DEFAULT_POLL_MS);
 }
@@ -1972,6 +2087,17 @@ function bindEvents() {
   modalEl.addEventListener("click", (event) => {
     if (event.target.matches("[data-close-modal='true']")) {
       closeProjectModal();
+      return;
+    }
+    const signalButton = event.target.closest('[data-open-project-signal]');
+    if (signalButton) {
+      const project = state.projects.find((item) => String(item.rowId) === String(signalButton.dataset.openProjectSignal));
+      if (project) openProjectSignalModal(project);
+      return;
+    }
+    const resolveButton = event.target.closest('[data-resolve-signal]');
+    if (resolveButton) {
+      resolveSignal(resolveButton.dataset.resolveSignal);
     }
   });
 
@@ -2059,10 +2185,6 @@ if (openLoginButtonEl) {
   openLoginButtonEl.addEventListener("click", () => {
     openLoginModal();
   });
-}
-
-if (loginGuestCloseEl) {
-  loginGuestCloseEl.addEventListener("click", closeLoginModal);
 }
 
 if (loginCloseEl) {
@@ -2158,6 +2280,11 @@ if (sectorAlertsModalEl) {
     const replyButton = event.target.closest("[data-reply-alert]");
     if (replyButton) {
       openAlertResponseModal(replyButton.dataset.replyAlert);
+      return;
+    }
+    const resolveButton = event.target.closest('[data-resolve-signal]');
+    if (resolveButton) {
+      resolveSignal(resolveButton.dataset.resolveSignal);
     }
   });
 }
@@ -2180,6 +2307,26 @@ if (alertResponseModalEl) {
 
 if (alertResponseFormEl) {
   alertResponseFormEl.addEventListener("submit", handleAlertResponseSubmit);
+}
+
+if (projectSignalCloseEl) {
+  projectSignalCloseEl.addEventListener('click', closeProjectSignalModal);
+}
+
+if (projectSignalCancelEl) {
+  projectSignalCancelEl.addEventListener('click', closeProjectSignalModal);
+}
+
+if (projectSignalModalEl) {
+  projectSignalModalEl.addEventListener('click', (event) => {
+    if (event.target.matches('[data-close-project-signal="true"]')) {
+      closeProjectSignalModal();
+    }
+  });
+}
+
+if (projectSignalFormEl) {
+  projectSignalFormEl.addEventListener('submit', handleProjectSignalSubmit);
 }
 
 if (openAdminPanelEl) {
@@ -2294,6 +2441,7 @@ if (adminUsersListEl) {
 
 function closeLoginModal() {
   if (!loginModalEl) return;
+  if (!state.user) return;
   loginModalEl.classList.add("hidden");
   loginModalEl.setAttribute("aria-hidden", "true");
   if (
@@ -2308,7 +2456,7 @@ function closeLoginModal() {
 
 function openLoginModal(message = "") {
   if (!loginModalEl) return;
-  if (loginFeedbackEl) loginFeedbackEl.textContent = message || "Acesse com seu usuário setorial ou admin.";
+  if (loginFeedbackEl) loginFeedbackEl.textContent = message || "Faça login para acessar o painel operacional.";
   loginModalEl.classList.remove("hidden");
   loginModalEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("modal-open");
@@ -2348,11 +2496,11 @@ function updateSessionUi() {
   const user = state.user;
   if (!user) {
     state.projectView = 'all';
-    sessionUserNameEl.textContent = "Visualização geral";
-    sessionUserMetaEl.textContent = "Sem login, você vê todas as informações. Entre apenas para alertas e direcionamento por setor.";
+    sessionUserNameEl.textContent = "Acesso bloqueado";
+    sessionUserMetaEl.textContent = "Faça login para visualizar os projetos, indicadores e detalhes do painel.";
     updatePrimaryUserActionUi();
     renderProjectViewTabs();
-    sessionStatusEl.textContent = "visitante";
+    sessionStatusEl.textContent = "bloqueado";
     logoutButtonEl.classList.add("hidden");
     openAdminPanelEl.classList.add("hidden");
     if (openLoginButtonEl) openLoginButtonEl.classList.remove("hidden");
@@ -2381,6 +2529,23 @@ function updateSessionUi() {
   }
 }
 
+function resetDashboardForLoggedOutState() {
+  state.projects = [];
+  state.filteredProjects = [];
+  state.stats = null;
+  state.meta = null;
+  state.alerts = [];
+  state.selectedProjectId = null;
+  if (bodyEl) bodyEl.innerHTML = `<tr><td colspan="17" class="loading-cell">Faça login para visualizar os projetos.</td></tr>`;
+  if (detailCardEl) detailCardEl.innerHTML = `<div class="detail-placeholder">Painel protegido. Entre com seu usuário e senha para visualizar as informações.</div>`;
+  if (searchCountEl) searchCountEl.textContent = '0 resultado(s)';
+  if (sheetNameEl) sheetNameEl.textContent = 'Acesso restrito';
+  if (lastSyncEl) lastSyncEl.textContent = 'Faça login para carregar os dados.';
+  if (alertBadgeCountEl) alertBadgeCountEl.textContent = '0';
+  renderProjectViewTabs();
+  renderStats();
+}
+
 async function bootstrapSession() {
   try {
     const response = await fetch("/api/auth-me", { credentials: "same-origin", cache: "no-store" });
@@ -2388,6 +2553,8 @@ async function bootstrapSession() {
     if (!data?.authenticated) {
       state.user = null;
       updateSessionUi();
+      resetDashboardForLoggedOutState();
+      openLoginModal("Faça login para visualizar o painel.");
       return false;
     }
     state.user = data.user;
@@ -2399,6 +2566,8 @@ async function bootstrapSession() {
   } catch {
     state.user = null;
     updateSessionUi();
+    resetDashboardForLoggedOutState();
+    openLoginModal("Faça login para visualizar o painel.");
     return false;
   }
 }
@@ -2452,30 +2621,26 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
           <span>${manualAlerts.length} alerta(s)</span>
         </div>
         <div class="manual-alert-section-list">
-          ${manualAlerts.map((alert) => `
+          ${manualAlerts.map((alert) => {
+            const resolved = getSignalResolutionInfo(alert.id);
+            return `
             <article class="manual-alert-item manual-alert-item--operational">
               <div class="admin-list-item-meta">
-                <span class="manual-alert-tag manual-alert-tag--${escapeHtml(alert.priority || "normal")}">${escapeHtml(priorityLabel(alert.priority))}</span>
+                ${getSignalStatusBadge(alert)}
                 <span class="manual-alert-tag">${escapeHtml(sectorLabel(alert.sector))}</span>
                 <span>${escapeHtml(new Date(alert.createdAt).toLocaleString("pt-BR"))}</span>
-                <span>${alert.acknowledged ? "Lido" : "Pendente de leitura"}</span>
-                ${alert.acknowledged && alert.expiresAt ? `<span class="manual-alert-note">Após a leitura, este alerta fica disponível por até 24h.</span>` : ""}
+                <span>Aberta por: ${escapeHtml(alert.createdBy || 'Usuário')}</span>
               </div>
-              <strong>${escapeHtml(alert.title || "Alerta Operacional")}</strong>
-              <p>${escapeHtml(alert.message || "")}</p>
+              <strong>${escapeHtml(alert.title || "Sinalização")}</strong>
+              <p>${escapeHtml(alert.message || "").replace(/\n/g, '<br>')}</p>
               <div class="manual-alert-actions">
-                ${alert.requiresAck && !alert.acknowledged
-                  ? `<button class="primary-button" type="button" data-ack-alert="${escapeHtml(alert.id)}">Marcar como lido</button>`
-                  : `<span class="manual-alert-tag">${alert.acknowledged ? "Confirmado" : "Informativo"}</span>`}
-                ${state.user?.role !== 'admin' ? `<button class="ghost-button" type="button" data-reply-alert="${escapeHtml(alert.id)}">Responder</button>` : ''}
+                ${resolved
+                  ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
+                  : `${canResolveSignal() ? `<button class="primary-button" type="button" data-resolve-signal="${escapeHtml(alert.id)}">Marcar como resolvida</button>` : ''}`}
               </div>
-              ${(() => {
-                const responses = getAlertResponsesForAlert(alert.id);
-                if (!responses.length) return '';
-                return `<div class="response-thread">${responses.map((response) => `<div class="response-bubble"><div class="admin-list-item-meta"><span>${escapeHtml(response.username || response.userEmail || 'Você')}</span><span>${escapeHtml(response.createdAt ? new Date(response.createdAt).toLocaleString('pt-BR') : '')}</span></div><p>${escapeHtml(response.responseText || '')}</p>${response.adminReply ? `<div class="response-bubble response-bubble--admin"><strong>Admin</strong><p>${escapeHtml(response.adminReply)}</p></div>` : ''}</div>`).join('')}</div>`;
-              })()}
+              ${resolved && resolved.note ? `<div class="response-thread"><div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(resolved.note)}</p></div></div>` : ''}
             </article>
-          `).join("")}
+          `;}).join("")}
         </div>
       </section>
     `
@@ -2552,6 +2717,7 @@ async function loadManualAlerts() {
     }
     state.githubSyncEnabled = Boolean(data.githubSyncEnabled ?? state.githubSyncEnabled);
     state.manualAlerts = data.alerts || [];
+    state.projectSignals = data.projectSignals || [];
     updateSessionUi();
     renderManualAlerts();
     detectNewUserAlerts();
@@ -2561,6 +2727,7 @@ async function loadManualAlerts() {
     }
   } catch (error) {
     state.manualAlerts = [];
+    state.projectSignals = [];
     if (sectorAlertsContentEl) {
       sectorAlertsContentEl.innerHTML = `<div class="detail-placeholder">${escapeHtml(error?.message || "Falha ao carregar alertas operacionais.")}</div>`;
     } else {
@@ -2602,6 +2769,7 @@ function getAdminReplyStatusLabel(status) {
   const value = String(status || '').toLowerCase();
   if (value === 'respondido') return 'Respondido pelo admin';
   if (value === 'lido') return 'Lido';
+  if (value === 'resolvida') return 'Resolvida';
   return 'Aguardando retorno';
 }
 
@@ -2670,6 +2838,102 @@ function closeAlertResponseModal() {
   }
 }
 
+function openProjectSignalModal(project) {
+  if (!projectSignalModalEl || !project) return;
+  state.selectedProjectForSignal = project;
+  if (projectSignalProjectIdEl) projectSignalProjectIdEl.value = String(project.rowId || '');
+  if (projectSignalHeadingEl) projectSignalHeadingEl.textContent = `Nova sinalização • ${project.projectDisplay || project.projectNumber || 'Projeto'}`;
+  if (projectSignalSubtitleEl) projectSignalSubtitleEl.textContent = 'A informação será enviada ao PCP para análise e fechamento.';
+  if (projectSignalTitleEl) projectSignalTitleEl.value = '';
+  if (projectSignalDescriptionEl) projectSignalDescriptionEl.value = '';
+  if (projectSignalFeedbackEl) projectSignalFeedbackEl.textContent = '';
+  projectSignalModalEl.classList.remove('hidden');
+  projectSignalModalEl.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('modal-open');
+  window.setTimeout(() => projectSignalTitleEl?.focus(), 40);
+}
+
+function closeProjectSignalModal() {
+  if (!projectSignalModalEl) return;
+  projectSignalModalEl.classList.add('hidden');
+  projectSignalModalEl.setAttribute('aria-hidden', 'true');
+  state.selectedProjectForSignal = null;
+  if (
+    modalEl.classList.contains('hidden') &&
+    alertModalEl.classList.contains('hidden') &&
+    sectorAlertsModalEl.classList.contains('hidden') &&
+    adminModalEl.classList.contains('hidden') &&
+    loginModalEl.classList.contains('hidden')
+  ) {
+    document.body.classList.remove('modal-open');
+  }
+}
+
+async function handleProjectSignalSubmit(event) {
+  event.preventDefault();
+  if (!projectSignalFeedbackEl) return;
+  const projectId = String(projectSignalProjectIdEl?.value || '').trim();
+  const project = state.projects.find((item) => String(item.rowId) === projectId);
+  const title = String(projectSignalTitleEl?.value || '').trim();
+  const description = String(projectSignalDescriptionEl?.value || '').trim();
+  if (!project || !title || !description) {
+    projectSignalFeedbackEl.textContent = 'Preencha título e descrição da sinalização.';
+    return;
+  }
+  projectSignalFeedbackEl.textContent = 'Enviando sinalização ao PCP...';
+  const projectRef = project.projectNumber || project.projectDisplay || `Projeto ${project.rowId}`;
+  const payload = {
+    sector: 'pcp',
+    title: `${projectRef} • ${title}`,
+    message: `Projeto: ${projectDisplayWithClient(project)}
+Informado por: ${state.user?.name || state.user?.username || 'Usuário'}
+
+${description}`,
+    priority: 'normal',
+    requiresAck: false,
+  };
+  try {
+    const response = await fetch('/api/sector-alerts', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao criar sinalização.');
+    projectSignalFeedbackEl.textContent = 'Sinalização enviada ao PCP.';
+    await loadManualAlerts();
+    await loadAlertResponses();
+    if (state.selectedProjectId && String(state.selectedProjectId) === projectId) {
+      renderModal(project);
+    }
+    window.setTimeout(closeProjectSignalModal, 500);
+  } catch (error) {
+    projectSignalFeedbackEl.textContent = error.message || 'Falha ao criar sinalização.';
+  }
+}
+
+async function resolveSignal(alertId) {
+  if (!alertId) return;
+  const note = window.prompt('Adicionar observação de fechamento? (opcional)', '');
+  try {
+    const response = await fetch('/api/alert-responses', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alertId, responseText: String(note || '').trim(), status: 'resolvida' }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao marcar sinalização como resolvida.');
+    await loadAlertResponses();
+    await loadManualAlerts();
+    const currentProject = state.projects.find((item) => item.rowId === state.selectedProjectId);
+    if (currentProject && !modalEl.classList.contains('hidden')) renderModal(currentProject);
+  } catch (error) {
+    window.alert(error.message || 'Falha ao marcar sinalização como resolvida.');
+  }
+}
+
 async function handleAlertResponseSubmit(event) {
   event.preventDefault();
   if (!alertResponseFeedbackEl) return;
@@ -2699,21 +2963,23 @@ async function handleAlertResponseSubmit(event) {
 }
 
 async function loadAlertResponses() {
-  if (state.user?.role !== 'admin') {
+  if (!state.user) {
     state.alertResponses = [];
     return;
   }
   try {
     const response = await fetch('/api/alert-responses', { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => null);
-    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao carregar respostas dos alertas.');
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao carregar respostas das sinalizações.');
     state.alertResponses = Array.isArray(data.responses) ? data.responses : [];
-    renderAdminAlertResponses();
-    renderAdminAlertsList();
+    if (state.user?.role === 'admin') {
+      renderAdminAlertResponses();
+      renderAdminAlertsList();
+    }
   } catch (error) {
     state.alertResponses = [];
-    if (adminAlertResponsesListEl) {
-      adminAlertResponsesListEl.innerHTML = `<div class="empty-state">${escapeHtml(error.message || 'Falha ao carregar respostas dos alertas.')}</div>`;
+    if (state.user?.role === 'admin' && adminAlertResponsesListEl) {
+      adminAlertResponsesListEl.innerHTML = `<div class="empty-state">${escapeHtml(error.message || 'Falha ao carregar respostas das sinalizações.')}</div>`;
     }
   }
 }
@@ -3019,6 +3285,7 @@ async function handleLoginSubmit(event) {
     await bootstrapSession();
     await loadProjects();
     await loadManualAlerts();
+    await loadAlertResponses();
     if (state.user?.role === "admin") {
       await loadAdminData();
     }
@@ -3032,10 +3299,12 @@ async function handleLogout() {
   await fetch("/api/auth-logout", { credentials: "same-origin" });
   state.user = null;
   state.manualAlerts = [];
+  state.projectSignals = [];
   state.alertResponses = [];
   window.clearInterval(state.pollTimer);
   updateSessionUi();
-  closeLoginModal();
+  resetDashboardForLoggedOutState();
+  openLoginModal("Sessão encerrada. Faça login novamente para acessar o painel.");
 }
 
 
@@ -3163,15 +3432,16 @@ async function init() {
   setupAdminPasswordToggle();
   resetAdminUserForm();
   const authenticated = await bootstrapSession();
-  await loadProjects();
   if (authenticated) {
+    await loadProjects();
     await syncPushSubscription(false).catch(() => {});
     await loadManualAlerts();
+    await loadAlertResponses();
     if (state.user?.role === "admin") {
       await loadAdminData();
     }
+    startPolling();
   }
-  startPolling();
 }
 
 init();

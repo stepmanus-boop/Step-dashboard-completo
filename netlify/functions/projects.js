@@ -1,3 +1,4 @@
+const { jsonResponse, requireSession } = require('./_auth');
 const API_BASE = process.env.SMARTSHEET_API_BASE || "https://api.smartsheet.com/2.0";
 const SHEET_NAME = process.env.SMARTSHEET_SHEET_NAME || "Progress Tracking Sheet - Piping Fabrication";
 const SHEET_ID_ENV = process.env.SMARTSHEET_SHEET_ID || "";
@@ -40,18 +41,6 @@ const STAGE_ORDER = [
   { key: "Project Finish Date", label: "Project Finish Date", type: "date" },
   { key: "Project Finished?", label: "Project Finished?", type: "boolean" },
 ];
-
-function jsonResponse(statusCode, data) {
-  return {
-    statusCode,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
-      "access-control-allow-origin": "*",
-    },
-    body: JSON.stringify(data),
-  };
-}
 
 function getCellValue(row, key) {
   return row.values[key] || { raw: null, display: null };
@@ -1097,7 +1086,12 @@ async function buildPayload() {
   return payload;
 }
 
-exports.handler = async () => {
+exports.handler = async (event) => {
+  const auth = requireSession(event);
+  if (!auth.ok) {
+    return jsonResponse(401, { ok: false, error: 'Faça login para visualizar o painel.' });
+  }
+
   try {
     const payload = await buildPayload();
     return jsonResponse(200, payload);

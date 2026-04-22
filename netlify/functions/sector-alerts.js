@@ -7,7 +7,8 @@ function alertVisibleToUser(alert, session) {
   if (session.role === 'admin') return true;
   const allowedSectors = normalizeSectorList(session.sector, session.alertSectors);
   const alertSector = normalizeSectorValue(alert.sector);
-  return alertSector === 'all' || allowedSectors.includes(alertSector);
+  const isCreator = String(alert.createdBy || '').trim().toLowerCase() === String(session.username || '').trim().toLowerCase();
+  return isCreator || alertSector === 'all' || allowedSectors.includes(alertSector);
 }
 
 
@@ -126,7 +127,11 @@ exports.handler = async (event) => {
       .filter((alert) => effectiveSession.role === 'admin' || !alert.expiredForUser)
       .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
-    return jsonResponse(200, { ok: true, githubSyncEnabled: true, alerts: visible, userSector: effectiveSession.sector, userAlertSectors: effectiveSession.alertSectors || [] });
+    const projectSignals = alerts
+      .filter((alert) => normalizeSectorValue(alert.sector) === 'pcp')
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+    return jsonResponse(200, { ok: true, githubSyncEnabled: true, alerts: visible, projectSignals, userSector: effectiveSession.sector, userAlertSectors: effectiveSession.alertSectors || [] });
   }
 
   if (event.httpMethod === 'POST') {

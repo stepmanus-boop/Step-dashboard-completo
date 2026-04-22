@@ -32,8 +32,8 @@
               <span class="session-kicker">Acesso</span>
               <span class="session-status" id="session-status">offline</span>
             </div>
-            <strong id="session-user-name">Não autenticado</strong>
-            <span id="session-user-meta" class="session-user-meta">Visualização livre ativa. Faça login para liberar alertas por setor e administração.</span>
+            <strong id="session-user-name">Acesso bloqueado</strong>
+            <span id="session-user-meta" class="session-user-meta">Faça login para liberar o painel, os alertas por setor e a administração.</span>
             <div class="session-actions">
               <button id="install-app-button" class="ghost-button ghost-button--compact hidden" type="button">Instalar app</button>
               <button id="open-login-button" class="ghost-button ghost-button--compact" type="button">Login</button>
@@ -270,7 +270,7 @@
             </label>
             <div class="stack-actions login-actions">
               <button class="primary-button" type="submit">Entrar</button>
-              <button id="login-guest-close" class="ghost-button" type="button">Continuar sem login</button>
+              
             </div>
             <p id="login-feedback" class="inline-feedback login-feedback">Acesse com seu usuário setorial ou admin.</p>
           </form>
@@ -358,6 +358,7 @@
                 <option value="producao">Produção</option>
                 <option value="calderaria">Calderaria</option>
                 <option value="solda">Solda</option>
+                <option value="pcp">PCP</option>
                 <option value="projetos">Projetos</option>
               </select>
             </label>
@@ -371,6 +372,7 @@
               <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="producao" /> Produção</label>
               <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="calderaria" /> Calderaria</label>
               <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="solda" /> Solda</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="pcp" /> PCP</label>
               <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="projetos" /> Projetos</label>
             </div>
           </label>
@@ -410,6 +412,7 @@
                 <option value="producao">Produção</option>
                 <option value="calderaria">Calderaria</option>
                 <option value="solda">Solda</option>
+                <option value="pcp">PCP</option>
               </select>
             </label>
             <label class="stack-field">
@@ -479,6 +482,32 @@
           <button id="alert-response-cancel" class="ghost-button" type="button">Cancelar</button>
         </div>
         <p id="alert-response-feedback" class="inline-feedback"></p>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div id="project-signal-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-backdrop" data-close-project-signal="true"></div>
+  <div class="modal-dialog glass-card response-modal-dialog">
+    <div class="modal-head">
+      <div>
+        <p class="modal-eyebrow">Sinalização ao PCP</p>
+        <h3 id="project-signal-heading">Nova sinalização</h3>
+        <p id="project-signal-subtitle" class="modal-subtitle">A informação será enviada ao PCP.</p>
+      </div>
+      <button id="project-signal-close" class="modal-close" type="button" aria-label="Fechar">×</button>
+    </div>
+    <div class="modal-content">
+      <form id="project-signal-form" class="stack-form">
+        <input id="project-signal-project-id" type="hidden" />
+        <label class="stack-field"><span>Título</span><input id="project-signal-title" type="text" placeholder="Ex.: Projeto já enviado" /></label>
+        <label class="stack-field"><span>Descrição</span><textarea id="project-signal-description" rows="5" placeholder="Descreva a sinalização para o PCP."></textarea></label>
+        <div class="stack-actions">
+          <button class="primary-button" type="submit">Enviar ao PCP</button>
+          <button id="project-signal-cancel" class="ghost-button" type="button">Cancelar</button>
+        </div>
+        <p id="project-signal-feedback" class="inline-feedback"></p>
       </form>
     </div>
   </div>

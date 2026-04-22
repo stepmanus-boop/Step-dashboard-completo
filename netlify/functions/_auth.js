@@ -134,6 +134,7 @@ function normalizeSectorValue(value) {
   if (['producao', 'produção', 'production'].includes(normalized)) return 'producao';
   if (['calderaria', 'boilermaker', 'fabrication'].includes(normalized)) return 'calderaria';
   if (['solda', 'welding'].includes(normalized)) return 'solda';
+  if (['pcp', 'planejamento', 'planejamento_controle_producao', 'planning', 'planning_control'].includes(normalized)) return 'pcp';
   if (['projetos', 'projeto', 'project', 'projects', 'pm'].includes(normalized)) return 'projetos';
   if (normalized == 'all') return 'all';
   return normalized;
