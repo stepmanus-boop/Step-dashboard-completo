@@ -36,6 +36,7 @@ const state = {
   sectorAlertsMode: 'default',
   stageUpdates: [],
   stageUpdatesSearchQuery: '',
+  stageSubmissionLocks: {},
 };
 
 const bodyEl = document.getElementById("projects-body");
@@ -125,6 +126,9 @@ const stageUpdatesContentEl = document.getElementById('stage-updates-content');
 const installAppButtonEl = document.getElementById("install-app-button");
 const connectionStatusEl = document.getElementById("connection-status");
 let deferredInstallPrompt = null;
+
+loadStageSubmissionLocks();
+setInterval(() => pruneExpiredStageSubmissionLocks(true), 1000);
 
 
 function setAdminActiveTab(tab) {
@@ -1101,6 +1105,88 @@ function formatStageDate(value) {
   if (!Number.isNaN(date.getTime())) return date.toLocaleString('pt-BR');
   return escapeHtml(String(value));
 }
+
+const STAGE_SUBMISSION_LOCK_MS = 60 * 1000;
+const STAGE_SUBMISSION_LOCK_STORAGE_KEY = 'step_stage_submission_locks_v1';
+
+function getStageSubmissionKey(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
+  return [normalizeSectorValue(sector), String(projectRowId || '').trim(), String(spoolIso || '').trim().toLowerCase()].join('::');
+}
+
+function loadStageSubmissionLocks() {
+  try {
+    const raw = window.localStorage.getItem(STAGE_SUBMISSION_LOCK_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    state.stageSubmissionLocks = parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) {
+    state.stageSubmissionLocks = {};
+  }
+  pruneExpiredStageSubmissionLocks(false);
+}
+
+function persistStageSubmissionLocks() {
+  try {
+    window.localStorage.setItem(STAGE_SUBMISSION_LOCK_STORAGE_KEY, JSON.stringify(state.stageSubmissionLocks || {}));
+  } catch (_) {}
+}
+
+function pruneExpiredStageSubmissionLocks(shouldRender = true) {
+  const now = Date.now();
+  const entries = state.stageSubmissionLocks && typeof state.stageSubmissionLocks === 'object' ? state.stageSubmissionLocks : {};
+  let changed = false;
+  Object.keys(entries).forEach((key) => {
+    const item = entries[key] || {};
+    const resendAt = Number(item.resendAt || 0);
+    if (item.status !== 'sending' && resendAt && resendAt <= now) {
+      delete entries[key];
+      changed = true;
+    }
+  });
+  if (changed) {
+    persistStageSubmissionLocks();
+    if (shouldRender && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
+      renderStageUpdatesModal();
+    }
+  }
+}
+
+function setStageSubmissionLock(projectRowId, spoolIso, payload = {}) {
+  const key = getStageSubmissionKey(projectRowId, spoolIso, payload.sector);
+  state.stageSubmissionLocks[key] = {
+    status: payload.status || 'sent',
+    resendAt: Number(payload.resendAt || 0),
+    updatedAt: Date.now(),
+  };
+  persistStageSubmissionLocks();
+}
+
+function clearStageSubmissionLock(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
+  const key = getStageSubmissionKey(projectRowId, spoolIso, sector);
+  if (state.stageSubmissionLocks && state.stageSubmissionLocks[key]) {
+    delete state.stageSubmissionLocks[key];
+    persistStageSubmissionLocks();
+  }
+}
+
+function getStageSubmissionLock(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
+  pruneExpiredStageSubmissionLocks(false);
+  const key = getStageSubmissionKey(projectRowId, spoolIso, sector);
+  const item = state.stageSubmissionLocks && state.stageSubmissionLocks[key] ? state.stageSubmissionLocks[key] : null;
+  if (!item) return null;
+  if (item.status !== 'sending' && item.resendAt && Number(item.resendAt) <= Date.now()) {
+    clearStageSubmissionLock(projectRowId, spoolIso, sector);
+    return null;
+  }
+  return item;
+}
+
+function formatStageSubmissionCountdown(msRemaining) {
+  const totalSeconds = Math.max(0, Math.ceil(Number(msRemaining || 0) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
 
 function renderProjectSignals(project) {
   const signals = getProjectSignals(project);
@@ -3794,20 +3880,26 @@ function renderStageSectorWorkspace() {
                       ${spools.map((spool) => {
                         const pending = getPendingStageUpdate(project.rowId || project.rowNumber, spool.iso, sector);
                         const lastResolved = getLatestResolvedStageUpdate(project.rowId || project.rowNumber, spool.iso, sector);
+                        const submissionLock = getStageSubmissionLock(project.rowId || project.rowNumber, spool.iso, sector);
+                        const submissionStatusHtml = submissionLock
+                          ? (submissionLock.status === 'sending'
+                              ? `<button class="primary-button" type="button" disabled>Enviando...</button>`
+                              : `<div class="stage-submit-status"><button class="primary-button" type="button" disabled>Enviado</button><div class="stage-muted">Novo envio liberado em ${escapeHtml(formatStageSubmissionCountdown(Number(submissionLock.resendAt || 0) - Date.now()))}</div></div>`)
+                          : (pending
+                              ? `<span class="stage-badge stage-badge--pending">Aguardando PCP</span>`
+                              : `<button class="primary-button" type="button" data-stage-submit="true">Enviar</button>`);
                         return `
                           <tr>
                             <td>${escapeHtml(spool.iso || '—')}</td>
                             <td>${escapeHtml(spool.description || '—')}</td>
                             <td colspan="4">
                               <div data-stage-update-form="true" data-project-row-id="${escapeHtml(String(project.rowId || project.rowNumber || ''))}" data-project-number="${escapeHtml(project.projectNumber || '')}" data-spool-iso="${escapeHtml(spool.iso || '')}" class="stage-row-form stage-row-form--inline">
-                                <select name="progress" data-stage-progress="true">
+                                <select name="progress" data-stage-progress="true" ${submissionLock ? 'disabled' : ''}>
                                   ${STAGE_PROGRESS_OPTIONS.map((value) => `<option value="${value}">${value}%</option>`).join('')}
                                 </select>
-                                <input type="date" name="completionDate" value="" />
-                                <textarea name="note" rows="2" placeholder="Observação opcional"></textarea>
-                                ${pending
-                                  ? `<span class="stage-badge stage-badge--pending">Aguardando PCP</span>`
-                                  : `<button class="primary-button" type="button" data-stage-submit="true">Enviar</button>`}
+                                <input type="date" name="completionDate" value="" ${submissionLock ? 'disabled' : ''} />
+                                <textarea name="note" rows="2" placeholder="Observação opcional" ${submissionLock ? 'disabled' : ''}></textarea>
+                                ${submissionStatusHtml}
                                 ${lastResolved ? `<div class="stage-muted">Último concluído: ${escapeHtml(formatStageDate(lastResolved.resolvedAt))}</div>` : ''}
                               </div>
                             </td>
@@ -3957,6 +4049,11 @@ function closeStageUpdatesModal() {
 async function handleStageWorkspaceSubmit(formEl) {
   const projectRowId = String(formEl?.dataset?.projectRowId || '').trim();
   const spoolIso = String(formEl?.dataset?.spoolIso || '').trim();
+  const sector = getStageWorkspaceSector();
+  const existingLock = getStageSubmissionLock(projectRowId, spoolIso, sector);
+  if (existingLock) {
+    return;
+  }
   const progress = String(formEl?.querySelector('[name="progress"]')?.value || '').trim();
   const completionDate = String(formEl?.querySelector('[name="completionDate"]')?.value || '').trim();
   const note = String(formEl?.querySelector('[name="note"]')?.value || '').trim();
@@ -3964,6 +4061,8 @@ async function handleStageWorkspaceSubmit(formEl) {
     window.alert('Preencha o avanço do spool antes de enviar.');
     return;
   }
+  setStageSubmissionLock(projectRowId, spoolIso, { status: 'sending', sector });
+  renderStageUpdatesModal();
   try {
     const response = await fetch('/api/stage-updates', {
       method: 'POST',
@@ -3973,9 +4072,12 @@ async function handleStageWorkspaceSubmit(formEl) {
     });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao enviar apontamento.');
+    setStageSubmissionLock(projectRowId, spoolIso, { status: 'sent', resendAt: Date.now() + STAGE_SUBMISSION_LOCK_MS, sector });
     await loadStageUpdates();
     renderStageUpdatesModal();
   } catch (error) {
+    clearStageSubmissionLock(projectRowId, spoolIso, sector);
+    renderStageUpdatesModal();
     window.alert(error.message || 'Falha ao enviar apontamento.');
   }
 }
