@@ -33,6 +33,7 @@ const state = {
   pushSupported: false,
   pushSubscribed: false,
   selectedProjectForSignal: null,
+  sectorAlertsMode: 'default',
 };
 
 const bodyEl = document.getElementById("projects-body");
@@ -71,6 +72,7 @@ const sessionStatusEl = document.getElementById("session-status");
 const logoutButtonEl = document.getElementById("logout-button");
 const openLoginButtonEl = document.getElementById("open-login-button");
 const openSectorAlertsEl = document.getElementById("open-sector-alerts");
+const openProjectSignalsEl = document.getElementById("open-project-signals");
 const sectorAlertsModalEl = document.getElementById("sector-alerts-modal");
 const sectorAlertsCloseEl = document.getElementById("sector-alerts-close");
 const sectorAlertsContentEl = document.getElementById("sector-alerts-content");
@@ -921,6 +923,29 @@ function canResolveSignal(user = state.user) {
   return normalizeSectorValue(user.sector) === 'pcp' || getUserAlertSectors(user).includes('pcp');
 }
 
+function isProjectUserSignal(alert) {
+  if (!alert) return false;
+  const sector = normalizeSectorValue(alert?.sector);
+  const message = normalizeText(alert?.message || '').trim();
+  if (sector !== 'pcp') return false;
+  return message.includes('projeto') && message.includes('informado por');
+}
+
+function getProjectUserSignals(source = null) {
+  const list = Array.isArray(source)
+    ? source
+    : (Array.isArray(state.projectSignals) && state.projectSignals.length ? state.projectSignals : (Array.isArray(state.manualAlerts) ? state.manualAlerts : []));
+  return list
+    .filter((alert) => isProjectUserSignal(alert))
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+}
+
+function canViewProjectSignals(user = state.user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  return normalizeSectorValue(user.sector) === 'pcp' || getUserAlertSectors(user).includes('pcp');
+}
+
 function renderProjectSignals(project) {
   const signals = getProjectSignals(project);
   const actionButton = canCreateProjectSignal()
@@ -1298,8 +1323,13 @@ function updatePrimaryUserActionUi() {
         : "Visualizar apenas os projetos vinculados ao seu nome na coluna PM")
     : "Visualizar alertas direcionados ao seu setor";
   const titleEl = document.getElementById("sector-alerts-title");
-  if (titleEl) {
+  if (titleEl && state.sectorAlertsMode !== 'project-signals') {
     titleEl.textContent = projectsScope ? "Meus projetos" : "Meus alertas por setor";
+  }
+  if (openProjectSignalsEl) {
+    const canView = canViewProjectSignals();
+    openProjectSignalsEl.classList.toggle('hidden', !canView);
+    openProjectSignalsEl.title = 'Visualizar apenas os alertas enviados pelos usuários de Projetos';
   }
 }
 
@@ -2247,6 +2277,7 @@ if (openSectorAlertsEl) {
       openLoginModal();
       return;
     }
+    state.sectorAlertsMode = 'default';
     if (userHasProjectsScope()) {
       state.projectView = state.projectView === 'mine' ? 'all' : 'mine';
       updatePrimaryUserActionUi();
@@ -2258,6 +2289,19 @@ if (openSectorAlertsEl) {
       if (tableShellEl) tableShellEl.scrollTop = 0;
       return;
     }
+    openSectorAlertsModal();
+  });
+}
+
+if (openProjectSignalsEl) {
+  openProjectSignalsEl.addEventListener('click', () => {
+    if (!state.user) {
+      openLoginModal();
+      return;
+    }
+    state.sectorAlertsMode = 'project-signals';
+    const titleEl = document.getElementById('sector-alerts-title');
+    if (titleEl) titleEl.textContent = 'Alertas enviados por Projetos';
     openSectorAlertsModal();
   });
 }
@@ -2707,6 +2751,55 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
   `;
 }
 
+function renderProjectUserSignals(targetEl = sectorAlertsContentEl) {
+  if (!targetEl) return;
+  if (!state.user) {
+    targetEl.innerHTML = '<div class="detail-placeholder">Faça login para visualizar as sinalizações enviadas por usuários de Projetos.</div>';
+    return;
+  }
+  const signals = getProjectUserSignals();
+  if (!signals.length) {
+    targetEl.innerHTML = '<div class="detail-placeholder">Nenhuma sinalização enviada por usuários de Projetos foi encontrada.</div>';
+    return;
+  }
+  targetEl.innerHTML = `
+    <div class="manual-alert-summary">
+      <span class="manual-alert-tag">Fila do PCP</span>
+      <span class="manual-alert-tag">Origem: Projetos</span>
+      <span class="manual-alert-tag">Total: ${signals.length} sinalização(ões)</span>
+    </div>
+    <section class="manual-alert-section">
+      <div class="admin-list-item-meta">
+        <span class="manual-alert-tag">Alertas enviados por Projetos</span>
+        <span>${signals.length} registro(s)</span>
+      </div>
+      <div class="manual-alert-section-list">
+        ${signals.map((alert) => {
+          const resolved = getSignalResolutionInfo(alert.id);
+          return `
+            <article class="manual-alert-item manual-alert-item--operational">
+              <div class="admin-list-item-meta">
+                ${getSignalStatusBadge(alert)}
+                <span class="manual-alert-tag">PCP</span>
+                <span>${escapeHtml(new Date(alert.createdAt).toLocaleString('pt-BR'))}</span>
+                <span>Aberta por: ${escapeHtml(alert.createdBy || 'Usuário')}</span>
+              </div>
+              <strong>${escapeHtml(alert.title || 'Sinalização')}</strong>
+              TEMP
+              <div class="manual-alert-actions">
+                ${resolved
+                  ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
+                  : `${canResolveSignal() ? `<button class="primary-button" type="button" data-resolve-signal="${escapeHtml(alert.id)}">Marcar como resolvida</button>` : ''}`}
+              </div>
+              ${resolved && resolved.note ? `<div class="response-thread"><div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(resolved.note)}</p></div></div>` : ''}
+            </article>
+          `;
+        }).join('')}
+      </div>
+    </section>
+  `;
+}
+
 async function loadManualAlerts() {
   if (!state.user) return;
   try {
@@ -2739,7 +2832,11 @@ async function loadManualAlerts() {
 
 function openSectorAlertsModal() {
   if (!sectorAlertsModalEl) return;
-  renderManualAlerts();
+  if (state.sectorAlertsMode === 'project-signals') {
+    renderProjectUserSignals();
+  } else {
+    renderManualAlerts();
+  }
   sectorAlertsModalEl.classList.remove("hidden");
   sectorAlertsModalEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("modal-open");
@@ -2747,6 +2844,7 @@ function openSectorAlertsModal() {
 
 function closeSectorAlertsModal() {
   if (!sectorAlertsModalEl) return;
+  state.sectorAlertsMode = 'default';
   sectorAlertsModalEl.classList.add("hidden");
   sectorAlertsModalEl.setAttribute("aria-hidden", "true");
   if (
