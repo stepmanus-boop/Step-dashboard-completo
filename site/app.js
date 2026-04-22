@@ -3922,8 +3922,8 @@ async function acknowledgeManualAlert(alertId) {
 
 async function forceHandleLoginSubmit(event) {
   event.preventDefault();
-  const usernameInput = document.getElementById('username');
-  const passwordInput = document.getElementById('password');
+  const usernameInput = document.getElementById('login-username');
+  const passwordInput = document.getElementById('login-password');
   const feedbackEl = document.getElementById('login-feedback');
   const submitButton = document.getElementById('login-submit');
   const username = String(usernameInput?.value || '').trim();
@@ -3941,7 +3941,7 @@ async function forceHandleLoginSubmit(event) {
   }
 
   try {
-    const response = await fetch('/.netlify/functions/auth-login', {
+    const response = await fetch('/api/auth-login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
@@ -3955,15 +3955,26 @@ async function forceHandleLoginSubmit(event) {
 
     state.user = data.user || null;
     if (typeof closeLoginModal === 'function') closeLoginModal();
-    if (typeof updateSessionUi === 'function') updateSessionUi();
+    if (typeof bootstrapSession === 'function') {
+      await bootstrapSession();
+    }
     if (typeof loadProjects === 'function') {
       await loadProjects();
     }
     if (typeof loadManualAlerts === 'function') {
       await loadManualAlerts();
     }
+    if (typeof loadAlertResponses === 'function') {
+      await loadAlertResponses();
+    }
+    if (typeof loadStageUpdates === 'function') {
+      await loadStageUpdates();
+    }
     if (typeof loadAdminData === 'function' && state.user?.role === 'admin') {
       await loadAdminData();
+    }
+    if (typeof startPolling === 'function') {
+      startPolling();
     }
   } catch (error) {
     if (feedbackEl) feedbackEl.textContent = error.message || 'Falha no login.';
