@@ -3919,73 +3919,6 @@ async function acknowledgeManualAlert(alertId) {
   }
 }
 
-
-async function forceHandleLoginSubmit(event) {
-  event.preventDefault();
-  const usernameInput = document.getElementById('login-username');
-  const passwordInput = document.getElementById('login-password');
-  const feedbackEl = document.getElementById('login-feedback');
-  const submitButton = document.getElementById('login-submit');
-  const username = String(usernameInput?.value || '').trim();
-  const password = String(passwordInput?.value || '').trim();
-
-  if (feedbackEl) feedbackEl.textContent = '';
-  if (!username || !password) {
-    if (feedbackEl) feedbackEl.textContent = 'Informe usuário e senha.';
-    return;
-  }
-
-  if (submitButton) {
-    submitButton.disabled = true;
-    submitButton.textContent = 'Entrando...';
-  }
-
-  try {
-    const response = await fetch('/api/auth-login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      body: JSON.stringify({ username, password }),
-    });
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || data?.ok === false) {
-      throw new Error(data?.error || 'Usuário ou senha inválidos.');
-    }
-
-    state.user = data.user || null;
-    if (typeof closeLoginModal === 'function') closeLoginModal();
-    if (typeof bootstrapSession === 'function') {
-      await bootstrapSession();
-    }
-    if (typeof loadProjects === 'function') {
-      await loadProjects();
-    }
-    if (typeof loadManualAlerts === 'function') {
-      await loadManualAlerts();
-    }
-    if (typeof loadAlertResponses === 'function') {
-      await loadAlertResponses();
-    }
-    if (typeof loadStageUpdates === 'function') {
-      await loadStageUpdates();
-    }
-    if (typeof loadAdminData === 'function' && state.user?.role === 'admin') {
-      await loadAdminData();
-    }
-    if (typeof startPolling === 'function') {
-      startPolling();
-    }
-  } catch (error) {
-    if (feedbackEl) feedbackEl.textContent = error.message || 'Falha no login.';
-  } finally {
-    if (submitButton) {
-      submitButton.disabled = false;
-      submitButton.textContent = 'Entrar';
-    }
-  }
-}
-
 async function init() {
   updateConnectionStatus();
   window.addEventListener("online", updateConnectionStatus);
@@ -4025,3 +3958,13 @@ if (!window.__loginBootPrompted) {
 init();
 
 
+window.openLoginModal = openLoginModal;
+window.closeLoginModal = closeLoginModal;
+
+document.addEventListener('click', (event) => {
+  const loginTrigger = event.target.closest('#open-login-button');
+  if (!loginTrigger) return;
+  event.preventDefault();
+  event.stopPropagation();
+  openLoginModal();
+});
