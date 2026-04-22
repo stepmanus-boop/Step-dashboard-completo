@@ -1019,13 +1019,50 @@ function canValidateStageWorkspace(user = state.user) {
   return getStageWorkspaceSector(user) === 'pcp';
 }
 
+function normalizeStageWorkspaceSearchVariants(value) {
+  const normalized = normalizeText(value || '').trim();
+  const digits = normalized.replace(/\D+/g, '');
+  const variants = new Set();
+  if (normalized) variants.add(normalized);
+  if (digits) {
+    variants.add(digits);
+    if (digits.length >= 4) {
+      variants.add(`${digits.slice(0, 2)}-${digits.slice(2)}`);
+      variants.add(`${digits.slice(0, 2)} ${digits.slice(2)}`);
+      variants.add(`bsp ${digits.slice(0, 2)}-${digits.slice(2)}`);
+      variants.add(`bsp ${digits.slice(0, 2)} ${digits.slice(2)}`);
+    }
+  }
+  return Array.from(variants);
+}
+
 function stageWorkspaceSearchProjects() {
   const query = normalizeText(state.stageUpdatesSearchQuery || '');
+  const queryDigits = query.replace(/\D+/g, '');
   const source = Array.isArray(state.projects) ? state.projects : [];
   if (!query) return source.slice(0, 8);
+  const variants = normalizeStageWorkspaceSearchVariants(query);
+
   return source.filter((project) => {
-    return [project.projectNumber, project.projectDisplay, project.client, project.currentStage]
-      .some((value) => normalizeText(value).includes(query));
+    const values = [
+      project.projectNumber,
+      project.projectDisplay,
+      project.client,
+      project.currentStage,
+      project.projectAlias,
+    ].map((value) => normalizeText(value || ''));
+
+    const projectDigits = normalizeText([
+      project.projectNumber,
+      project.projectDisplay,
+      project.projectAlias,
+    ].join(' ')).replace(/\D+/g, '');
+
+    return variants.some((variant) => {
+      if (!variant) return false;
+      if (/^\d+$/.test(variant) && projectDigits.includes(variant)) return true;
+      return values.some((value) => value.includes(variant));
+    }) || (queryDigits && projectDigits.includes(queryDigits));
   }).slice(0, 8);
 }
 
