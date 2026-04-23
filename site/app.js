@@ -1533,8 +1533,16 @@ function getProjectSectorForScopedView(project) {
   const operationalState = normalizeSectorValue(project?.operationalState || project?.uiState || '');
   const weldingProgress = Number(project?.stageValues?.['Full welding execution'] ?? project?.stageValues?.['SOLDA'] ?? NaN);
   const hasWeldingProgress = Number.isFinite(weldingProgress);
-  const isInsideWeldingWindow = hasWeldingProgress && weldingProgress >= 25 && weldingProgress < 100;
+  const projectInsideWeldingWindow = hasWeldingProgress && weldingProgress >= 25 && weldingProgress < 100;
   const isWeldingCompleted = hasWeldingProgress && weldingProgress >= 100;
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  const spoolWeldingProgressValues = spools
+    .map((spool) => Number(spool?.stageValues?.['Full welding execution'] ?? spool?.stageValues?.['SOLDA'] ?? NaN))
+    .filter((value) => Number.isFinite(value));
+  const hasSpoolWeldingProgress = spoolWeldingProgressValues.length > 0;
+  const hasSpoolInsideWeldingWindow = spoolWeldingProgressValues.some((value) => value >= 25 && value < 100);
+  const areAllSpoolsOutsideWeldingWindow = hasSpoolWeldingProgress && !hasSpoolInsideWeldingWindow;
+  const isInsideWeldingWindow = hasSpoolInsideWeldingWindow || (!hasSpoolWeldingProgress && projectInsideWeldingWindow);
 
   if (currentGroup === 'pendente_envio' || operationalState === 'pendente_envio') {
     return 'pendente_envio';
@@ -1551,7 +1559,7 @@ function getProjectSectorForScopedView(project) {
   }
 
   if (jobProcessSector === 'solda') {
-    if (!hasWeldingProgress) {
+    if (!hasWeldingProgress && !hasSpoolWeldingProgress) {
       return 'solda';
     }
   } else if (jobProcessSector === 'calderaria') {
@@ -1565,7 +1573,7 @@ function getProjectSectorForScopedView(project) {
   }
 
   if (currentStageSector === 'solda') {
-    if (!hasWeldingProgress) {
+    if (!hasWeldingProgress && !hasSpoolWeldingProgress) {
       return 'solda';
     }
   } else if (currentStageSector === 'calderaria') {
@@ -1588,7 +1596,7 @@ function getProjectSectorForScopedView(project) {
     return 'pintura';
   }
   if (operationalSector === 'solda') {
-    if (!hasWeldingProgress) {
+    if (!hasWeldingProgress && !hasSpoolWeldingProgress) {
       return 'solda';
     }
     if (isInsideWeldingWindow) {
@@ -1604,6 +1612,15 @@ function getProjectSectorForScopedView(project) {
 
   if (hasWeldingProgress && weldingProgress < 25) {
     return currentGroup === 'solda' ? 'producao' : (currentGroup || jobProcessSector || currentStageSector || operationalSector || 'producao');
+  }
+
+  if (areAllSpoolsOutsideWeldingWindow) {
+    if (spoolWeldingProgressValues.every((value) => value >= 100)) {
+      return currentGroup && currentGroup !== 'solda' ? currentGroup : (operationalSector && operationalSector !== 'solda' ? operationalSector : (jobProcessSector && jobProcessSector !== 'solda' ? jobProcessSector : (currentStageSector && currentStageSector !== 'solda' ? currentStageSector : 'producao')));
+    }
+    if (spoolWeldingProgressValues.every((value) => value < 25)) {
+      return currentGroup === 'solda' ? 'producao' : (currentGroup || jobProcessSector || currentStageSector || operationalSector || 'producao');
+    }
   }
 
   if (isWeldingCompleted) {
