@@ -1535,14 +1535,36 @@ function getProjectSectorForScopedView(project) {
   const hasWeldingProgress = Number.isFinite(weldingProgress);
   const projectInsideWeldingWindow = hasWeldingProgress && weldingProgress >= 25 && weldingProgress < 100;
   const isWeldingCompleted = hasWeldingProgress && weldingProgress >= 100;
+  const finalInspectionProgress = Number(project?.stageValues?.['Final Inspection'] ?? NaN);
+  const packageDeliveredProgress = Number(project?.stageValues?.['Package and Delivered'] ?? project?.stageValues?.['Unitização e envio'] ?? NaN);
+  const hasFinalInspectionProgress = Number.isFinite(finalInspectionProgress);
+  const hasPackageDeliveredProgress = Number.isFinite(packageDeliveredProgress);
+  const projectInsideLogisticsWindow = hasFinalInspectionProgress && finalInspectionProgress >= 100 && hasPackageDeliveredProgress && packageDeliveredProgress >= 25 && packageDeliveredProgress < 100;
+  const isLogisticsCompleted = hasPackageDeliveredProgress && packageDeliveredProgress >= 100;
   const spools = Array.isArray(project?.spools) ? project.spools : [];
   const spoolWeldingProgressValues = spools
     .map((spool) => Number(spool?.stageValues?.['Full welding execution'] ?? spool?.stageValues?.['SOLDA'] ?? NaN))
     .filter((value) => Number.isFinite(value));
+  const spoolLogisticsPairs = spools
+    .map((spool) => {
+      const finalInspection = Number(spool?.stageValues?.['Final Inspection'] ?? NaN);
+      const packageDelivered = Number(spool?.stageValues?.['Package and Delivered'] ?? spool?.stageValues?.['Unitização e envio'] ?? NaN);
+      return {
+        finalInspection,
+        packageDelivered,
+        hasFinalInspection: Number.isFinite(finalInspection),
+        hasPackageDelivered: Number.isFinite(packageDelivered),
+      };
+    })
+    .filter((pair) => pair.hasFinalInspection || pair.hasPackageDelivered);
   const hasSpoolWeldingProgress = spoolWeldingProgressValues.length > 0;
   const hasSpoolInsideWeldingWindow = spoolWeldingProgressValues.some((value) => value >= 25 && value < 100);
   const areAllSpoolsOutsideWeldingWindow = hasSpoolWeldingProgress && !hasSpoolInsideWeldingWindow;
   const isInsideWeldingWindow = hasSpoolInsideWeldingWindow || (!hasSpoolWeldingProgress && projectInsideWeldingWindow);
+  const hasSpoolLogisticsProgress = spoolLogisticsPairs.length > 0;
+  const hasSpoolInsideLogisticsWindow = spoolLogisticsPairs.some((pair) => pair.hasFinalInspection && pair.finalInspection >= 100 && pair.hasPackageDelivered && pair.packageDelivered >= 25 && pair.packageDelivered < 100);
+  const areAllSpoolsOutsideLogisticsWindow = hasSpoolLogisticsProgress && !hasSpoolInsideLogisticsWindow;
+  const isInsideLogisticsWindow = hasSpoolInsideLogisticsWindow || (!hasSpoolLogisticsProgress && projectInsideLogisticsWindow);
 
   if (currentGroup === 'pendente_envio' || operationalState === 'pendente_envio') {
     return 'pendente_envio';
@@ -1552,6 +1574,10 @@ function getProjectSectorForScopedView(project) {
   }
   if (currentGroup === 'pintura') {
     return 'pintura';
+  }
+
+  if (isInsideLogisticsWindow) {
+    return 'pendente_envio';
   }
 
   if (isInsideWeldingWindow) {
@@ -1587,7 +1613,12 @@ function getProjectSectorForScopedView(project) {
   }
 
   if (operationalSector === 'pendente_envio') {
-    return 'pendente_envio';
+    if (!hasFinalInspectionProgress && !hasPackageDeliveredProgress && !hasSpoolLogisticsProgress) {
+      return 'pendente_envio';
+    }
+    if (isInsideLogisticsWindow) {
+      return 'pendente_envio';
+    }
   }
   if (operationalSector === 'inspecao') {
     return 'inspecao';
@@ -1608,6 +1639,28 @@ function getProjectSectorForScopedView(project) {
   }
   if (operationalSector === 'producao') {
     return isWeldingCompleted ? 'producao' : 'producao';
+  }
+
+  if (hasPackageDeliveredProgress && hasFinalInspectionProgress) {
+    if (finalInspectionProgress < 100 || packageDeliveredProgress < 25) {
+      if (currentGroup === 'pendente_envio') {
+        return 'pintura';
+      }
+    }
+    if (isLogisticsCompleted) {
+      return currentGroup && currentGroup !== 'pendente_envio' ? currentGroup : (operationalSector && operationalSector !== 'pendente_envio' ? operationalSector : (jobProcessSector && jobProcessSector !== 'pendente_envio' ? jobProcessSector : (currentStageSector && currentStageSector !== 'pendente_envio' ? currentStageSector : 'pintura')));
+    }
+  }
+
+  if (hasSpoolLogisticsProgress && areAllSpoolsOutsideLogisticsWindow) {
+    if (spoolLogisticsPairs.every((pair) => (pair.hasPackageDelivered && pair.packageDelivered >= 100) || (!pair.hasPackageDelivered && pair.hasFinalInspection && pair.finalInspection >= 100))) {
+      return currentGroup && currentGroup !== 'pendente_envio' ? currentGroup : (operationalSector && operationalSector !== 'pendente_envio' ? operationalSector : (jobProcessSector && jobProcessSector !== 'pendente_envio' ? jobProcessSector : (currentStageSector && currentStageSector !== 'pendente_envio' ? currentStageSector : 'pintura')));
+    }
+    if (spoolLogisticsPairs.every((pair) => !pair.hasFinalInspection || pair.finalInspection < 100 || !pair.hasPackageDelivered || pair.packageDelivered < 25)) {
+      if (currentGroup === 'pendente_envio') {
+        return 'pintura';
+      }
+    }
   }
 
   if (hasWeldingProgress && weldingProgress < 25) {
