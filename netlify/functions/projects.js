@@ -535,9 +535,13 @@ function buildAlertObservation(project, sector, diffDays) {
     : `Faltam ${diffDays} dia(s) para o término planejado.`;
 
   if (coatingPercent >= 100) {
+    const coatingFinishDate = project?.stageValues?.["Coating Finish Date"] || project?.coatingFinishDate || "";
+    const coatingFinishedText = coatingFinishDate
+      ? ` A pintura já está em 100%, finalizada em ${coatingFinishDate}. Conferir envio.`
+      : ' A pintura já está em 100%. Conferir envio.';
     return {
       title: diffDays < 0 ? 'Conferência em atraso' : 'Conferência pendente',
-      message: `${baseDaysText} A pintura já está em 100%. Conferir envio.`,
+      message: `${baseDaysText}${coatingFinishedText}`,
     };
   }
 
