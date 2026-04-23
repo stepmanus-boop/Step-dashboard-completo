@@ -1,6 +1,7 @@
 
 const { jsonResponse, requireSession, normalizeSectorValue } = require('./_auth');
 const { readJson, writeJson } = require('./_githubStore');
+const { isSupabaseConfigured, listStageUpdates, createStageUpdate, updateStageUpdate } = require('./_supabase');
 const { findProjectAndSpool } = require('./_projectLookup');
 
 const DATA_PATH = 'data/stage-updates.json';
@@ -22,6 +23,9 @@ function getActorSector(session) {
 }
 
 async function listUpdates() {
+  if (isSupabaseConfigured()) {
+    return listStageUpdates();
+  }
   const rows = await readJson(DATA_PATH, []);
   return Array.isArray(rows) ? rows : [];
 }
@@ -101,7 +105,6 @@ exports.handler = async (event) => {
         note,
         status: 'pending',
         createdBy: session.username || '',
-        createdById: session.sub || session.id || '',
         createdByName: session.name || session.username || 'Usuário',
         createdAt: now,
         resolvedBy: '',
@@ -109,9 +112,13 @@ exports.handler = async (event) => {
         resolvedAt: '',
         resolutionNote: '',
       };
+      if (isSupabaseConfigured()) {
+        const saved = await createStageUpdate(record);
+        return jsonResponse(200, { ok: true, update: saved || record, storage: 'supabase' });
+      }
       updates.unshift(record);
       await saveUpdates(updates);
-      return jsonResponse(200, { ok: true, update: record });
+      return jsonResponse(200, { ok: true, update: record, storage: 'json' });
     }
 
     if (event.httpMethod === 'PATCH') {
@@ -125,7 +132,7 @@ exports.handler = async (event) => {
       const updates = await listUpdates();
       const index = updates.findIndex((item) => String(item.id) === id);
       if (index < 0) return jsonResponse(404, { ok: false, error: 'Apontamento não encontrado.' });
-      updates[index] = {
+      const updatedRecord = {
         ...updates[index],
         status: 'resolved',
         resolvedBy: session.username || '',
@@ -133,8 +140,19 @@ exports.handler = async (event) => {
         resolvedAt: new Date().toISOString(),
         resolutionNote,
       };
+      if (isSupabaseConfigured()) {
+        const saved = await updateStageUpdate(id, {
+          status: 'resolved',
+          resolvedBy: updatedRecord.resolvedBy,
+          resolvedByName: updatedRecord.resolvedByName,
+          resolvedAt: updatedRecord.resolvedAt,
+          resolutionNote: updatedRecord.resolutionNote,
+        });
+        return jsonResponse(200, { ok: true, update: saved || updatedRecord, storage: 'supabase' });
+      }
+      updates[index] = updatedRecord;
       await saveUpdates(updates);
-      return jsonResponse(200, { ok: true, update: updates[index] });
+      return jsonResponse(200, { ok: true, update: updates[index], storage: 'json' });
     }
 
     return jsonResponse(405, { ok: false, error: 'Método não permitido.' });
