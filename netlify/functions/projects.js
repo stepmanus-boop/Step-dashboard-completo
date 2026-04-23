@@ -651,6 +651,56 @@ function buildSpoolRow(row, parentSummary) {
   };
 }
 
+function normalizeSpoolIdentity(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function getSpoolIdentityKey(spool) {
+  const drawing = normalizeSpoolIdentity(spool?.drawing);
+  if (drawing) return `drawing:${drawing}`;
+
+  const iso = normalizeSpoolIdentity(spool?.iso);
+  const description = normalizeSpoolIdentity(spool?.description);
+  if (iso || description) return `iso:${iso}|desc:${description}`;
+
+  return `row:${String(spool?.rowId || "")}`;
+}
+
+function getSpoolCompletenessScore(spool) {
+  let score = 0;
+  score += Number.isFinite(Number(spool?.stagePercent)) ? Number(spool.stagePercent) : 0;
+  score += Number.isFinite(Number(spool?.overallProgress)) ? Number(spool.overallProgress) : 0;
+  score += Number.isFinite(Number(spool?.individualProgress)) ? Number(spool.individualProgress) : 0;
+  score += Number.isFinite(Number(spool?.kilos)) && Number(spool.kilos) > 0 ? 15 : 0;
+  score += Number.isFinite(Number(spool?.weldedWeightKg)) && Number(spool.weldedWeightKg) > 0 ? 15 : 0;
+  score += spool?.plannedStartDate ? 5 : 0;
+  score += spool?.plannedFinishDate ? 5 : 0;
+  score += spool?.weldingWeek ? 8 : 0;
+  score += spool?.observations ? 3 : 0;
+  score += spool?.stage && spool.stage !== '—' ? 5 : 0;
+  score += spool?.uiState === 'completed' ? 10 : 0;
+  score += spool?.uiState === 'in_progress' ? 6 : 0;
+  return score;
+}
+
+function chooseBestSpoolRow(currentSpool, nextSpool) {
+  if (!currentSpool) return nextSpool;
+  const currentScore = getSpoolCompletenessScore(currentSpool);
+  const nextScore = getSpoolCompletenessScore(nextSpool);
+  if (nextScore > currentScore) return nextSpool;
+  if (nextScore < currentScore) return currentSpool;
+
+  const currentRowNumber = Number(currentSpool?.rowNumber || 0);
+  const nextRowNumber = Number(nextSpool?.rowNumber || 0);
+  if (nextRowNumber > currentRowNumber) return nextSpool;
+  return currentSpool;
+}
+
 function buildProject(summaryRow, childRows) {
   const projectText = textValue(summaryRow, "Project");
   const parts = parseProjectParts(projectText);
@@ -792,14 +842,13 @@ function buildProjects(rows) {
   }
 
   for (const project of projects) {
-    const unique = [];
-    const seen = new Set();
+    const uniqueMap = new Map();
     for (const spool of project.spools) {
-      const key = `${spool.rowId || ""}-${spool.iso}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      unique.push(spool);
+      const key = getSpoolIdentityKey(spool);
+      const currentSpool = uniqueMap.get(key);
+      uniqueMap.set(key, chooseBestSpoolRow(currentSpool, spool));
     }
+    const unique = Array.from(uniqueMap.values()).sort((a, b) => (Number(a?.rowNumber || 0) - Number(b?.rowNumber || 0)));
     project.spools = unique;
     project.spoolStats = unique.reduce((acc, spool) => {
       acc.total += 1;
