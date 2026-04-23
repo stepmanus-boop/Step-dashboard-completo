@@ -1527,7 +1527,8 @@ function getScopedDemandLabelsForUser(user = state.user) {
 
 function getProjectSectorForScopedView(project) {
   const operationalSector = normalizeSectorValue(project?.operationalSector || '');
-  const currentStageSector = normalizeSectorValue(classifyStageSector(project?.currentStage || project?.jobProcessStatus || ''));
+  const currentStageSector = normalizeSectorValue(classifyStageSector(project?.currentStage || ''));
+  const jobProcessSector = normalizeSectorValue(classifyStageSector(project?.jobProcessStatus || ''));
   const currentGroup = normalizeSectorValue(project?.currentStageGroup || simplifyCurrentStage(project));
   const operationalState = normalizeSectorValue(project?.operationalState || project?.uiState || '');
 
@@ -1541,6 +1542,22 @@ function getProjectSectorForScopedView(project) {
     return 'pintura';
   }
 
+  if (jobProcessSector === 'solda') {
+    return 'solda';
+  }
+  if (jobProcessSector === 'calderaria') {
+    return 'calderaria';
+  }
+  if (jobProcessSector === 'inspecao') {
+    return 'inspecao';
+  }
+  if (jobProcessSector === 'pintura') {
+    return 'pintura';
+  }
+  if (jobProcessSector === 'pendente_envio') {
+    return 'pendente_envio';
+  }
+
   if (currentStageSector === 'solda') {
     return 'solda';
   }
@@ -1552,6 +1569,9 @@ function getProjectSectorForScopedView(project) {
   }
   if (currentStageSector === 'pintura') {
     return 'pintura';
+  }
+  if (currentStageSector === 'pendente_envio') {
+    return 'pendente_envio';
   }
 
   if (operationalSector === 'pendente_envio') {
@@ -1573,7 +1593,7 @@ function getProjectSectorForScopedView(project) {
     return 'producao';
   }
 
-  return currentGroup || currentStageSector || operationalSector || 'all';
+  return currentGroup || jobProcessSector || currentStageSector || operationalSector || 'all';
 }
 
 function projectMatchesScopedSector(project, user = state.user) {
