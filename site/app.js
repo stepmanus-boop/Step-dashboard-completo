@@ -1147,6 +1147,7 @@ function renderProjectSignals(project) {
 function uiStateLabel(stateValue) {
   if (stateValue === "completed") return "Finalizado";
   if (stateValue === "awaiting_shipment") return "Aguardando envio";
+  if (stateValue === "preparing_shipment") return "Preparando para envio";
   if (stateValue === "in_progress") return "Em produção";
   return "Não iniciado";
 }
@@ -1154,11 +1155,15 @@ function uiStateLabel(stateValue) {
 function translateProjectStatus(projectStatus, uiState) {
   if (uiState === "completed") return "Finalizado";
   if (uiState === "awaiting_shipment") return "Aguardando envio";
+  if (uiState === "preparing_shipment") return "Preparando para envio";
   if (uiState === "not_started") return "Não iniciado";
 
   const normalized = String(projectStatus || "").trim().toUpperCase().replace(/\s+/g, " ");
   if (["ONGOING", "ON GOING", "IN PROGRESS", "EM PRODUCAO", "EM PRODUÇÃO"].includes(normalized)) {
     return "Em produção";
+  }
+  if (["PREPARING SHIPMENT", "PREPARING FOR SHIPMENT", "PREPARANDO PARA ENVIO"].includes(normalized)) {
+    return "Preparando para envio";
   }
   if (["ON HOLD", "HOLD", "PAUSED", "EM ESPERA"].includes(normalized)) {
     return uiState === "not_started" ? "Em espera" : "Em produção";
@@ -1167,6 +1172,43 @@ function translateProjectStatus(projectStatus, uiState) {
     return "Finalizado";
   }
   return projectStatus || uiStateLabel(uiState);
+}
+
+function hasPreparingShipmentWindow(project) {
+  const projectFinalInspection = Number(project?.stageValues?.['Final Inspection'] ?? NaN);
+  const projectPackageDelivered = Number(project?.stageValues?.['Package and Delivered'] ?? project?.stageValues?.['Unitização e envio'] ?? NaN);
+  const projectMatches = Number.isFinite(projectFinalInspection)
+    && Number.isFinite(projectPackageDelivered)
+    && projectFinalInspection >= 25
+    && projectFinalInspection < 100
+    && projectPackageDelivered >= 25
+    && projectPackageDelivered < 100;
+
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  const spoolMatches = spools.some((spool) => {
+    const finalInspection = Number(spool?.stageValues?.['Final Inspection'] ?? NaN);
+    const packageDelivered = Number(spool?.stageValues?.['Package and Delivered'] ?? spool?.stageValues?.['Unitização e envio'] ?? NaN);
+    return Number.isFinite(finalInspection)
+      && Number.isFinite(packageDelivered)
+      && finalInspection >= 25
+      && finalInspection < 100
+      && packageDelivered >= 25
+      && packageDelivered < 100;
+  });
+
+  return spoolMatches || projectMatches;
+}
+
+function getProjectStatusPresentation(project) {
+  if (hasPreparingShipmentWindow(project) && !['completed', 'awaiting_shipment'].includes(project?.uiState)) {
+    return { text: 'Preparando para envio', state: 'preparing_shipment' };
+  }
+
+  const state = ['awaiting_shipment', 'completed'].includes(project?.uiState) ? 'completed' : (project?.uiState || 'not_started');
+  return {
+    text: translateProjectStatus(project?.projectStatus, project?.uiState),
+    state,
+  };
 }
 
 
@@ -1931,7 +1973,8 @@ function renderTable() {
   bodyEl.innerHTML = state.filteredProjects
     .map((project) => {
       const isActive = project.rowId === state.selectedProjectId;
-      const statusText = translateProjectStatus(project.projectStatus, project.uiState);
+      const statusPresentation = getProjectStatusPresentation(project);
+      const statusText = statusPresentation.text;
       const rowClass = [
         ["completed", "awaiting_shipment"].includes(project.uiState) ? "completed-row" : "",
         project.uiState === "in_progress" ? "in-progress-row" : "",
@@ -1943,7 +1986,7 @@ function renderTable() {
 
       const stageMap = project.stageValues || {};
       const completedSymbol = ["completed", "awaiting_shipment"].includes(project.uiState) ? "✓" : "✕";
-      const statusState = ["awaiting_shipment", "completed"].includes(project.uiState) ? "completed" : project.uiState;
+      const statusState = statusPresentation.state;
 
       return `
         <tr class="${rowClass}" data-project-id="${project.rowId}">
@@ -1982,7 +2025,8 @@ function renderSelectedProjectCard() {
     return;
   }
 
-  const statusText = translateProjectStatus(project.projectStatus, project.uiState);
+  const statusPresentation = getProjectStatusPresentation(project);
+  const statusText = statusPresentation.text;
   const matchedSpools = project.spools?.length || 0;
 
   detailCardEl.innerHTML = `
@@ -1992,7 +2036,7 @@ function renderSelectedProjectCard() {
           <p class="detail-project-subtitle">Projeto selecionado</p>
           <h3>${projectDisplayWithClient(project)}</h3>
         </div>
-        <span class="badge badge--${["awaiting_shipment", "completed"].includes(project.uiState) ? "completed" : project.uiState}">${statusText}</span>
+        <span class="badge badge--${statusPresentation.state}">${statusText}</span>
       </div>
 
       <div class="detail-grid compact-grid">
