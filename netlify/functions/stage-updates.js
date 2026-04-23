@@ -101,6 +101,7 @@ exports.handler = async (event) => {
         note,
         status: 'pending',
         createdBy: session.username || '',
+        createdById: session.sub || session.id || '',
         createdByName: session.name || session.username || 'Usuário',
         createdAt: now,
         resolvedBy: '',

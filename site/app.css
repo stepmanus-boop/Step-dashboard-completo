@@ -2628,3 +2628,16 @@ button.alert-badge {
   font-size: 12px;
   color: #cfe3ff;
 }
+
+
+.stage-send-button.is-sent {
+  background: linear-gradient(135deg, #15803d, #16a34a) !important;
+  border-color: rgba(74, 222, 128, 0.55) !important;
+  color: #f0fdf4 !important;
+  cursor: not-allowed;
+}
+
+.stage-send-button.is-sent:hover {
+  transform: none;
+  box-shadow: none;
+}

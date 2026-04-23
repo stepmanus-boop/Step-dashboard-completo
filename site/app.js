@@ -3873,8 +3873,8 @@ function renderStageSectorWorkspace() {
                             <td>${escapeHtml(spool.description || '—')}</td>
                             <td>
                               <div data-stage-update-form="true" data-project-row-id="${escapeHtml(String(project.rowId || project.rowNumber || ''))}" data-project-number="${escapeHtml(project.projectNumber || '')}" data-spool-iso="${escapeHtml(spool.iso || '')}" class="stage-row-form">
-                                <select name="progress" data-stage-progress="true">
-                                  ${STAGE_PROGRESS_OPTIONS.map((value) => `<option value="${value}">${value}%</option>`).join('')}
+                                <select name="progress" data-stage-progress="true" ${pending ? 'disabled' : ''}>
+                                  ${STAGE_PROGRESS_OPTIONS.map((value) => `<option value="${value}" ${pending && Number(pending.progress || 0) === Number(value) ? 'selected' : ''}>${value}%</option>`).join('')}
                                 </select>
                             </td>
                             <td><input type="date" name="completionDate" value="" /></td>
@@ -4031,6 +4031,7 @@ function closeStageUpdatesModal() {
 
 async function handleStageWorkspaceSubmit(formEl) {
   const projectRowId = String(formEl?.dataset?.projectRowId || '').trim();
+  const projectNumber = String(formEl?.dataset?.projectNumber || '').trim();
   const spoolIso = String(formEl?.dataset?.spoolIso || '').trim();
   const progress = String(formEl?.querySelector('[name="progress"]')?.value || '').trim();
   const completionDate = String(formEl?.querySelector('[name="completionDate"]')?.value || '').trim();
@@ -4041,7 +4042,7 @@ async function handleStageWorkspaceSubmit(formEl) {
     window.alert('Preencha o avanço do spool antes de enviar.');
     return;
   }
-
+  if (submitButton?.disabled) return;
   if (Number(progress) === 100 && !completionDate) {
     window.alert('Informe a data de conclusão para avanço 100%.');
     return;
@@ -4059,26 +4060,42 @@ async function handleStageWorkspaceSubmit(formEl) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         projectRowId: Number(projectRowId),
+        projectNumber,
         spoolIso,
         progress: Number(progress),
         completionDate,
-        note
+        note,
       }),
     });
 
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao enviar apontamento.');
 
+    if (!Array.isArray(state.stageUpdates)) state.stageUpdates = [];
+    const update = data.update || {
+      id: `local_${Date.now()}`,
+      projectRowId: Number(projectRowId),
+      projectNumber,
+      spoolIso,
+      sector: getStageWorkspaceSector(),
+      progress: Number(progress),
+      completionDate,
+      note,
+      status: 'pending',
+      createdBy: state.user?.username || '',
+      createdById: state.user?.id || state.user?.sub || '',
+      createdAt: new Date().toISOString(),
+    };
+    state.stageUpdates.unshift(update);
+
     await loadStageUpdates();
     renderStageUpdatesModal();
-    window.alert('Apontamento enviado com sucesso.');
   } catch (error) {
-    window.alert(error.message || 'Falha ao enviar apontamento.');
-  } finally {
     if (submitButton) {
       submitButton.disabled = false;
       submitButton.textContent = 'Enviar';
     }
+    window.alert(error.message || 'Falha ao enviar apontamento.');
   }
 }
 
