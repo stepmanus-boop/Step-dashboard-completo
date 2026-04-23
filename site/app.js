@@ -3929,8 +3929,23 @@ async function handleStageWorkspaceSubmit(formEl) {
     });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao enviar apontamento.');
-    await loadStageUpdates();
+
+    const newUpdate = data?.update || {
+      projectRowId: Number(projectRowId || 0),
+      spoolIso,
+      sector,
+      progress: Number(progress || 0),
+      completionDate,
+      note,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+    state.stageUpdates = [newUpdate, ...(Array.isArray(state.stageUpdates) ? state.stageUpdates : [])];
+    setStageSubmitting(projectRowId, spoolIso, sector, false);
     renderStageUpdatesModal();
+    loadStageUpdates().then(() => {
+      renderStageUpdatesModal();
+    }).catch(() => {});
   } catch (error) {
     setStageSubmitting(projectRowId, spoolIso, sector, false);
     renderStageUpdatesModal();
