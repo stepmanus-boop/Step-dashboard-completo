@@ -1467,12 +1467,6 @@ function userHasProjectsScope(user = state.user) {
   return getUserAlertSectors(user).includes("projetos") || normalizeSectorValue(user.sector) === "projetos";
 }
 
-function shouldUseSectorScopedToggle(user = state.user) {
-  if (!user || user.role === 'admin') return false;
-  const primarySector = getPrimaryUserSector(user);
-  return Boolean(primarySector) && primarySector !== 'projetos';
-}
-
 function getPrimaryUserSector(user = state.user) {
   if (!user) return '';
   const linkedSectors = getUserAlertSectors(user);
@@ -1485,7 +1479,7 @@ function getPrimaryUserSector(user = state.user) {
 }
 
 function isSectorScopedViewActive(user = state.user) {
-  return Boolean(user) && shouldUseSectorScopedToggle(user) && state.sectorScopedView;
+  return Boolean(user) && !userHasProjectsScope(user) && user.role !== 'admin' && state.sectorScopedView;
 }
 
 function getScopedDemandLabelsForUser(user = state.user) {
@@ -1588,8 +1582,7 @@ function alertMatchesScopedSector(alert, user = state.user) {
 
 function updatePrimaryUserActionUi() {
   if (!openSectorAlertsEl) return;
-  const sectorScopedToggle = shouldUseSectorScopedToggle();
-  const projectsScope = !sectorScopedToggle && userHasProjectsScope();
+  const projectsScope = userHasProjectsScope();
   const viewingMine = projectsScope && state.projectView === "mine";
   const sectorScopedView = isSectorScopedViewActive();
   openSectorAlertsEl.textContent = projectsScope
@@ -1604,7 +1597,7 @@ function updatePrimaryUserActionUi() {
         : "Visualizar apenas os projetos e alertas do seu setor monitorado");
   const titleEl = document.getElementById("sector-alerts-title");
   if (titleEl && state.sectorAlertsMode !== 'project-signals') {
-    titleEl.textContent = projectsScope ? "Meus projetos" : "Meus alertas por setor";
+    titleEl.textContent = projectsScope ? "Meus projetos" : (sectorScopedView ? "Meus alertas por setor" : "Meus alertas por setor");
   }
   if (openMyProjectSignalsEl) {
     const canViewMine = canViewMyProjectSignals();
@@ -1671,7 +1664,7 @@ function getVisibleProjectsSource() {
 
 function renderProjectViewTabs() {
   if (!projectViewTabsEl) return;
-  if (shouldUseSectorScopedToggle() || !userHasProjectsScope()) {
+  if (!userHasProjectsScope()) {
     state.projectView = 'all';
     projectViewTabsEl.innerHTML = '';
     projectViewTabsEl.classList.add('hidden');
@@ -2036,7 +2029,7 @@ function getAlertSignature() {
 }
 
 function getAlertCooldownMs() {
-  if (!shouldUseSectorScopedToggle(state.user) && userHasProjectsScope(state.user) && state.projectView === 'mine') {
+  if (userHasProjectsScope(state.user) && state.projectView === 'mine') {
     return 0;
   }
   return 4 * 60 * 60 * 1000;
@@ -2080,7 +2073,7 @@ function shouldOpenAlertPopup() {
   if (!visibleAlerts.length) return false;
 
   const now = Date.now();
-  if (!shouldUseSectorScopedToggle(state.user) && userHasProjectsScope(state.user) && state.projectView === 'mine') {
+  if (userHasProjectsScope(state.user) && state.projectView === 'mine') {
     const windowOpen = getProjectAlertWindow();
     if (!windowOpen) return false;
   }
@@ -2093,7 +2086,7 @@ function shouldOpenAlertPopup() {
 function persistAlertDismiss() {
   const now = Date.now();
   let suppressedUntil = now + getAlertCooldownMs();
-  if (!shouldUseSectorScopedToggle(state.user) && userHasProjectsScope(state.user) && state.projectView === 'mine') {
+  if (userHasProjectsScope(state.user) && state.projectView === 'mine') {
     suppressedUntil = getNextProjectAlertWindowTimestamp(new Date(now));
   }
   state.alertPopupSuppressedUntil = suppressedUntil;
@@ -2578,7 +2571,7 @@ if (openSectorAlertsEl) {
       return;
     }
     state.sectorAlertsMode = 'default';
-    if (!shouldUseSectorScopedToggle() && userHasProjectsScope()) {
+    if (userHasProjectsScope()) {
       state.projectView = state.projectView === 'mine' ? 'all' : 'mine';
       updatePrimaryUserActionUi();
       renderProjectViewTabs();
@@ -2941,7 +2934,7 @@ function updateSessionUi() {
     return;
   }
 
-  if (shouldUseSectorScopedToggle(user)) {
+  if (!userHasProjectsScope(user)) {
     state.projectView = 'all';
     state.sectorScopedView = loadSectorScopedViewPreference(user);
     state.alertSectorFilter = state.sectorScopedView ? normalizeAlertSectorFilterValue(getPrimaryUserSector(user)) || 'all' : 'all';
@@ -3837,7 +3830,7 @@ async function handleLoginSubmit(event) {
       throw new Error(data?.error || "Falha ao entrar.");
     }
     state.user = data.user;
-    if (shouldUseSectorScopedToggle(state.user)) {
+    if (!userHasProjectsScope(state.user) && state.user?.role !== 'admin') {
       state.sectorScopedView = loadSectorScopedViewPreference(state.user);
       state.alertSectorFilter = state.sectorScopedView ? normalizeAlertSectorFilterValue(getPrimaryUserSector(state.user)) || 'all' : 'all';
     }
