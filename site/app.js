@@ -79,6 +79,32 @@ const openSectorAlertsEl = document.getElementById("open-sector-alerts");
 const openMyProjectSignalsEl = document.getElementById("open-my-project-signals");
 const openProjectSignalsEl = document.getElementById("open-project-signals");
 const openStageUpdatesEl = document.getElementById("open-stage-updates");
+
+const SECTOR_SCOPED_VIEW_STORAGE_PREFIX = 'step_sector_scoped_view:';
+
+function getSectorScopedViewStorageKey(user = state.user) {
+  if (!user) return '';
+  const username = String(user.username || user.name || '').trim().toLowerCase();
+  return username ? `${SECTOR_SCOPED_VIEW_STORAGE_PREFIX}${username}` : '';
+}
+
+function loadSectorScopedViewPreference(user = state.user) {
+  const key = getSectorScopedViewStorageKey(user);
+  if (!key) return false;
+  try {
+    return window.localStorage.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function saveSectorScopedViewPreference(value, user = state.user) {
+  const key = getSectorScopedViewStorageKey(user);
+  if (!key) return;
+  try {
+    window.localStorage.setItem(key, value ? '1' : '0');
+  } catch {}
+}
 const sectorAlertsModalEl = document.getElementById("sector-alerts-modal");
 const sectorAlertsCloseEl = document.getElementById("sector-alerts-close");
 const sectorAlertsContentEl = document.getElementById("sector-alerts-content");
@@ -2485,6 +2511,7 @@ if (openSectorAlertsEl) {
       return;
     }
     state.sectorScopedView = !state.sectorScopedView;
+    saveSectorScopedViewPreference(state.sectorScopedView);
     state.alertSectorFilter = state.sectorScopedView ? normalizeAlertSectorFilterValue(getPrimaryUserSector()) || 'all' : 'all';
     updatePrimaryUserActionUi();
     applyFilter();
@@ -2833,8 +2860,8 @@ function updateSessionUi() {
 
   if (!userHasProjectsScope(user)) {
     state.projectView = 'all';
-    state.sectorScopedView = false;
-    state.alertSectorFilter = 'all';
+    state.sectorScopedView = loadSectorScopedViewPreference(user);
+    state.alertSectorFilter = state.sectorScopedView ? normalizeAlertSectorFilterValue(getPrimaryUserSector(user)) || 'all' : 'all';
   }
 
   sessionUserNameEl.textContent = user.name || user.username;
@@ -3727,6 +3754,10 @@ async function handleLoginSubmit(event) {
       throw new Error(data?.error || "Falha ao entrar.");
     }
     state.user = data.user;
+    if (!userHasProjectsScope(state.user) && state.user?.role !== 'admin') {
+      state.sectorScopedView = loadSectorScopedViewPreference(state.user);
+      state.alertSectorFilter = state.sectorScopedView ? normalizeAlertSectorFilterValue(getPrimaryUserSector(state.user)) || 'all' : 'all';
+    }
     closeLoginModal();
     await bootstrapSession();
     await loadProjects();
