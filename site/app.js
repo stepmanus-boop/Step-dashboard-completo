@@ -1169,6 +1169,32 @@ function translateProjectStatus(projectStatus, uiState) {
   return projectStatus || uiStateLabel(uiState);
 }
 
+
+function classifyStageSector(value) {
+  const normalized = normalizeText(value || "");
+  if (!normalized) return '';
+
+  if (normalized.includes('final inspection') || normalized.includes('unitizacao') || normalized.includes('unitizacao e envio') || normalized.includes('package and delivered') || normalized.includes('envio')) {
+    return 'pendente_envio';
+  }
+  if (normalized.includes('inspection') || normalized.includes('inspecao') || normalized.includes('dimensional') || normalized.includes('hydro test') || normalized === 'th') {
+    return 'inspecao';
+  }
+  if (normalized.includes('paint') || normalized.includes('coating') || normalized.includes('surface preparation') || normalized.includes('hdg') || normalized.includes('fbe')) {
+    return 'pintura';
+  }
+  if (normalized.includes('solda') || normalized.includes('weld')) {
+    return 'solda';
+  }
+  if (normalized.includes('calderaria') || normalized.includes('fabrication') || normalized.includes('fit-up') || normalized.includes('montagem')) {
+    return 'calderaria';
+  }
+  if (normalized.includes('production') || normalized.includes('producao') || normalized.includes('produção')) {
+    return 'producao';
+  }
+  return '';
+}
+
 function simplifyCurrentStage(project) {
   const uiState = String(project?.uiState || "").trim().toLowerCase();
   const sector = normalizeText(project?.operationalSector || "");
