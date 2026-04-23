@@ -1531,6 +1531,10 @@ function getProjectSectorForScopedView(project) {
   const jobProcessSector = normalizeSectorValue(classifyStageSector(project?.jobProcessStatus || ''));
   const currentGroup = normalizeSectorValue(project?.currentStageGroup || simplifyCurrentStage(project));
   const operationalState = normalizeSectorValue(project?.operationalState || project?.uiState || '');
+  const weldingProgress = Number(project?.stageValues?.['Full welding execution'] ?? project?.stageValues?.['SOLDA'] ?? NaN);
+  const hasWeldingProgress = Number.isFinite(weldingProgress);
+  const isInsideWeldingWindow = hasWeldingProgress && weldingProgress >= 25 && weldingProgress < 100;
+  const isWeldingCompleted = hasWeldingProgress && weldingProgress >= 100;
 
   if (currentGroup === 'pendente_envio' || operationalState === 'pendente_envio') {
     return 'pendente_envio';
@@ -1542,35 +1546,35 @@ function getProjectSectorForScopedView(project) {
     return 'pintura';
   }
 
-  if (jobProcessSector === 'solda') {
+  if (isInsideWeldingWindow) {
     return 'solda';
   }
-  if (jobProcessSector === 'calderaria') {
+
+  if (jobProcessSector === 'solda') {
+    if (!hasWeldingProgress) {
+      return 'solda';
+    }
+  } else if (jobProcessSector === 'calderaria') {
     return 'calderaria';
-  }
-  if (jobProcessSector === 'inspecao') {
+  } else if (jobProcessSector === 'inspecao') {
     return 'inspecao';
-  }
-  if (jobProcessSector === 'pintura') {
+  } else if (jobProcessSector === 'pintura') {
     return 'pintura';
-  }
-  if (jobProcessSector === 'pendente_envio') {
+  } else if (jobProcessSector === 'pendente_envio') {
     return 'pendente_envio';
   }
 
   if (currentStageSector === 'solda') {
-    return 'solda';
-  }
-  if (currentStageSector === 'calderaria') {
+    if (!hasWeldingProgress) {
+      return 'solda';
+    }
+  } else if (currentStageSector === 'calderaria') {
     return 'calderaria';
-  }
-  if (currentStageSector === 'inspecao') {
+  } else if (currentStageSector === 'inspecao') {
     return 'inspecao';
-  }
-  if (currentStageSector === 'pintura') {
+  } else if (currentStageSector === 'pintura') {
     return 'pintura';
-  }
-  if (currentStageSector === 'pendente_envio') {
+  } else if (currentStageSector === 'pendente_envio') {
     return 'pendente_envio';
   }
 
@@ -1584,13 +1588,26 @@ function getProjectSectorForScopedView(project) {
     return 'pintura';
   }
   if (operationalSector === 'solda') {
-    return 'solda';
+    if (!hasWeldingProgress) {
+      return 'solda';
+    }
+    if (isInsideWeldingWindow) {
+      return 'solda';
+    }
   }
   if (operationalSector === 'calderaria') {
     return 'calderaria';
   }
   if (operationalSector === 'producao') {
-    return 'producao';
+    return isWeldingCompleted ? 'producao' : 'producao';
+  }
+
+  if (hasWeldingProgress && weldingProgress < 25) {
+    return currentGroup === 'solda' ? 'producao' : (currentGroup || jobProcessSector || currentStageSector || operationalSector || 'producao');
+  }
+
+  if (isWeldingCompleted) {
+    return currentGroup && currentGroup !== 'solda' ? currentGroup : (operationalSector && operationalSector !== 'solda' ? operationalSector : (jobProcessSector && jobProcessSector !== 'solda' ? jobProcessSector : (currentStageSector && currentStageSector !== 'solda' ? currentStageSector : 'producao')));
   }
 
   return currentGroup || jobProcessSector || currentStageSector || operationalSector || 'all';
