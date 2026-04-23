@@ -38,6 +38,9 @@ const state = {
   stageUpdates: [],
   stageUpdatesSearchQuery: '',
   stageSubmittingKeys: {},
+  stageDrafts: {},
+  stageBulkSubmitting: false,
+  stageBatchValidationMode: false,
 };
 
 const bodyEl = document.getElementById("projects-body");
@@ -105,6 +108,88 @@ function saveSectorScopedViewPreference(value, user = state.user) {
     window.localStorage.setItem(key, value ? '1' : '0');
   } catch {}
 }
+
+const STAGE_DRAFTS_STORAGE_PREFIX = 'step_stage_drafts:';
+
+function getStageDraftStorageKey(user = state.user, sector = getStageWorkspaceSector()) {
+  if (!user) return '';
+  const username = String(user.username || user.name || '').trim().toLowerCase();
+  const normalizedSector = String(sector || 'all').trim().toLowerCase();
+  return username ? `${STAGE_DRAFTS_STORAGE_PREFIX}${username}:${normalizedSector}` : '';
+}
+
+function loadStageDrafts(user = state.user, sector = getStageWorkspaceSector()) {
+  const key = getStageDraftStorageKey(user, sector);
+  if (!key) return {};
+  try {
+    const raw = window.localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveStageDrafts(drafts = state.stageDrafts, user = state.user, sector = getStageWorkspaceSector()) {
+  const key = getStageDraftStorageKey(user, sector);
+  if (!key) return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(drafts || {}));
+  } catch {}
+}
+
+function getStageDraftKey(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
+  return `${String(projectRowId || '').trim()}::${String(spoolIso || '').trim().toLowerCase()}::${String(sector || '').trim().toLowerCase()}`;
+}
+
+function getStageDraft(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
+  const key = getStageDraftKey(projectRowId, spoolIso, sector);
+  return state.stageDrafts?.[key] || null;
+}
+
+function upsertStageDraft(projectRowId, spoolIso, sector, patch = {}) {
+  const key = getStageDraftKey(projectRowId, spoolIso, sector);
+  const nextDraft = {
+    ...(state.stageDrafts?.[key] || {}),
+    projectRowId: String(projectRowId || '').trim(),
+    spoolIso: String(spoolIso || '').trim(),
+    sector: String(sector || '').trim(),
+    progress: '',
+    completionDate: '',
+    note: '',
+    ...patch,
+  };
+  state.stageDrafts = { ...(state.stageDrafts || {}), [key]: nextDraft };
+  saveStageDrafts();
+  return nextDraft;
+}
+
+function removeStageDraft(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
+  const key = getStageDraftKey(projectRowId, spoolIso, sector);
+  if (!state.stageDrafts?.[key]) return;
+  const next = { ...(state.stageDrafts || {}) };
+  delete next[key];
+  state.stageDrafts = next;
+  saveStageDrafts();
+}
+
+function clearAllStageDrafts() {
+  state.stageDrafts = {};
+  saveStageDrafts();
+}
+
+function getStageDraftEntries(sector = getStageWorkspaceSector()) {
+  return Object.values(state.stageDrafts || {}).filter((item) => String(item?.sector || '').trim().toLowerCase() === String(sector || '').trim().toLowerCase());
+}
+
+function getReadyStageDraftEntries(sector = getStageWorkspaceSector()) {
+  return getStageDraftEntries(sector).filter((item) => item && String(item.projectRowId || '').trim() && String(item.spoolIso || '').trim() && Number(item.progress || 0) > 0);
+}
+
+function syncStageDraftsForCurrentSector() {
+  state.stageDrafts = loadStageDrafts();
+}
+
 const sectorAlertsModalEl = document.getElementById("sector-alerts-modal");
 const sectorAlertsCloseEl = document.getElementById("sector-alerts-close");
 const sectorAlertsContentEl = document.getElementById("sector-alerts-content");
@@ -2815,6 +2900,7 @@ if (openStageUpdatesEl) {
       return;
     }
     state.stageUpdatesSearchQuery = '';
+    syncStageDraftsForCurrentSector();
     await loadStageUpdates();
     openStageUpdatesModal();
   });
@@ -2833,7 +2919,34 @@ if (stageUpdatesModalEl) {
     const concludeButton = event.target.closest('[data-stage-conclude]');
     if (concludeButton) {
       concludeStageUpdate(concludeButton.dataset.stageConclude);
+      return;
     }
+    if (event.target.closest('[data-stage-bulk-send="true"]')) {
+      handleStageWorkspaceBulkSubmit();
+      return;
+    }
+    if (event.target.closest('[data-stage-clear-drafts="true"]')) {
+      clearAllStageDrafts();
+      renderStageUpdatesModal();
+      return;
+    }
+    if (event.target.closest('[data-stage-toggle-batch="true"]')) {
+      state.stageBatchValidationMode = !state.stageBatchValidationMode;
+      renderStageUpdatesModal();
+      return;
+    }
+    if (event.target.closest('[data-stage-conclude-bulk="true"]')) {
+      const ids = (Array.isArray(state.stageUpdates) ? state.stageUpdates : []).filter((item) => isPendingStageStatus(item.status)).map((item) => item.id);
+      concludeStageUpdatesBulk(ids);
+      return;
+    }
+    const actionButton = event.target.closest('[data-stage-send="true"], [data-stage-review="true"]');
+    if (!actionButton) return;
+    const rowEl = actionButton.closest('tr');
+    const formEl = rowEl?.querySelector('[data-stage-update-form="true"]');
+    if (!formEl) return;
+    const actionType = actionButton.matches('[data-stage-review="true"]') ? 'review' : 'advance';
+    handleStageWorkspaceSubmit(formEl, actionType);
   });
   stageUpdatesModalEl.addEventListener('input', (event) => {
     const searchEl = event.target.closest('[data-stage-search="true"]');
@@ -2849,16 +2962,15 @@ if (stageUpdatesModalEl) {
       if (dateEl && Number(progressEl.value) === 100 && !dateEl.value) {
         dateEl.value = new Date().toISOString().slice(0, 10);
       }
+      persistStageDraftFromRow(rowEl);
+      renderStageUpdatesModal();
+      return;
     }
-  });
-  stageUpdatesModalEl.addEventListener('click', (event) => {
-    const actionButton = event.target.closest('[data-stage-send="true"], [data-stage-review="true"]');
-    if (!actionButton) return;
-    const rowEl = actionButton.closest('tr');
-    const formEl = rowEl?.querySelector('[data-stage-update-form="true"]');
-    if (!formEl) return;
-    const actionType = actionButton.matches('[data-stage-review="true"]') ? 'review' : 'advance';
-    handleStageWorkspaceSubmit(formEl, actionType);
+    const draftField = event.target.closest('[name="completionDate"], [name="note"]');
+    if (draftField) {
+      const rowEl = draftField.closest('tr');
+      persistStageDraftFromRow(rowEl);
+    }
   });
 }
 
@@ -4019,6 +4131,7 @@ async function handleLoginSubmit(event) {
     await loadProjects();
     await loadManualAlerts();
     await loadAlertResponses();
+    syncStageDraftsForCurrentSector();
     await loadStageUpdates();
     if (state.user?.role === "admin") {
       await loadAdminData();
@@ -4036,6 +4149,8 @@ async function handleLogout() {
   state.projectSignals = [];
   state.alertResponses = [];
   state.stageUpdates = [];
+  state.stageDrafts = {};
+  state.stageBatchValidationMode = false;
   window.clearInterval(state.pollTimer);
   updateSessionUi();
   resetDashboardForLoggedOutState();
@@ -4069,8 +4184,9 @@ function renderStageSectorWorkspace() {
   const stageLabel = getStageWorkspaceLabel(sector);
   const matchedProjects = stageWorkspaceSearchProjects();
   const myUpdates = getMyStageUpdates();
-  const pendingMine = myUpdates.filter((item) => isPendingStageStatus(item.status));
   const resolvedMine = myUpdates.filter((item) => isResolvedStageStatus(item.status)).slice(0, 10);
+  const draftEntries = getStageDraftEntries(sector);
+  const readyDrafts = getReadyStageDraftEntries(sector);
   stageUpdatesContentEl.innerHTML = `
     <div class="stage-workspace-shell">
       <section class="admin-card admin-card--wide">
@@ -4080,6 +4196,13 @@ function renderStageSectorWorkspace() {
             <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP 25-1246" />
           </label>
           <div class="stage-muted">Etapa atual do seu login: <strong>${escapeHtml(stageLabel)}</strong></div>
+        </div>
+        <div class="stage-bulk-bar">
+          <div class="stage-muted">Rascunhos salvos: <strong>${draftEntries.length}</strong> • Prontos para envio: <strong>${readyDrafts.length}</strong></div>
+          <div class="stage-row-actions">
+            <button class="ghost-button" type="button" data-stage-clear-drafts="true" ${draftEntries.length ? '' : 'disabled'}>Limpar rascunhos</button>
+            <button class="primary-button" type="button" data-stage-bulk-send="true" ${(readyDrafts.length && !state.stageBulkSubmitting) ? '' : 'disabled'}>${state.stageBulkSubmitting ? 'Enviando lote...' : 'Enviar em massa'}</button>
+          </div>
         </div>
       </section>
       <div class="stage-two-col">
@@ -4108,6 +4231,7 @@ function renderStageSectorWorkspace() {
                         const lastResolved = getLatestResolvedStageUpdate(projectRowId, spool.iso, sector);
                         const submitKey = `${String(projectRowId || '').trim()}::${String(spool.iso || '').trim().toLowerCase()}::${String(sector || '').trim().toLowerCase()}`;
                         const isSubmitting = Boolean(state.stageSubmittingKeys?.[submitKey]);
+                        const draft = getStageDraft(projectRowId, spool.iso, sector) || {};
                         return `
                           <tr>
                             <td>${escapeHtml(spool.iso || '—')}</td>
@@ -4115,12 +4239,13 @@ function renderStageSectorWorkspace() {
                             <td>
                               <div class="stage-row-form" data-stage-update-form="true" data-project-row-id="${escapeHtml(String(projectRowId || ''))}" data-project-number="${escapeHtml(project.projectNumber || '')}" data-spool-iso="${escapeHtml(spool.iso || '')}" data-stage-sector="${escapeHtml(sector || '')}">
                                 <select name="progress" data-stage-progress="true" ${pending || isSubmitting ? 'disabled' : ''}>
-                                  ${STAGE_PROGRESS_OPTIONS.map((value) => `<option value="${value}">${value}%</option>`).join('')}
+                                  <option value="">Selecione</option>
+                                  ${STAGE_PROGRESS_OPTIONS.map((value) => `<option value="${value}" ${Number(draft.progress || 0) === Number(value) ? 'selected' : ''}>${value}%</option>`).join('')}
                                 </select>
                               </div>
                             </td>
-                            <td><input type="date" name="completionDate" value="" ${pending || isSubmitting ? 'disabled' : ''} /></td>
-                            <td><textarea name="note" rows="2" placeholder="Observação opcional" ${pending || isSubmitting ? 'disabled' : ''}></textarea></td>
+                            <td><input type="date" name="completionDate" value="${escapeHtml(draft.completionDate || '')}" ${pending || isSubmitting ? 'disabled' : ''} /></td>
+                            <td><textarea name="note" rows="2" placeholder="Observação opcional" ${pending || isSubmitting ? 'disabled' : ''}>${escapeHtml(draft.note || '')}</textarea></td>
                             <td>
                               ${pending
                                 ? `<span class="stage-badge ${isReviewStageStatus(pending.status) ? 'stage-badge--review' : 'stage-badge--sent'}">${escapeHtml(stageUpdateActionLabel(pending.status))}</span>`
@@ -4175,6 +4300,12 @@ function renderStageValidationWorkspace() {
   }).sort((a,b)=> new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   const pending = filtered.filter((item) => isPendingStageStatus(item.status));
   const history = filtered.filter((item) => isResolvedStageStatus(item.status)).slice(0, 50);
+  const groupedPending = pending.reduce((acc, item) => {
+    const key = String(item.projectDisplay || item.projectNumber || 'Projeto');
+    acc[key] = acc[key] || [];
+    acc[key].push(item);
+    return acc;
+  }, {});
   stageUpdatesContentEl.innerHTML = `
     <div class="stage-workspace-shell">
       <section class="admin-card admin-card--wide">
@@ -4183,9 +4314,37 @@ function renderStageValidationWorkspace() {
             <span>Buscar BSP / spool / setor</span>
             <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP 25-1246" />
           </label>
-          <div class="stage-muted">Pendentes: <strong>${pending.length}</strong> • Histórico: <strong>${history.length}</strong></div>
+          <div class="stage-row-actions">
+            <div class="stage-muted">Pendentes: <strong>${pending.length}</strong> • Histórico: <strong>${history.length}</strong></div>
+            <button class="ghost-button" type="button" data-stage-toggle-batch="true">${state.stageBatchValidationMode ? 'Voltar à lista' : 'Tela em lote'}</button>
+            <button class="primary-button" type="button" data-stage-conclude-bulk="true" ${pending.length ? '' : 'disabled'}>Concluir lote</button>
+          </div>
         </div>
       </section>
+      ${state.stageBatchValidationMode ? `
+      <section class="admin-card admin-card--wide">
+        <div class="admin-card-head"><h4>Validação em lote do PCP</h4></div>
+        ${pending.length ? `<div class="stage-batch-groups">${Object.entries(groupedPending).map(([projectName, items]) => `
+          <article class="stage-project-card">
+            <div class="stage-project-head"><strong>${escapeHtml(projectName)}</strong><div class="stage-muted">${items.length} item(ns)</div></div>
+            <div class="table-shell">
+              <table class="stage-inline-table">
+                <thead><tr><th>Spool</th><th>Setor</th><th>Tipo</th><th>Avanço</th><th>Observação</th><th>Ação</th></tr></thead>
+                <tbody>
+                  ${items.map((item) => `
+                    <tr>
+                      <td>${escapeHtml(item.spoolIso || '—')}</td>
+                      <td>${escapeHtml(sectorLabel(item.sector))}</td>
+                      <td>${escapeHtml(isReviewStageStatus(item.status) ? 'Revisão' : 'Avanço')}</td>
+                      <td>${escapeHtml(String(item.progress || 0))}%</td>
+                      <td>${escapeHtml(item.note || '—')}</td>
+                      <td><button class="primary-button" type="button" data-stage-conclude="${escapeHtml(item.id)}">${escapeHtml(isReviewStageStatus(item.status) ? 'Tratar revisão' : 'Concluir')}</button></td>
+                    </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>
+          </article>`).join('')}</div>` : `<div class="empty-state">Nenhum apontamento pendente no momento.</div>`}
+      </section>` : `
       <div class="stage-two-col">
         <section class="admin-card admin-card--wide">
           <div class="admin-card-head"><h4>Pendentes para validação do PCP</h4></div>
@@ -4229,7 +4388,7 @@ function renderStageValidationWorkspace() {
               </article>`).join('') : `<div class="empty-state">Nenhum histórico validado encontrado.</div>`}
           </div>
         </section>
-      </div>
+      </div>`}
     </div>`;
 }
 
@@ -4283,6 +4442,86 @@ function setStageSubmitting(projectRowId, spoolIso, sector, value) {
   else delete state.stageSubmittingKeys[key];
 }
 
+function persistStageDraftFromRow(rowEl) {
+  const formEl = rowEl?.querySelector('[data-stage-update-form="true"]');
+  if (!formEl) return;
+  const projectRowId = String(formEl.dataset.projectRowId || '').trim();
+  const spoolIso = String(formEl.dataset.spoolIso || '').trim();
+  const sector = String(formEl.dataset.stageSector || getStageWorkspaceSector() || '').trim();
+  if (!projectRowId || !spoolIso) return;
+  const progress = String(formEl.querySelector('[name="progress"]')?.value || '').trim();
+  const completionDate = String(rowEl.querySelector('[name="completionDate"]')?.value || '').trim();
+  const note = String(rowEl.querySelector('[name="note"]')?.value || '').trim();
+  if (!progress && !completionDate && !note) {
+    removeStageDraft(projectRowId, spoolIso, sector);
+    return;
+  }
+  upsertStageDraft(projectRowId, spoolIso, sector, { progress, completionDate, note });
+}
+
+async function handleStageWorkspaceBulkSubmit() {
+  const sector = getStageWorkspaceSector();
+  const items = getReadyStageDraftEntries(sector).map((item) => ({
+    projectRowId: item.projectRowId,
+    spoolIso: item.spoolIso,
+    sector: item.sector,
+    progress: Number(item.progress || 0),
+    completionDate: item.completionDate || '',
+    note: item.note || '',
+    actionType: item.actionType === 'review' ? 'review' : 'advance',
+  }));
+  if (!items.length || state.stageBulkSubmitting) return;
+  state.stageBulkSubmitting = true;
+  renderStageUpdatesModal();
+  try {
+    const response = await fetch('/api/stage-updates', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items, sector }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao enviar lote de apontamentos.');
+    const created = Array.isArray(data.updates) ? data.updates : [];
+    created.forEach((item) => {
+      removeStageDraft(item.projectRowId, item.spoolIso, item.sector || sector);
+      state.stageUpdates = [item, ...(Array.isArray(state.stageUpdates) ? state.stageUpdates : [])];
+    });
+    state.stageBulkSubmitting = false;
+    renderStageUpdatesModal();
+    if (Array.isArray(data.errors) && data.errors.length) {
+      window.alert(`Lote enviado parcialmente. Sucesso: ${created.length}. Pendências: ${data.errors.length}.`);
+    }
+    loadStageUpdates().then(() => renderStageUpdatesModal()).catch(() => {});
+  } catch (error) {
+    state.stageBulkSubmitting = false;
+    renderStageUpdatesModal();
+    window.alert(error.message || 'Falha ao enviar lote de apontamentos.');
+  }
+}
+
+async function concludeStageUpdatesBulk(ids = []) {
+  const cleanIds = Array.from(new Set((Array.isArray(ids) ? ids : []).map((id) => String(id || '').trim()).filter(Boolean)));
+  if (!cleanIds.length) return;
+  const resolutionInput = window.prompt('Observação de validação do PCP para o lote (opcional):', '');
+  if (resolutionInput === null) return;
+  const resolutionNote = String(resolutionInput || '').trim();
+  try {
+    const response = await fetch('/api/stage-updates', {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: cleanIds, resolutionNote }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao concluir lote de apontamentos.');
+    await loadStageUpdates();
+    renderStageUpdatesModal();
+  } catch (error) {
+    window.alert(error.message || 'Falha ao concluir lote de apontamentos.');
+  }
+}
+
 async function handleStageWorkspaceSubmit(formEl, actionType = 'advance') {
   const rowEl = formEl?.closest('tr');
   const projectRowId = String(formEl?.dataset?.projectRowId || '').trim();
@@ -4291,6 +4530,7 @@ async function handleStageWorkspaceSubmit(formEl, actionType = 'advance') {
   const progress = String(formEl?.querySelector('[name="progress"]')?.value || '').trim();
   const completionDate = String(rowEl?.querySelector('[name="completionDate"]')?.value || '').trim();
   const note = String(rowEl?.querySelector('[name="note"]')?.value || '').trim();
+  upsertStageDraft(projectRowId, spoolIso, sector, { progress, completionDate, note, actionType });
   if (!projectRowId || !spoolIso || !progress) {
     window.alert('Preencha o avanço do spool antes de enviar.');
     return;
@@ -4322,6 +4562,7 @@ async function handleStageWorkspaceSubmit(formEl, actionType = 'advance') {
       createdAt: new Date().toISOString(),
     };
     state.stageUpdates = [newUpdate, ...(Array.isArray(state.stageUpdates) ? state.stageUpdates : [])];
+    removeStageDraft(projectRowId, spoolIso, sector);
     setStageSubmitting(projectRowId, spoolIso, sector, false);
     renderStageUpdatesModal();
     loadStageUpdates().then(() => {
@@ -4489,6 +4730,7 @@ async function init() {
     await syncPushSubscription(false).catch(() => {});
     await loadManualAlerts();
     await loadAlertResponses();
+    syncStageDraftsForCurrentSector();
     await loadStageUpdates();
     if (state.user?.role === "admin") {
       await loadAdminData();
