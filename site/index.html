@@ -41,6 +41,7 @@
               <button id="open-my-project-signals" class="ghost-button ghost-button--compact hidden" type="button">Minhas sinalizações</button>
               <button id="open-project-signals" class="ghost-button ghost-button--compact hidden" type="button">Alertas Projetos</button>
               <button id="open-stage-updates" class="ghost-button ghost-button--compact hidden" type="button">Apontamentos</button>
+              <button id="open-change-password-button" class="ghost-button ghost-button--compact hidden" type="button">Mudar senha</button>
               <button id="open-admin-panel" class="ghost-button ghost-button--compact hidden" type="button">Admin</button>
               <button id="logout-button" class="ghost-button ghost-button--compact hidden" type="button">Sair</button>
             </div>
@@ -534,6 +535,33 @@
         <button id="attention-popup-action" class="primary-button" type="button">Abrir alerta</button>
         <button id="attention-popup-close" class="ghost-button" type="button">Fechar</button>
       </div>
+    </div>
+  </div>
+</div>
+
+
+<div id="change-password-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-backdrop" data-close-change-password="true"></div>
+  <div class="modal-dialog modal-dialog--small" role="dialog" aria-modal="true" aria-labelledby="change-password-title">
+    <div class="modal-head">
+      <div>
+        <p class="modal-eyebrow">Segurança de acesso</p>
+        <h3 id="change-password-title">Alterar senha</h3>
+        <p class="modal-subtitle">Digite a senha atual e defina a nova senha de acesso.</p>
+      </div>
+      <button id="change-password-close" class="modal-close" type="button" aria-label="Fechar">×</button>
+    </div>
+    <div class="modal-content">
+      <form id="change-password-form" class="stack-form">
+        <label class="stack-field"><span>Senha atual</span><input id="change-password-current" type="password" autocomplete="current-password" /></label>
+        <label class="stack-field"><span>Nova senha</span><input id="change-password-new" type="password" autocomplete="new-password" /></label>
+        <label class="stack-field"><span>Confirmar nova senha</span><input id="change-password-confirm" type="password" autocomplete="new-password" /></label>
+        <div class="stack-actions">
+          <button class="primary-button" type="submit">Salvar nova senha</button>
+          <button class="ghost-button" type="button" id="change-password-cancel">Cancelar</button>
+        </div>
+        <div id="change-password-feedback" class="form-feedback" aria-live="polite"></div>
+      </form>
     </div>
   </div>
 </div>

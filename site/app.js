@@ -85,7 +85,15 @@ const sessionUserNameEl = document.getElementById("session-user-name");
 const sessionUserMetaEl = document.getElementById("session-user-meta");
 const sessionStatusEl = document.getElementById("session-status");
 const logoutButtonEl = document.getElementById("logout-button");
+const openChangePasswordButtonEl = document.getElementById("open-change-password-button");
 const openLoginButtonEl = document.getElementById("open-login-button");
+const changePasswordModalEl = document.getElementById("change-password-modal");
+const changePasswordFormEl = document.getElementById("change-password-form");
+const changePasswordCurrentEl = document.getElementById("change-password-current");
+const changePasswordNewEl = document.getElementById("change-password-new");
+const changePasswordConfirmEl = document.getElementById("change-password-confirm");
+const changePasswordFeedbackEl = document.getElementById("change-password-feedback");
+const changePasswordCloseEl = document.getElementById("change-password-close");
 const openSectorAlertsEl = document.getElementById("open-sector-alerts");
 const openMyProjectSignalsEl = document.getElementById("open-my-project-signals");
 const openProjectSignalsEl = document.getElementById("open-project-signals");
@@ -3040,6 +3048,31 @@ if (logoutButtonEl) {
   logoutButtonEl.addEventListener("click", handleLogout);
 }
 
+if (openChangePasswordButtonEl) {
+  openChangePasswordButtonEl.addEventListener("click", openChangePasswordModal);
+}
+
+if (changePasswordCloseEl) {
+  changePasswordCloseEl.addEventListener("click", closeChangePasswordModal);
+}
+
+const changePasswordCancelEl = document.getElementById("change-password-cancel");
+if (changePasswordCancelEl) {
+  changePasswordCancelEl.addEventListener("click", closeChangePasswordModal);
+}
+
+if (changePasswordModalEl) {
+  changePasswordModalEl.addEventListener("click", (event) => {
+    if (event.target?.dataset?.closeChangePassword === "true") {
+      closeChangePasswordModal();
+    }
+  });
+}
+
+if (changePasswordFormEl) {
+  changePasswordFormEl.addEventListener("submit", handleChangePasswordSubmit);
+}
+
 if (projectViewTabsEl) {
   projectViewTabsEl.addEventListener('click', (event) => {
     const button = event.target.closest('[data-project-view]');
@@ -3439,6 +3472,82 @@ function setupAdminPasswordToggle() {
   sync();
 }
 
+
+function closeChangePasswordModal() {
+  if (!changePasswordModalEl) return;
+  changePasswordModalEl.classList.add("hidden");
+  changePasswordModalEl.setAttribute("aria-hidden", "true");
+  if (changePasswordFormEl) changePasswordFormEl.reset();
+  if (changePasswordFeedbackEl) changePasswordFeedbackEl.textContent = "";
+  if (
+    modalEl.classList.contains("hidden") &&
+    alertModalEl.classList.contains("hidden") &&
+    sectorAlertsModalEl.classList.contains("hidden") &&
+    stageUpdatesModalEl.classList.contains('hidden') &&
+    loginModalEl.classList.contains("hidden") &&
+    adminModalEl.classList.contains("hidden")
+  ) {
+    document.body.classList.remove("modal-open");
+  }
+}
+
+function openChangePasswordModal() {
+  if (!state.user || !changePasswordModalEl) return;
+  changePasswordModalEl.classList.remove("hidden");
+  changePasswordModalEl.setAttribute("aria-hidden", "false");
+  if (changePasswordFormEl) changePasswordFormEl.reset();
+  if (changePasswordFeedbackEl) changePasswordFeedbackEl.textContent = "";
+  document.body.classList.add("modal-open");
+  window.setTimeout(() => {
+    if (changePasswordCurrentEl) changePasswordCurrentEl.focus();
+  }, 50);
+}
+
+async function handleChangePasswordSubmit(event) {
+  event.preventDefault();
+  if (!state.user || !changePasswordFeedbackEl) return;
+  const currentPassword = String(changePasswordCurrentEl?.value || '').trim();
+  const newPassword = String(changePasswordNewEl?.value || '').trim();
+  const confirmPassword = String(changePasswordConfirmEl?.value || '').trim();
+
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    changePasswordFeedbackEl.textContent = 'Preencha todos os campos.';
+    return;
+  }
+  if (newPassword.length < 6) {
+    changePasswordFeedbackEl.textContent = 'A nova senha deve ter pelo menos 6 caracteres.';
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    changePasswordFeedbackEl.textContent = 'A confirmação da nova senha não confere.';
+    return;
+  }
+  if (currentPassword === newPassword) {
+    changePasswordFeedbackEl.textContent = 'A nova senha precisa ser diferente da atual.';
+    return;
+  }
+
+  try {
+    changePasswordFeedbackEl.textContent = 'Alterando senha...';
+    const response = await fetch('/api/change-password', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.error || 'Não foi possível alterar a senha.');
+    }
+    changePasswordFeedbackEl.textContent = 'Senha alterada com sucesso.';
+    window.setTimeout(() => {
+      closeChangePasswordModal();
+    }, 700);
+  } catch (error) {
+    changePasswordFeedbackEl.textContent = error.message || 'Não foi possível alterar a senha.';
+  }
+}
+
 function updateSessionUi() {
   const user = state.user;
   if (!user) {
@@ -3451,6 +3560,7 @@ function updateSessionUi() {
     renderProjectViewTabs();
     sessionStatusEl.textContent = "bloqueado";
     logoutButtonEl.classList.add("hidden");
+    if (openChangePasswordButtonEl) openChangePasswordButtonEl.classList.add("hidden");
     openAdminPanelEl.classList.add("hidden");
     if (openLoginButtonEl) openLoginButtonEl.classList.remove("hidden");
     return;
@@ -3468,6 +3578,7 @@ function updateSessionUi() {
   updatePrimaryUserActionUi();
   sessionStatusEl.textContent = "online";
   logoutButtonEl.classList.remove("hidden");
+  if (openChangePasswordButtonEl) openChangePasswordButtonEl.classList.remove("hidden");
   if (openLoginButtonEl) openLoginButtonEl.classList.add("hidden");
   if (user.role === "admin") {
     openAdminPanelEl.classList.remove("hidden");
