@@ -7,6 +7,7 @@ const state = {
   projects: [],
   filteredProjects: [],
   projectView: 'all',
+  sectorScopedView: false,
   stats: null,
   meta: null,
   alerts: [],
@@ -685,6 +686,9 @@ function getVisibleAlertsSource() {
   const alerts = Array.isArray(state.alerts) ? state.alerts : [];
   if (userHasProjectsScope() && state.projectView === 'mine') {
     return alerts.filter((alert) => alertBelongsToUser(alert));
+  }
+  if (isSectorScopedViewActive()) {
+    return alerts.filter((alert) => alertMatchesScopedSector(alert));
   }
   return alerts;
 }
@@ -1437,21 +1441,61 @@ function userHasProjectsScope(user = state.user) {
   return getUserAlertSectors(user).includes("projetos") || normalizeSectorValue(user.sector) === "projetos";
 }
 
+function getPrimaryUserSector(user = state.user) {
+  if (!user) return '';
+  const linkedSectors = getUserAlertSectors(user);
+  if (linkedSectors.length) {
+    const firstOperational = linkedSectors.find((sector) => sector !== 'pcp' && sector !== 'projetos');
+    if (firstOperational) return firstOperational;
+    return linkedSectors[0];
+  }
+  return normalizeSectorValue(user.sector);
+}
+
+function isSectorScopedViewActive(user = state.user) {
+  return Boolean(user) && !userHasProjectsScope(user) && user.role !== 'admin' && state.sectorScopedView;
+}
+
+function getScopedDemandLabelsForUser(user = state.user) {
+  const sector = getPrimaryUserSector(user);
+  if (sector === 'pendente_envio') return ['Logística', 'Pendente de envio'];
+  if (sector === 'inspecao') return ['Inspeção'];
+  if (sector === 'pintura') return ['Pintura'];
+  if (sector === 'solda' || sector === 'calderaria' || sector === 'producao') return ['Produção'];
+  return [];
+}
+
+function projectMatchesScopedSector(project, user = state.user) {
+  const labels = getScopedDemandLabelsForUser(user).map((item) => normalizeText(item).trim()).filter(Boolean);
+  if (!labels.length) return true;
+  const currentGroup = normalizeText(project?.currentStageGroup || simplifyCurrentStage(project)).trim();
+  return labels.includes(currentGroup);
+}
+
+function alertMatchesScopedSector(alert, user = state.user) {
+  const sector = getPrimaryUserSector(user);
+  if (!sector) return true;
+  return normalizeSectorValue(alert?.sector) === sector;
+}
+
 function updatePrimaryUserActionUi() {
   if (!openSectorAlertsEl) return;
   const projectsScope = userHasProjectsScope();
   const viewingMine = projectsScope && state.projectView === "mine";
+  const sectorScopedView = isSectorScopedViewActive();
   openSectorAlertsEl.textContent = projectsScope
     ? (viewingMine ? "Todos os projetos" : "Meus projetos")
-    : "Meus alertas";
+    : (sectorScopedView ? "Todos os alertas" : "Meus alertas");
   openSectorAlertsEl.title = projectsScope
     ? (viewingMine
         ? "Voltar para a visualização com todos os projetos"
         : "Visualizar apenas os projetos vinculados ao seu nome na coluna PM")
-    : "Visualizar alertas direcionados ao seu setor";
+    : (sectorScopedView
+        ? "Voltar para a visualização com todos os projetos e alertas"
+        : "Visualizar apenas os projetos e alertas do seu setor monitorado");
   const titleEl = document.getElementById("sector-alerts-title");
   if (titleEl && state.sectorAlertsMode !== 'project-signals') {
-    titleEl.textContent = projectsScope ? "Meus projetos" : "Meus alertas por setor";
+    titleEl.textContent = projectsScope ? "Meus projetos" : (sectorScopedView ? "Meus alertas por setor" : "Meus alertas por setor");
   }
   if (openMyProjectSignalsEl) {
     const canViewMine = canViewMyProjectSignals();
@@ -1509,6 +1553,9 @@ function projectBelongsToUser(project, user = state.user) {
 function getVisibleProjectsSource() {
   if (state.projectView === 'mine' && userHasProjectsScope()) {
     return state.projects.filter((project) => projectBelongsToUser(project));
+  }
+  if (isSectorScopedViewActive()) {
+    return state.projects.filter((project) => projectMatchesScopedSector(project));
   }
   return state.projects;
 }
@@ -2430,10 +2477,25 @@ if (openSectorAlertsEl) {
       renderStats();
       renderTable();
       renderSelectedProjectCard();
+      renderAlertBadge();
+      if (alertModalEl && !alertModalEl.classList.contains('hidden')) {
+        renderAlertModal();
+      }
       if (tableShellEl) tableShellEl.scrollTop = 0;
       return;
     }
-    openSectorAlertsModal();
+    state.sectorScopedView = !state.sectorScopedView;
+    state.alertSectorFilter = state.sectorScopedView ? normalizeAlertSectorFilterValue(getPrimaryUserSector()) || 'all' : 'all';
+    updatePrimaryUserActionUi();
+    applyFilter();
+    renderStats();
+    renderTable();
+    renderSelectedProjectCard();
+    renderAlertBadge();
+    if (alertModalEl && !alertModalEl.classList.contains('hidden')) {
+      renderAlertModal();
+    }
+    if (tableShellEl) tableShellEl.scrollTop = 0;
   });
 }
 
@@ -2756,6 +2818,8 @@ function updateSessionUi() {
   const user = state.user;
   if (!user) {
     state.projectView = 'all';
+    state.sectorScopedView = false;
+    state.alertSectorFilter = 'all';
     sessionUserNameEl.textContent = "Acesso bloqueado";
     sessionUserMetaEl.textContent = "Faça login para visualizar os projetos, indicadores e detalhes do painel.";
     updatePrimaryUserActionUi();
@@ -2769,6 +2833,8 @@ function updateSessionUi() {
 
   if (!userHasProjectsScope(user)) {
     state.projectView = 'all';
+    state.sectorScopedView = false;
+    state.alertSectorFilter = 'all';
   }
 
   sessionUserNameEl.textContent = user.name || user.username;
@@ -3987,7 +4053,11 @@ async function concludeStageUpdate(id) {
   const resolutionPrompt = isReviewStageStatus(update?.status)
     ? 'Observação da tratativa da revisão (opcional):'
     : 'Observação de validação do PCP (opcional):';
-  const resolutionNote = window.prompt(resolutionPrompt, '') || '';
+  const resolutionInput = window.prompt(resolutionPrompt, '');
+  if (resolutionInput === null) {
+    return;
+  }
+  const resolutionNote = String(resolutionInput || '').trim();
   try {
     const response = await fetch('/api/stage-updates', {
       method: 'PATCH',
