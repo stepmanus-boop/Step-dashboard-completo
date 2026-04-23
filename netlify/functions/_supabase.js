@@ -296,132 +296,6 @@ async function removePushSubscription(endpoint) {
   return true;
 }
 
-
-function mapStageUpdate(row) {
-  if (!row) return null;
-  return {
-    id: row.id,
-    projectRowId: Number(row.project_row_id || 0),
-    projectNumber: row.project_number || '',
-    projectDisplay: row.project_display || '',
-    client: row.client || '',
-    spoolIso: row.spool_iso || '',
-    spoolDescription: row.spool_description || '',
-    sector: normalizeSectorValue(row.sector),
-    progress: Number(row.progress || 0),
-    completionDate: row.completion_date || '',
-    note: row.note || '',
-    status: row.status || 'pending',
-    createdBy: row.created_by || '',
-    createdByName: row.created_by_name || '',
-    createdAt: row.created_at || null,
-    resolvedBy: row.resolved_by || '',
-    resolvedByName: row.resolved_by_name || '',
-    resolvedAt: row.resolved_at || null,
-    resolutionNote: row.resolution_note || '',
-  };
-}
-
-async function listStageUpdates() {
-  try {
-    const rows = await supabaseFetch('/rest/v1/stage_updates?select=*&order=created_at.desc');
-    return (Array.isArray(rows) ? rows : []).map(mapStageUpdate);
-  } catch (error) {
-    if (String(error.message || '').includes('stage_updates')) return [];
-    throw error;
-  }
-}
-
-async function createStageUpdate(input) {
-  const payload = {
-    id: input.id,
-    project_row_id: Number(input.projectRowId || 0),
-    project_number: input.projectNumber || '',
-    project_display: input.projectDisplay || '',
-    client: input.client || '',
-    spool_iso: input.spoolIso || '',
-    spool_description: input.spoolDescription || '',
-    sector: input.sector || '',
-    progress: Number(input.progress || 0),
-    completion_date: input.completionDate || null,
-    note: input.note || '',
-    status: input.status || 'pending',
-    created_by: input.createdBy || '',
-    created_by_name: input.createdByName || '',
-    created_at: input.createdAt || null,
-    resolved_by: input.resolvedBy || null,
-    resolved_by_name: input.resolvedByName || null,
-    resolved_at: input.resolvedAt || null,
-    resolution_note: input.resolutionNote || '',
-  };
-  const rows = await supabaseFetch('/rest/v1/stage_updates?select=*', {
-    method: 'POST',
-    headers: getSupabaseHeaders('return=representation'),
-    body: JSON.stringify(payload),
-  });
-  const mapped = mapStageUpdate(Array.isArray(rows) ? rows[0] : null);
-  if (mapped) return mapped;
-  return {
-    id: input.id,
-    projectRowId: Number(input.projectRowId || 0),
-    projectNumber: input.projectNumber || '',
-    projectDisplay: input.projectDisplay || '',
-    client: input.client || '',
-    spoolIso: input.spoolIso || '',
-    spoolDescription: input.spoolDescription || '',
-    sector: normalizeSectorValue(input.sector || ''),
-    progress: Number(input.progress || 0),
-    completionDate: input.completionDate || '',
-    note: input.note || '',
-    status: input.status || 'pending',
-    createdBy: input.createdBy || '',
-    createdByName: input.createdByName || '',
-    createdAt: input.createdAt || null,
-    resolvedBy: input.resolvedBy || '',
-    resolvedByName: input.resolvedByName || '',
-    resolvedAt: input.resolvedAt || null,
-    resolutionNote: input.resolutionNote || '',
-  };
-}
-
-async function updateStageUpdate(id, updates) {
-  const q = encodeURIComponent(String(id || '').trim());
-  const payload = {};
-  if ('status' in updates) payload.status = updates.status;
-  if ('resolvedBy' in updates) payload.resolved_by = updates.resolvedBy;
-  if ('resolvedByName' in updates) payload.resolved_by_name = updates.resolvedByName;
-  if ('resolvedAt' in updates) payload.resolved_at = updates.resolvedAt;
-  if ('resolutionNote' in updates) payload.resolution_note = updates.resolutionNote;
-  const rows = await supabaseFetch(`/rest/v1/stage_updates?id=eq.${q}&select=*`, {
-    method: 'PATCH',
-    headers: getSupabaseHeaders('return=representation'),
-    body: JSON.stringify(payload),
-  });
-  const mapped = mapStageUpdate(Array.isArray(rows) ? rows[0] : null);
-  if (mapped) return mapped;
-  return {
-    id: String(id || '').trim(),
-    projectRowId: Number(updates.projectRowId || 0),
-    projectNumber: updates.projectNumber || '',
-    projectDisplay: updates.projectDisplay || '',
-    client: updates.client || '',
-    spoolIso: updates.spoolIso || '',
-    spoolDescription: updates.spoolDescription || '',
-    sector: normalizeSectorValue(updates.sector || ''),
-    progress: Number(updates.progress || 0),
-    completionDate: updates.completionDate || '',
-    note: updates.note || '',
-    status: updates.status || 'resolved',
-    createdBy: updates.createdBy || '',
-    createdByName: updates.createdByName || '',
-    createdAt: updates.createdAt || null,
-    resolvedBy: updates.resolvedBy || '',
-    resolvedByName: updates.resolvedByName || '',
-    resolvedAt: updates.resolvedAt || null,
-    resolutionNote: updates.resolutionNote || '',
-  };
-}
-
 module.exports = {
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
@@ -431,6 +305,7 @@ module.exports = {
   getUserById,
   insertUser,
   updateUser,
+  updateUserPassword,
   listManualAlerts,
   createManualAlert,
   listAcknowledgements,
@@ -439,9 +314,6 @@ module.exports = {
   listAlertResponses,
   createAlertResponse,
   updateAlertResponse,
-  listStageUpdates,
-  createStageUpdate,
-  updateStageUpdate,
   userPasswordMatches,
   mapUser,
   mapAlert,
@@ -451,3 +323,18 @@ module.exports = {
   normalizeSectorList,
   normalizeText,
 };
+async function updateUserPassword(userId, passwordHash) {
+  const id = String(userId || '').trim();
+  if (!id) throw new Error('Usuário não informado para atualização da senha.');
+  const rows = await supabaseFetch(`/rest/v1/users?id=eq.${encodeURIComponent(id)}&select=*`, {
+    method: 'PATCH',
+    headers: getSupabaseHeaders('return=representation'),
+    body: JSON.stringify({
+      password_hash: passwordHash,
+      updated_at: new Date().toISOString(),
+    }),
+  });
+  return mapUser(Array.isArray(rows) ? rows[0] : null);
+}
+
+

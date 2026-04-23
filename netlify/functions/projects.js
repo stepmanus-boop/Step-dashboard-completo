@@ -177,27 +177,6 @@ function parseDateObject(value) {
   return null;
 }
 
-
-function pickFirstNonEmpty(...values) {
-  for (const value of values) {
-    if (value == null) continue;
-    const str = String(value).trim();
-    if (str) return str;
-  }
-  return "";
-}
-
-function getChildPlannedDate(childRows, key, mode = "min") {
-  const dates = childRows
-    .map((row) => textValue(row, key))
-    .map((value) => ({ raw: value, parsed: parseDateObject(value) }))
-    .filter((item) => item.raw && item.parsed);
-
-  if (!dates.length) return "";
-  dates.sort((a, b) => a.parsed - b.parsed);
-  return formatDateValue((mode === "max" ? dates[dates.length - 1] : dates[0]).raw);
-}
-
 function getWeekAnchor(year) {
   const jan1 = new Date(Date.UTC(year, 0, 1));
   const anchor = new Date(jan1);
@@ -690,14 +669,6 @@ function buildProject(summaryRow, childRows) {
   const weldingPercent = parsePercent(summaryRow, "Full welding execution") ?? 0;
   const weldingFinishDate = textValue(summaryRow, "Welding Finish Date");
   const spools = childRows.map((row) => buildSpoolRow(row, summaryRow));
-  const plannedStartDate = pickFirstNonEmpty(
-    formatDateValue(textValue(summaryRow, "Start Date")),
-    getChildPlannedDate(childRows, "Start Date", "min")
-  );
-  const plannedFinishDate = pickFirstNonEmpty(
-    formatDateValue(textValue(summaryRow, "Finish Date")),
-    getChildPlannedDate(childRows, "Finish Date", "max")
-  );
   const summaryWeldedWeightKg = (() => {
     const kilos = parseNumber(summaryRow, "Kilos");
     if (kilos == null) return null;
@@ -743,8 +714,8 @@ function buildProject(summaryRow, childRows) {
     summaryDrawing: textValue(summaryRow, "Drawing"),
     projectType: textValue(summaryRow, "Project Type"),
     fabricationStartDate: formatDateValue(textValue(summaryRow, "Fabrication Start Date")),
-    plannedStartDate,
-    plannedFinishDate,
+    plannedStartDate: formatDateValue(textValue(summaryRow, "Start Date")),
+    plannedFinishDate: formatDateValue(textValue(summaryRow, "Finish Date")),
     client: textValue(summaryRow, "Client"),
     pm: textValue(summaryRow, "PM"),
     vessel: textValue(summaryRow, "Vessel"),

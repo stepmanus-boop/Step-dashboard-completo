@@ -36,8 +36,7 @@ const state = {
   sectorAlertsMode: 'default',
   stageUpdates: [],
   stageUpdatesSearchQuery: '',
-  stageSubmissionLocks: {},
-  projectSignalSubmitting: false,
+  sectorDemandFilterActive: false,
 };
 
 const bodyEl = document.getElementById("projects-body");
@@ -79,6 +78,15 @@ const openSectorAlertsEl = document.getElementById("open-sector-alerts");
 const openMyProjectSignalsEl = document.getElementById("open-my-project-signals");
 const openProjectSignalsEl = document.getElementById("open-project-signals");
 const openStageUpdatesEl = document.getElementById("open-stage-updates");
+const openChangePasswordEl = document.getElementById("open-change-password");
+const changePasswordModalEl = document.getElementById("change-password-modal");
+const changePasswordCloseEl = document.getElementById("change-password-close");
+const changePasswordCancelEl = document.getElementById("change-password-cancel");
+const changePasswordFormEl = document.getElementById("change-password-form");
+const changePasswordCurrentEl = document.getElementById("change-password-current");
+const changePasswordNewEl = document.getElementById("change-password-new");
+const changePasswordConfirmEl = document.getElementById("change-password-confirm");
+const changePasswordFeedbackEl = document.getElementById("change-password-feedback");
 const sectorAlertsModalEl = document.getElementById("sector-alerts-modal");
 const sectorAlertsCloseEl = document.getElementById("sector-alerts-close");
 const sectorAlertsContentEl = document.getElementById("sector-alerts-content");
@@ -127,9 +135,6 @@ const stageUpdatesContentEl = document.getElementById('stage-updates-content');
 const installAppButtonEl = document.getElementById("install-app-button");
 const connectionStatusEl = document.getElementById("connection-status");
 let deferredInstallPrompt = null;
-
-loadStageSubmissionLocks();
-setInterval(() => pruneExpiredStageSubmissionLocks(true), 1000);
 
 
 function setAdminActiveTab(tab) {
@@ -1005,71 +1010,50 @@ function canValidateStageWorkspace(user = state.user) {
   return getStageWorkspaceSector(user) === 'pcp';
 }
 
-function stageWorkspaceSearchProjects() {
-  const queryRaw = String(state.stageUpdatesSearchQuery || '').trim();
-  const query = normalizeText(queryRaw);
-  const queryCompact = normalizeCompactText(queryRaw);
-  const source = Array.isArray(state.projects) ? state.projects : [];
-  if (!query && !queryCompact) return source.slice(0, 8);
-
-  return source.filter((project) => {
-    const spools = Array.isArray(project?.spools) ? project.spools : [];
-    const spoolParts = spools.slice(0, 100).flatMap((spool) => [
-      spool?.iso,
-      spool?.drawing,
-      spool?.description,
-      spool?.spool,
-      spool?.spoolNumber,
-    ]);
-    const haystack = buildSearchIndex([
-      project?.projectNumber,
-      project?.projectDisplay,
-      project?.projectPrefix,
-      project?.client,
-      project?.currentStage,
-      ...spoolParts,
-    ]);
-    return Boolean((query && haystack.includes(query))
-      || (queryCompact && haystack.includes(queryCompact)));
-  }).slice(0, 8);
+function normalizeStageWorkspaceSearchVariants(value) {
+  const normalized = normalizeText(value || '').trim();
+  const digits = normalized.replace(/\D+/g, '');
+  const variants = new Set();
+  if (normalized) variants.add(normalized);
+  if (digits) {
+    variants.add(digits);
+    if (digits.length >= 4) {
+      variants.add(`${digits.slice(0, 2)}-${digits.slice(2)}`);
+      variants.add(`${digits.slice(0, 2)} ${digits.slice(2)}`);
+      variants.add(`bsp ${digits.slice(0, 2)}-${digits.slice(2)}`);
+      variants.add(`bsp ${digits.slice(0, 2)} ${digits.slice(2)}`);
+    }
+  }
+  return Array.from(variants);
 }
 
-function filterStageWorkspaceSpools(project, queryRaw = state.stageUpdatesSearchQuery || '') {
-  const spools = Array.isArray(project?.spools) ? project.spools : [];
-  const raw = String(queryRaw || '').trim();
-  const query = normalizeText(raw);
-  const queryCompact = normalizeCompactText(raw);
-  if (!query && !queryCompact) return spools;
+function stageWorkspaceSearchProjects() {
+  const query = normalizeText(state.stageUpdatesSearchQuery || '');
+  const source = Array.isArray(state.projects) ? state.projects : [];
+  if (!query) return source.slice(0, 8);
+  const variants = normalizeStageWorkspaceSearchVariants(query);
 
-  const projectHaystack = buildSearchIndex([
-    project?.projectNumber,
-    project?.projectDisplay,
-    project?.projectPrefix,
-    project?.client,
-    project?.currentStage,
-  ]);
-  const matchesProjectOnly = Boolean(
-    (query && projectHaystack.includes(query)) || (queryCompact && projectHaystack.includes(queryCompact))
-  );
+  return source.filter((project) => {
+    const values = [
+      project.projectNumber,
+      project.projectDisplay,
+      project.projectAlias,
+      project.client,
+      project.currentStage,
+    ].map((value) => normalizeText(value || ''));
 
-  const matchedSpools = spools.filter((spool) => {
-    const spoolHaystack = buildSearchIndex([
-      spool?.iso,
-      spool?.drawing,
-      spool?.description,
-      spool?.spool,
-      spool?.spoolNumber,
-      project?.projectNumber,
-      project?.projectDisplay,
-      project?.projectPrefix,
-      project?.client,
-    ]);
-    return Boolean(
-      (query && spoolHaystack.includes(query)) || (queryCompact && spoolHaystack.includes(queryCompact))
-    );
-  });
+    const projectDigits = normalizeText([
+      project.projectNumber,
+      project.projectDisplay,
+      project.projectAlias,
+    ].join(' ')).replace(/\D+/g, '');
 
-  return matchedSpools.length ? matchedSpools : (matchesProjectOnly ? spools : []);
+    return variants.some((variant) => {
+      if (!variant) return false;
+      if (/^\d+$/.test(variant) && projectDigits.includes(variant)) return true;
+      return values.some((value) => value.includes(variant));
+    });
+  }).slice(0, 8);
 }
 
 function getStageUpdatesForCurrentSector(source = null, sector = getStageWorkspaceSector()) {
@@ -1107,88 +1091,6 @@ function formatStageDate(value) {
   return escapeHtml(String(value));
 }
 
-const STAGE_SUBMISSION_LOCK_MS = 60 * 1000;
-const STAGE_SUBMISSION_LOCK_STORAGE_KEY = 'step_stage_submission_locks_v1';
-
-function getStageSubmissionKey(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
-  return [normalizeSectorValue(sector), String(projectRowId || '').trim(), String(spoolIso || '').trim().toLowerCase()].join('::');
-}
-
-function loadStageSubmissionLocks() {
-  try {
-    const raw = window.localStorage.getItem(STAGE_SUBMISSION_LOCK_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    state.stageSubmissionLocks = parsed && typeof parsed === 'object' ? parsed : {};
-  } catch (_) {
-    state.stageSubmissionLocks = {};
-  }
-  pruneExpiredStageSubmissionLocks(false);
-}
-
-function persistStageSubmissionLocks() {
-  try {
-    window.localStorage.setItem(STAGE_SUBMISSION_LOCK_STORAGE_KEY, JSON.stringify(state.stageSubmissionLocks || {}));
-  } catch (_) {}
-}
-
-function pruneExpiredStageSubmissionLocks(shouldRender = true) {
-  const now = Date.now();
-  const entries = state.stageSubmissionLocks && typeof state.stageSubmissionLocks === 'object' ? state.stageSubmissionLocks : {};
-  let changed = false;
-  Object.keys(entries).forEach((key) => {
-    const item = entries[key] || {};
-    const resendAt = Number(item.resendAt || 0);
-    if (item.status !== 'sending' && resendAt && resendAt <= now) {
-      delete entries[key];
-      changed = true;
-    }
-  });
-  if (changed) {
-    persistStageSubmissionLocks();
-    if (shouldRender && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
-      renderStageUpdatesModal();
-    }
-  }
-}
-
-function setStageSubmissionLock(projectRowId, spoolIso, payload = {}) {
-  const key = getStageSubmissionKey(projectRowId, spoolIso, payload.sector);
-  state.stageSubmissionLocks[key] = {
-    status: payload.status || 'sent',
-    resendAt: Number(payload.resendAt || 0),
-    updatedAt: Date.now(),
-  };
-  persistStageSubmissionLocks();
-}
-
-function clearStageSubmissionLock(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
-  const key = getStageSubmissionKey(projectRowId, spoolIso, sector);
-  if (state.stageSubmissionLocks && state.stageSubmissionLocks[key]) {
-    delete state.stageSubmissionLocks[key];
-    persistStageSubmissionLocks();
-  }
-}
-
-function getStageSubmissionLock(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
-  pruneExpiredStageSubmissionLocks(false);
-  const key = getStageSubmissionKey(projectRowId, spoolIso, sector);
-  const item = state.stageSubmissionLocks && state.stageSubmissionLocks[key] ? state.stageSubmissionLocks[key] : null;
-  if (!item) return null;
-  if (item.status !== 'sending' && item.resendAt && Number(item.resendAt) <= Date.now()) {
-    clearStageSubmissionLock(projectRowId, spoolIso, sector);
-    return null;
-  }
-  return item;
-}
-
-function formatStageSubmissionCountdown(msRemaining) {
-  const totalSeconds = Math.max(0, Math.ceil(Number(msRemaining || 0) / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, '0')}`;
-}
-
-
 function renderProjectSignals(project) {
   const signals = getProjectSignals(project);
   const actionButton = canCreateProjectSignal(project)
@@ -1198,7 +1100,7 @@ function renderProjectSignals(project) {
     ? signals.map((alert) => {
         const resolved = getSignalResolutionInfo(alert.id);
         return `
-          <article class="project-signal-item ${resolved ? 'project-signal-item--resolved' : ''}">
+          <article class="project-signal-item">
             <div class="admin-list-item-meta">
               ${getSignalStatusBadge(alert)}
               <span>${escapeHtml(new Date(alert.createdAt).toLocaleString('pt-BR'))}</span>
@@ -1208,7 +1110,7 @@ function renderProjectSignals(project) {
             <p>${escapeHtml(alert.message || '').replace(/\n/g, '<br>')}</p>
             <div class="manual-alert-actions">
               ${resolved
-                ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag manual-alert-tag--resolved-time">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
+                ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
                 : `${canResolveSignal() ? `<button class="ghost-button" type="button" data-resolve-signal="${escapeHtml(alert.id)}">Marcar como resolvida</button>` : ''}`}
             </div>
             ${resolved && resolved.note ? `<div class="response-thread"><div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(resolved.note)}</p></div></div>` : ''}
@@ -1548,6 +1450,71 @@ function getWeldedWeightForWeek(weekLabel) {
   }, 0);
 }
 
+
+function getSectorDemandKeys(user = state.user) {
+  if (!user) return [];
+  const sectors = getUserAlertSectors(user);
+  const seen = new Set();
+  return sectors.filter((item) => item && item !== 'projetos' && item !== 'pcp' && !seen.has(item) && seen.add(item));
+}
+
+function getProjectDemandProgress(project, sectorKey) {
+  const toNumber = (value) => {
+    if (value == null || value === '') return 0;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+    const cleaned = String(value).replace('%', '').replace(',', '.').trim();
+    const parsed = Number(cleaned);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const key = normalizeSectorValue(sectorKey);
+  if (key === 'solda') return toNumber(project?.weldingPreparation ?? project?.soldaPercent ?? project?.solda ?? 0);
+  if (key === 'calderaria') return toNumber(project?.boilermakerFinishDate ?? project?.calderariaPercent ?? project?.calderaria ?? 0);
+  if (key === 'producao') return toNumber(project?.individualPercent ?? project?.productionPercent ?? project?.generalPercent ?? 0);
+  if (key === 'pintura') return toNumber(project?.painting ?? project?.paintingPercent ?? 0);
+  if (key === 'inspecao') return toNumber(project?.inspectionPercent ?? project?.inspecao ?? project?.hydroTest ?? project?.th ?? 0);
+  if (key === 'pendente_envio') return toNumber(project?.shippingPercent ?? project?.logisticaPercent ?? project?.packageAndDelivered ?? project?.unitizacao ?? 0);
+  return 0;
+}
+
+function projectMatchesDemandSector(project, sectorKey) {
+  if (!project || !sectorKey) return false;
+  const key = normalizeSectorValue(sectorKey);
+  const stageGroup = normalizeSectorValue(project?.currentStageGroup || simplifyCurrentStage(project));
+  const currentStage = normalizeSectorValue(project?.currentStage || '');
+  const operationalSector = normalizeSectorValue(project?.operationalSector || '');
+  const projectStatus = normalizeSectorValue(project?.projectStatus || '');
+  const progress = getProjectDemandProgress(project, key);
+
+  if (key === 'solda') {
+    return progress >= 25 || currentStage === 'solda' || operationalSector === 'solda';
+  }
+  if (key === 'calderaria') {
+    return progress >= 25 || currentStage === 'calderaria' || operationalSector === 'calderaria';
+  }
+  if (key === 'producao') {
+    return progress > 0 || stageGroup === 'producao' || currentStage === 'producao' || operationalSector === 'producao';
+  }
+  if (key === 'pintura') {
+    return progress > 0 || stageGroup === 'pintura' || currentStage === 'pintura' || operationalSector === 'pintura';
+  }
+  if (key === 'inspecao') {
+    return progress > 0 || stageGroup === 'inspecao' || currentStage === 'inspecao' || operationalSector === 'inspecao';
+  }
+  if (key === 'pendente_envio') {
+    return progress > 0 || stageGroup === 'pendente_envio' || currentStage === 'pendente_envio' || operationalSector === 'pendente_envio' || projectStatus === 'pendente_envio';
+  }
+  return stageGroup === key || currentStage === key || operationalSector === key;
+}
+
+function getSectorDemandProjects(user = state.user, source = null) {
+  if (!user) return [];
+  const keys = getSectorDemandKeys(user);
+  const list = Array.isArray(source) ? source : (Array.isArray(state.projects) ? state.projects : []);
+  if (!keys.length) return list;
+  return list.filter((project) => keys.some((key) => projectMatchesDemandSector(project, key)));
+}
+
 function userHasProjectsScope(user = state.user) {
   if (!user || user.role === "admin") return false;
   return getUserAlertSectors(user).includes("projetos") || normalizeSectorValue(user.sector) === "projetos";
@@ -1556,15 +1523,21 @@ function userHasProjectsScope(user = state.user) {
 function updatePrimaryUserActionUi() {
   if (!openSectorAlertsEl) return;
   const projectsScope = userHasProjectsScope();
+  const sectorScope = Boolean(state.user && state.user.role !== "admin" && !projectsScope && getSectorDemandKeys(state.user).length);
   const viewingMine = projectsScope && state.projectView === "mine";
+  const viewingSectorDemand = sectorScope && state.sectorDemandFilterActive;
   openSectorAlertsEl.textContent = projectsScope
     ? (viewingMine ? "Todos os projetos" : "Meus projetos")
-    : "Meus alertas";
+    : (sectorScope ? (viewingSectorDemand ? "Todos os alertas" : "Meus alertas") : "Meus alertas");
   openSectorAlertsEl.title = projectsScope
     ? (viewingMine
         ? "Voltar para a visualização com todos os projetos"
         : "Visualizar apenas os projetos vinculados ao seu nome na coluna PM")
-    : "Visualizar alertas direcionados ao seu setor";
+    : (sectorScope
+        ? (viewingSectorDemand
+            ? "Voltar para a visualização completa dos projetos e alertas"
+            : "Visualizar apenas a demanda do seu setor nos projetos e alertas de prazo")
+        : "Visualizar alertas direcionados ao seu setor");
   const titleEl = document.getElementById("sector-alerts-title");
   if (titleEl && state.sectorAlertsMode !== 'project-signals') {
     titleEl.textContent = projectsScope ? "Meus projetos" : "Meus alertas por setor";
@@ -1625,6 +1598,9 @@ function projectBelongsToUser(project, user = state.user) {
 function getVisibleProjectsSource() {
   if (state.projectView === 'mine' && userHasProjectsScope()) {
     return state.projects.filter((project) => projectBelongsToUser(project));
+  }
+  if (state.sectorDemandFilterActive && state.user && state.user.role !== 'admin' && !userHasProjectsScope(state.user)) {
+    return getSectorDemandProjects(state.user, state.projects);
   }
   return state.projects;
 }
@@ -2247,6 +2223,7 @@ async function loadProjects() {
     renderSelectedProjectCard();
     renderAlertBadge();
     updateMeta();
+    updatePrimaryUserActionUi();
     if (shouldOpenAlertPopup()) {
       openAlertModal(true);
     } else {
@@ -2549,6 +2526,17 @@ if (openSectorAlertsEl) {
       if (tableShellEl) tableShellEl.scrollTop = 0;
       return;
     }
+    if (state.user.role !== 'admin' && getSectorDemandKeys(state.user).length) {
+      state.sectorDemandFilterActive = !state.sectorDemandFilterActive;
+      updatePrimaryUserActionUi();
+      applyFilter();
+      renderStats();
+      renderTable();
+      renderSelectedProjectCard();
+      renderAlertBadge();
+      if (tableShellEl) tableShellEl.scrollTop = 0;
+      return;
+    }
     openSectorAlertsModal();
   });
 }
@@ -2609,21 +2597,13 @@ if (stageUpdatesModalEl) {
   stageUpdatesModalEl.addEventListener('input', (event) => {
     const searchEl = event.target.closest('[data-stage-search="true"]');
     if (searchEl) {
-      const cursorStart = searchEl.selectionStart ?? String(searchEl.value || '').length;
-      const cursorEnd = searchEl.selectionEnd ?? cursorStart;
       state.stageUpdatesSearchQuery = searchEl.value || '';
       renderStageUpdatesModal();
-      requestAnimationFrame(() => {
-        const newSearchEl = stageUpdatesModalEl.querySelector('[data-stage-search="true"]');
-        if (!newSearchEl) return;
-        newSearchEl.focus({ preventScroll: true });
-        try { newSearchEl.setSelectionRange(cursorStart, cursorEnd); } catch (_) {}
-      });
       return;
     }
     const progressEl = event.target.closest('[data-stage-progress="true"]');
     if (progressEl) {
-      const formEl = progressEl.closest('[data-stage-update-form="true"]');
+      const formEl = progressEl.closest('.stage-row-form');
       const dateEl = formEl?.querySelector('[name="completionDate"]');
       if (dateEl && Number(progressEl.value) === 100 && !dateEl.value) {
         dateEl.value = new Date().toISOString().slice(0, 10);
@@ -2633,13 +2613,7 @@ if (stageUpdatesModalEl) {
   stageUpdatesModalEl.addEventListener('click', (event) => {
     const submitButton = event.target.closest('[data-stage-submit="true"]');
     if (!submitButton) return;
-    event.preventDefault();
     const formEl = submitButton.closest('[data-stage-update-form="true"]');
-    if (!formEl) return;
-    handleStageWorkspaceSubmit(formEl);
-  });
-  stageUpdatesModalEl.addEventListener('submit', (event) => {
-    const formEl = event.target.closest('[data-stage-update-form="true"]');
     if (!formEl) return;
     event.preventDefault();
     handleStageWorkspaceSubmit(formEl);
@@ -2816,6 +2790,10 @@ if (adminUsersListEl) {
       closeSectorAlertsModal();
       return;
     }
+    if (changePasswordModalEl && !changePasswordModalEl.classList.contains("hidden")) {
+      closeChangePasswordModal();
+      return;
+    }
     if (stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
       closeStageUpdatesModal();
       return;
@@ -2971,13 +2949,21 @@ function getUserAutomaticAlerts() {
   return (Array.isArray(state.alerts) ? state.alerts : [])
     .filter((alert) => allowedSectors.has(normalizeSectorValue(alert?.sector)))
     .filter((alert) => {
-      if (!userHasProjectsScope(state.user)) return true;
       const relatedProject = state.projects.find((project) => {
         const alertNumber = normalizeText(alert?.projectNumber || alert?.projectDisplay || '');
         const projectNumber = normalizeText(project?.projectNumber || project?.projectDisplay || '');
         return alertNumber && projectNumber && alertNumber === projectNumber;
       });
-      return relatedProject ? projectBelongsToUser(relatedProject, state.user) : false;
+
+      if (userHasProjectsScope(state.user)) {
+        return relatedProject ? projectBelongsToUser(relatedProject, state.user) : false;
+      }
+
+      if (state.sectorDemandFilterActive && getSectorDemandKeys(state.user).length) {
+        return relatedProject ? getSectorDemandProjects(state.user, [relatedProject]).length > 0 : false;
+      }
+
+      return true;
     })
     .sort((a, b) => {
       if ((a?.daysRemaining ?? 0) !== (b?.daysRemaining ?? 0)) {
@@ -3013,7 +2999,7 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
           ${manualAlerts.map((alert) => {
             const resolved = getSignalResolutionInfo(alert.id);
             return `
-            <article class="manual-alert-item manual-alert-item--operational ${resolved ? 'manual-alert-item--resolved' : ''}">
+            <article class="manual-alert-item manual-alert-item--operational">
               <div class="admin-list-item-meta">
                 ${getSignalStatusBadge(alert)}
                 <span class="manual-alert-tag">${escapeHtml(sectorLabel(alert.sector))}</span>
@@ -3024,7 +3010,7 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
               <p>${escapeHtml(alert.message || "").replace(/\n/g, '<br>')}</p>
               <div class="manual-alert-actions">
                 ${resolved
-                  ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag manual-alert-tag--resolved-time">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
+                  ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
                   : `${canResolveSignal() ? `<button class="primary-button" type="button" data-resolve-signal="${escapeHtml(alert.id)}">Marcar como resolvida</button>` : ''}`}
               </div>
               ${resolved && resolved.note ? `<div class="response-thread"><div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(resolved.note)}</p></div></div>` : ''}
@@ -3125,7 +3111,7 @@ function renderMyProjectSignals(targetEl = sectorAlertsContentEl) {
         ${signals.map((alert) => {
           const resolved = getSignalResolutionInfo(alert.id);
           return `
-            <article class="manual-alert-item manual-alert-item--operational ${resolved ? 'manual-alert-item--resolved' : ''}">
+            <article class="manual-alert-item manual-alert-item--operational">
               <div class="admin-list-item-meta">
                 ${getSignalStatusBadge(alert)}
                 <span class="manual-alert-tag">PCP</span>
@@ -3136,7 +3122,7 @@ function renderMyProjectSignals(targetEl = sectorAlertsContentEl) {
               <div class="manual-alert-actions">
                 <span class="manual-alert-tag">Aberta por: ${escapeHtml(alert.createdBy || 'Usuário')}</span>
                 ${resolved
-                  ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag manual-alert-tag--resolved-time">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
+                  ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
                   : `<span class="manual-alert-tag manual-alert-tag--pending">Aguardando PCP</span>`}
               </div>
               ${resolved && resolved.note ? `<div class="response-thread"><div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(resolved.note)}</p></div></div>` : ''}
@@ -3174,7 +3160,7 @@ function renderProjectUserSignals(targetEl = sectorAlertsContentEl) {
         ${signals.map((alert) => {
           const resolved = getSignalResolutionInfo(alert.id);
           return `
-            <article class="manual-alert-item manual-alert-item--operational ${resolved ? 'manual-alert-item--resolved' : ''}">
+            <article class="manual-alert-item manual-alert-item--operational">
               <div class="admin-list-item-meta">
                 ${getSignalStatusBadge(alert)}
                 <span class="manual-alert-tag">PCP</span>
@@ -3185,7 +3171,7 @@ function renderProjectUserSignals(targetEl = sectorAlertsContentEl) {
               TEMP
               <div class="manual-alert-actions">
                 ${resolved
-                  ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag manual-alert-tag--resolved-time">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
+                  ? `<span class="manual-alert-tag manual-alert-tag--resolved-by">Resolvida por: ${escapeHtml(resolved.username)}</span>${resolved.date ? `<span class="manual-alert-tag">${escapeHtml(new Date(resolved.date).toLocaleString('pt-BR'))}</span>` : ''}`
                   : `${canResolveSignal() ? `<button class="primary-button" type="button" data-resolve-signal="${escapeHtml(alert.id)}">Marcar como resolvida</button>` : ''}`}
               </div>
               ${resolved && resolved.note ? `<div class="response-thread"><div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(resolved.note)}</p></div></div>` : ''}
@@ -3349,7 +3335,6 @@ function openProjectSignalModal(project) {
   if (projectSignalTitleEl) projectSignalTitleEl.value = '';
   if (projectSignalDescriptionEl) projectSignalDescriptionEl.value = '';
   if (projectSignalFeedbackEl) projectSignalFeedbackEl.textContent = '';
-  setProjectSignalSubmitting(false);
   projectSignalModalEl.classList.remove('hidden');
   projectSignalModalEl.setAttribute('aria-hidden', 'false');
   document.body.classList.add('modal-open');
@@ -3361,7 +3346,6 @@ function closeProjectSignalModal() {
   projectSignalModalEl.classList.add('hidden');
   projectSignalModalEl.setAttribute('aria-hidden', 'true');
   state.selectedProjectForSignal = null;
-  setProjectSignalSubmitting(false);
   if (
     modalEl.classList.contains('hidden') &&
     alertModalEl.classList.contains('hidden') &&
@@ -3374,24 +3358,9 @@ function closeProjectSignalModal() {
   }
 }
 
-function setProjectSignalSubmitting(isSubmitting) {
-  state.projectSignalSubmitting = !!isSubmitting;
-  if (!projectSignalFormEl) return;
-  const submitButton = projectSignalFormEl.querySelector('button[type="submit"]');
-  if (submitButton) {
-    submitButton.disabled = !!isSubmitting;
-    submitButton.textContent = isSubmitting ? 'Enviando...' : 'Enviar ao PCP';
-  }
-  if (projectSignalCancelEl) projectSignalCancelEl.disabled = !!isSubmitting;
-  if (projectSignalCloseEl) projectSignalCloseEl.disabled = !!isSubmitting;
-}
-
 async function handleProjectSignalSubmit(event) {
   event.preventDefault();
   if (!projectSignalFeedbackEl) return;
-  if (state.projectSignalSubmitting) {
-    return;
-  }
   const projectId = String(projectSignalProjectIdEl?.value || '').trim();
   const project = state.projects.find((item) => String(item.rowId) === projectId);
   const title = String(projectSignalTitleEl?.value || '').trim();
@@ -3404,7 +3373,6 @@ async function handleProjectSignalSubmit(event) {
     projectSignalFeedbackEl.textContent = 'Você só pode enviar sinalização para BSPs que estejam vinculadas ao seu nome.';
     return;
   }
-  setProjectSignalSubmitting(true);
   projectSignalFeedbackEl.textContent = 'Enviando sinalização ao PCP...';
   const projectRef = project.projectNumber || project.projectDisplay || `Projeto ${project.rowId}`;
   const payload = {
@@ -3433,12 +3401,8 @@ ${description}`,
     if (state.selectedProjectId && String(state.selectedProjectId) === projectId) {
       renderModal(project);
     }
-    window.setTimeout(() => {
-      setProjectSignalSubmitting(false);
-      closeProjectSignalModal();
-    }, 500);
+    window.setTimeout(closeProjectSignalModal, 500);
   } catch (error) {
-    setProjectSignalSubmitting(false);
     projectSignalFeedbackEl.textContent = error.message || 'Falha ao criar sinalização.';
   }
 }
@@ -3884,7 +3848,7 @@ function renderStageSectorWorkspace() {
         <section class="admin-card admin-card--wide">
           <div class="admin-card-head"><h4>Lançar avanço da etapa</h4></div>
           ${matchedProjects.length ? `<div class="stage-project-list">${matchedProjects.map((project) => {
-            const spools = filterStageWorkspaceSpools(project);
+            const spools = Array.isArray(project.spools) ? project.spools : [];
             return `
               <article class="stage-project-card">
                 <div class="stage-project-head">
@@ -3903,27 +3867,23 @@ function renderStageSectorWorkspace() {
                       ${spools.map((spool) => {
                         const pending = getPendingStageUpdate(project.rowId || project.rowNumber, spool.iso, sector);
                         const lastResolved = getLatestResolvedStageUpdate(project.rowId || project.rowNumber, spool.iso, sector);
-                        const submissionLock = getStageSubmissionLock(project.rowId || project.rowNumber, spool.iso, sector);
-                        const submissionStatusHtml = submissionLock
-                          ? (submissionLock.status === 'sending'
-                              ? `<button class="primary-button" type="button" disabled>Enviando...</button>`
-                              : `<button class="primary-button primary-button--success" type="button" disabled>Enviado</button>`)
-                          : (pending
-                              ? `<span class="stage-badge stage-badge--pending">Aguardando PCP</span>`
-                              : `<button class="primary-button" type="button" data-stage-submit="true">Enviar</button>`);
                         return `
                           <tr>
                             <td>${escapeHtml(spool.iso || '—')}</td>
                             <td>${escapeHtml(spool.description || '—')}</td>
-                            <td colspan="4">
-                              <div data-stage-update-form="true" data-project-row-id="${escapeHtml(String(project.rowId || project.rowNumber || ''))}" data-project-number="${escapeHtml(project.projectNumber || '')}" data-spool-iso="${escapeHtml(spool.iso || '')}" class="stage-row-form stage-row-form--inline">
-                                <select name="progress" data-stage-progress="true" ${submissionLock ? 'disabled' : ''}>
+                            <td>
+                              <div data-stage-update-form="true" data-project-row-id="${escapeHtml(String(project.rowId || project.rowNumber || ''))}" data-project-number="${escapeHtml(project.projectNumber || '')}" data-spool-iso="${escapeHtml(spool.iso || '')}" class="stage-row-form">
+                                <select name="progress" data-stage-progress="true">
                                   ${STAGE_PROGRESS_OPTIONS.map((value) => `<option value="${value}">${value}%</option>`).join('')}
                                 </select>
-                                <input type="date" name="completionDate" value="" ${submissionLock ? 'disabled' : ''} />
-                                <textarea name="note" rows="2" placeholder="Observação opcional" ${submissionLock ? 'disabled' : ''}></textarea>
-                                ${submissionStatusHtml}
-                                ${lastResolved ? `<div class="stage-muted">Último concluído: ${escapeHtml(formatStageDate(lastResolved.resolvedAt))}</div>` : ''}
+                            </td>
+                            <td><input type="date" name="completionDate" value="" /></td>
+                            <td><textarea name="note" rows="2" placeholder="Observação opcional"></textarea></td>
+                            <td>
+                              ${pending
+                                ? `<span class="stage-badge stage-badge--pending">Aguardando PCP</span>`
+                                : `<button class="primary-button" type="button" data-stage-submit="true">Enviar</button>`}
+                              ${lastResolved ? `<div class="stage-muted">Último concluído: ${escapeHtml(formatStageDate(lastResolved.resolvedAt))}</div>` : ''}
                               </div>
                             </td>
                           </tr>`;
@@ -4069,76 +4029,56 @@ function closeStageUpdatesModal() {
   }
 }
 
-function stageUpdateMatchesSubmission(item, projectRowId, spoolIso, sector, progress = '') {
-  return Number(item?.projectRowId || 0) === Number(projectRowId || 0)
-    && String(item?.spoolIso || '').trim().toLowerCase() === String(spoolIso || '').trim().toLowerCase()
-    && normalizeSectorValue(item?.sector) === normalizeSectorValue(sector)
-    && (!progress || Number(item?.progress || 0) === Number(progress || 0));
-}
-
-async function reconcileStageSubmission(projectRowId, spoolIso, sector, progress = '') {
-  await loadStageUpdates();
-  const myUpdates = getMyStageUpdates();
-  const now = Date.now();
-  return myUpdates.find((item) => {
-    if (!stageUpdateMatchesSubmission(item, projectRowId, spoolIso, sector, progress)) return false;
-    const createdAtMs = new Date(item?.createdAt || 0).getTime();
-    if (!Number.isFinite(createdAtMs)) return true;
-    return Math.abs(now - createdAtMs) <= (5 * 60 * 1000);
-  }) || null;
-}
-
 async function handleStageWorkspaceSubmit(formEl) {
   const projectRowId = String(formEl?.dataset?.projectRowId || '').trim();
   const spoolIso = String(formEl?.dataset?.spoolIso || '').trim();
-  const sector = getStageWorkspaceSector();
-  const existingLock = getStageSubmissionLock(projectRowId, spoolIso, sector);
-  if (existingLock) {
-    return;
-  }
   const progress = String(formEl?.querySelector('[name="progress"]')?.value || '').trim();
   const completionDate = String(formEl?.querySelector('[name="completionDate"]')?.value || '').trim();
   const note = String(formEl?.querySelector('[name="note"]')?.value || '').trim();
+  const submitButton = formEl?.querySelector('[data-stage-submit="true"]');
+
   if (!projectRowId || !spoolIso || !progress) {
     window.alert('Preencha o avanço do spool antes de enviar.');
     return;
   }
-  setStageSubmissionLock(projectRowId, spoolIso, { status: 'sending', sector });
-  renderStageUpdatesModal();
+
+  if (Number(progress) === 100 && !completionDate) {
+    window.alert('Informe a data de conclusão para avanço 100%.');
+    return;
+  }
+
   try {
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Enviando...';
+    }
+
     const response = await fetch('/api/stage-updates', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectRowId, spoolIso, progress, completionDate, note }),
+      body: JSON.stringify({
+        projectRowId: Number(projectRowId),
+        spoolIso,
+        progress: Number(progress),
+        completionDate,
+        note
+      }),
     });
+
     const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao enviar apontamento.');
 
-    if (!response.ok || !data?.ok) {
-      if (response.status === 409) {
-        const pendingExisting = await reconcileStageSubmission(projectRowId, spoolIso, sector, progress);
-        if (pendingExisting) {
-          setStageSubmissionLock(projectRowId, spoolIso, { status: 'sent', resendAt: Date.now() + STAGE_SUBMISSION_LOCK_MS, sector });
-          renderStageUpdatesModal();
-          return;
-        }
-      }
-      throw new Error(data?.error || 'Falha ao enviar apontamento.');
-    }
-
-    setStageSubmissionLock(projectRowId, spoolIso, { status: 'sent', resendAt: Date.now() + STAGE_SUBMISSION_LOCK_MS, sector });
     await loadStageUpdates();
     renderStageUpdatesModal();
+    window.alert('Apontamento enviado com sucesso.');
   } catch (error) {
-    const recovered = await reconcileStageSubmission(projectRowId, spoolIso, sector, progress).catch(() => null);
-    if (recovered) {
-      setStageSubmissionLock(projectRowId, spoolIso, { status: 'sent', resendAt: Date.now() + STAGE_SUBMISSION_LOCK_MS, sector });
-      renderStageUpdatesModal();
-      return;
-    }
-    clearStageSubmissionLock(projectRowId, spoolIso, sector);
-    renderStageUpdatesModal();
     window.alert(error.message || 'Falha ao enviar apontamento.');
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = 'Enviar';
+    }
   }
 }
 
@@ -4298,3 +4238,77 @@ async function init() {
 }
 
 init();
+function openChangePasswordModal() {
+  if (!changePasswordModalEl || !state.user) return;
+  if (changePasswordFeedbackEl) changePasswordFeedbackEl.textContent = "";
+  if (changePasswordFormEl) changePasswordFormEl.reset();
+  changePasswordModalEl.classList.remove("hidden");
+  changePasswordModalEl.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+  window.setTimeout(() => changePasswordCurrentEl?.focus(), 40);
+}
+
+function closeChangePasswordModal() {
+  if (!changePasswordModalEl) return;
+  changePasswordModalEl.classList.add("hidden");
+  changePasswordModalEl.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+}
+
+async function handleChangePasswordSubmit(event) {
+  event.preventDefault();
+  if (!state.user) return;
+
+  const currentPassword = String(changePasswordCurrentEl?.value || "").trim();
+  const newPassword = String(changePasswordNewEl?.value || "").trim();
+  const confirmPassword = String(changePasswordConfirmEl?.value || "").trim();
+
+  if (changePasswordFeedbackEl) changePasswordFeedbackEl.textContent = "";
+
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    if (changePasswordFeedbackEl) changePasswordFeedbackEl.textContent = "Preencha todos os campos.";
+    return;
+  }
+  if (newPassword.length < 6) {
+    if (changePasswordFeedbackEl) changePasswordFeedbackEl.textContent = "A nova senha deve ter pelo menos 6 caracteres.";
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    if (changePasswordFeedbackEl) changePasswordFeedbackEl.textContent = "A confirmação da nova senha não confere.";
+    return;
+  }
+  if (newPassword === currentPassword) {
+    if (changePasswordFeedbackEl) changePasswordFeedbackEl.textContent = "A nova senha deve ser diferente da atual.";
+    return;
+  }
+
+  const submitButton = document.getElementById("change-password-submit");
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "Salvando...";
+  }
+
+  try {
+    const response = await fetch("/api/change-password", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.error || "Falha ao alterar a senha.");
+    }
+    if (changePasswordFeedbackEl) changePasswordFeedbackEl.textContent = "Senha alterada com sucesso.";
+    window.setTimeout(() => closeChangePasswordModal(), 600);
+  } catch (error) {
+    if (changePasswordFeedbackEl) changePasswordFeedbackEl.textContent = error.message || "Falha ao alterar a senha.";
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = "Salvar nova senha";
+    }
+  }
+}
+
+

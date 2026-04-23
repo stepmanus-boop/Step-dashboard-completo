@@ -119,18 +119,6 @@ function getUserAlertExpiration(acknowledgements, session, alert) {
   return new Date(ackTime + hours * 60 * 60 * 1000).toISOString();
 }
 
-function isRecentDuplicateAlert(alert, payload) {
-  if (!alert || !payload) return false;
-  if (alert.active === false) return false;
-  if (normalizeSectorValue(alert.sector) !== normalizeSectorValue(payload.sector)) return false;
-  if (String(alert.createdBy || '').trim().toLowerCase() !== String(payload.createdBy || '').trim().toLowerCase()) return false;
-  if (String(alert.title || '').trim() !== String(payload.title || '').trim()) return false;
-  if (String(alert.message || '').trim() !== String(payload.message || '').trim()) return false;
-  const createdAtMs = new Date(alert.createdAt || 0).getTime();
-  if (!Number.isFinite(createdAtMs)) return false;
-  return (Date.now() - createdAtMs) <= (2 * 60 * 1000);
-}
-
 exports.handler = async (event) => {
   if (!isSupabaseConfigured()) {
     return jsonResponse(500, { ok: false, error: 'Supabase não configurado no Netlify.' });
@@ -216,18 +204,6 @@ exports.handler = async (event) => {
         if (!projectBelongsToUser(project, effectiveSession)) {
           return jsonResponse(403, { ok: false, error: 'Você só pode enviar notificações das BSPs que estejam no seu nome.' });
         }
-      }
-
-      const duplicatePayload = {
-        title,
-        message,
-        sector,
-        createdBy: effectiveSession.username,
-      };
-      const existingAlerts = await listManualAlerts();
-      const duplicate = existingAlerts.find((item) => isRecentDuplicateAlert(item, duplicatePayload));
-      if (duplicate) {
-        return jsonResponse(200, { ok: true, alert: duplicate, duplicate: true });
       }
 
       const alert = await createManualAlert({
