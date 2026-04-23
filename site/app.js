@@ -1487,11 +1487,36 @@ function getScopedDemandLabelsForUser(user = state.user) {
   if (sector === 'pendente_envio') return ['Logística', 'Pendente de envio'];
   if (sector === 'inspecao') return ['Inspeção'];
   if (sector === 'pintura') return ['Pintura'];
-  if (sector === 'solda' || sector === 'calderaria' || sector === 'producao') return ['Produção'];
+  if (sector === 'solda') return ['Solda'];
+  if (sector === 'calderaria') return ['Calderaria'];
+  if (sector === 'producao') return ['Produção'];
   return [];
 }
 
 function projectMatchesScopedSector(project, user = state.user) {
+  const sector = getPrimaryUserSector(user);
+  if (!sector) return true;
+
+  const normalizedOperationalSector = normalizeSectorValue(project?.operationalSector || '');
+  if (sector === 'pendente_envio') {
+    return normalizedOperationalSector === 'pendente_envio';
+  }
+  if (sector === 'inspecao') {
+    return normalizedOperationalSector === 'inspecao';
+  }
+  if (sector === 'pintura') {
+    return normalizedOperationalSector === 'pintura';
+  }
+  if (sector === 'solda') {
+    return normalizedOperationalSector === 'solda';
+  }
+  if (sector === 'calderaria') {
+    return normalizedOperationalSector === 'calderaria';
+  }
+  if (sector === 'producao') {
+    return ['producao', 'solda', 'calderaria'].includes(normalizedOperationalSector);
+  }
+
   const labels = getScopedDemandLabelsForUser(user).map((item) => normalizeText(item).trim()).filter(Boolean);
   if (!labels.length) return true;
   const currentGroup = normalizeText(project?.currentStageGroup || simplifyCurrentStage(project)).trim();
