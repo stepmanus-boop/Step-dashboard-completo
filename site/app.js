@@ -1178,22 +1178,18 @@ function hasPreparingShipmentWindow(project) {
   const projectFinalInspection = Number(project?.stageValues?.['Final Inspection'] ?? NaN);
   const projectPackageDelivered = Number(project?.stageValues?.['Package and Delivered'] ?? project?.stageValues?.['Unitização e envio'] ?? NaN);
   const projectMatches = Number.isFinite(projectFinalInspection)
-    && Number.isFinite(projectPackageDelivered)
     && projectFinalInspection >= 25
     && projectFinalInspection < 100
-    && projectPackageDelivered >= 25
-    && projectPackageDelivered < 100;
+    && (!Number.isFinite(projectPackageDelivered) || projectPackageDelivered < 100);
 
   const spools = Array.isArray(project?.spools) ? project.spools : [];
   const spoolMatches = spools.some((spool) => {
     const finalInspection = Number(spool?.stageValues?.['Final Inspection'] ?? NaN);
     const packageDelivered = Number(spool?.stageValues?.['Package and Delivered'] ?? spool?.stageValues?.['Unitização e envio'] ?? NaN);
     return Number.isFinite(finalInspection)
-      && Number.isFinite(packageDelivered)
       && finalInspection >= 25
       && finalInspection < 100
-      && packageDelivered >= 25
-      && packageDelivered < 100;
+      && (!Number.isFinite(packageDelivered) || packageDelivered < 100);
   });
 
   return spoolMatches || projectMatches;
