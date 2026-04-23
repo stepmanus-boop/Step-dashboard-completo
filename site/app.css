@@ -2656,3 +2656,44 @@ button.alert-badge {
 .stage-row-actions .stage-review-button{min-width:74px}
 .stage-review-button{border-color:rgba(245,158,11,.32);color:#fbbf24;background:rgba(245,158,11,.08)}
 .stage-review-button:hover{background:rgba(245,158,11,.14);border-color:rgba(245,158,11,.44)}
+
+
+.attention-popup-dialog {
+  width: min(92vw, 760px);
+  height: auto;
+  max-height: min(82vh, 560px);
+  border-radius: 26px;
+  border: 1px solid rgba(255, 126, 126, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(255, 120, 120, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(23, 8, 18, 0.98), rgba(10, 15, 28, 0.99));
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.52);
+}
+
+.attention-popup-head {
+  border-bottom-color: rgba(255, 126, 126, 0.18);
+}
+
+.attention-popup-content {
+  gap: 18px;
+}
+
+.attention-popup-body {
+  border-radius: 18px;
+  border: 1px solid rgba(255, 126, 126, 0.16);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 18px;
+  color: #f7fbff;
+  font-size: 18px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.attention-popup-actions {
+  justify-content: flex-end;
+}
+
+.attention-popup-actions .primary-button,
+.attention-popup-actions .ghost-button {
+  min-width: 160px;
+}

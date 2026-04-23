@@ -517,6 +517,27 @@
 </div>
 
     
+
+<div id="attention-popup-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-backdrop attention-popup-backdrop"></div>
+  <div class="modal-dialog glass-card attention-popup-dialog" role="dialog" aria-modal="true" aria-labelledby="attention-popup-title">
+    <div class="modal-head attention-popup-head">
+      <div>
+        <p class="modal-eyebrow">Novo alerta recebido</p>
+        <h3 id="attention-popup-title">Novo alerta</h3>
+        <p id="attention-popup-meta" class="modal-subtitle">Atenção imediata necessária.</p>
+      </div>
+    </div>
+    <div class="modal-content attention-popup-content">
+      <div id="attention-popup-body" class="attention-popup-body">Você recebeu uma nova notificação.</div>
+      <div class="stack-actions attention-popup-actions">
+        <button id="attention-popup-action" class="primary-button" type="button">Abrir alerta</button>
+        <button id="attention-popup-close" class="ghost-button" type="button">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="stage-updates-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-backdrop" data-close-stage-updates="true"></div>
   <div class="modal-dialog modal-dialog--admin" role="dialog" aria-modal="true" aria-labelledby="stage-updates-title">

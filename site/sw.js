@@ -99,6 +99,9 @@ self.addEventListener("push", (event) => {
     badge: '/assets/icon-192.png',
     tag: data.tag || 'step-alert',
     data: { url: data.url || '/' },
+    requireInteraction: true,
+    renotify: true,
+    vibrate: [220, 120, 220],
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });

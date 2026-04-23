@@ -41,6 +41,14 @@ const state = {
   stageDrafts: {},
   stageBulkSubmitting: false,
   stageBatchValidationMode: false,
+  attentionPopupQueue: [],
+  attentionPopupCurrent: null,
+  incomingAlertState: {
+    manual: { initialized: false, ids: [] },
+    projectSignals: { initialized: false, ids: [] },
+    automatic: { initialized: false, ids: [] },
+    stageUpdates: { initialized: false, ids: [] },
+  },
 };
 
 const bodyEl = document.getElementById("projects-body");
@@ -234,6 +242,12 @@ const projectSignalSubtitleEl = document.getElementById('project-signal-subtitle
 const stageUpdatesModalEl = document.getElementById('stage-updates-modal');
 const stageUpdatesCloseEl = document.getElementById('stage-updates-close');
 const stageUpdatesContentEl = document.getElementById('stage-updates-content');
+const attentionPopupEl = document.getElementById('attention-popup-modal');
+const attentionPopupTitleEl = document.getElementById('attention-popup-title');
+const attentionPopupMetaEl = document.getElementById('attention-popup-meta');
+const attentionPopupBodyEl = document.getElementById('attention-popup-body');
+const attentionPopupActionEl = document.getElementById('attention-popup-action');
+const attentionPopupCloseEl = document.getElementById('attention-popup-close');
 
 const installAppButtonEl = document.getElementById("install-app-button");
 const connectionStatusEl = document.getElementById("connection-status");
@@ -346,9 +360,9 @@ async function showBrowserNotification(title, body, tag) {
   try {
     const registration = await navigator.serviceWorker.getRegistration();
     if (registration?.showNotification) {
-      await registration.showNotification(title, { body, tag, icon: '/assets/icon-192.png', badge: '/assets/icon-192.png', data: { url: '/' } });
+      await registration.showNotification(title, { body, tag, icon: '/assets/icon-192.png', badge: '/assets/icon-192.png', data: { url: '/' }, requireInteraction: true, renotify: true, vibrate: [220, 120, 220] });
     } else {
-      new Notification(title, { body, tag });
+      new Notification(title, { body, tag, requireInteraction: true, renotify: true });
     }
   } catch (error) {
     console.warn('Falha ao exibir notificação.', error);
@@ -399,6 +413,186 @@ function writeAlertNotificationState(key, signature, notifiedAt = null, notified
   window.localStorage.setItem(key, JSON.stringify({ signature, notifiedAt, notifiedWindow }));
 }
 
+
+function buildIncomingAlertId(kind, item = {}) {
+  if (kind === 'manual') return String(item.id || '').trim();
+  if (kind === 'projectSignals') return String(item.id || '').trim();
+  if (kind === 'stageUpdates') return String(item.id || '').trim();
+  if (kind === 'automatic') {
+    return [item.projectNumber || item.projectDisplay || '', item.sector || '', item.daysRemaining ?? ''].join('::');
+  }
+  return String(item.id || item.key || '').trim();
+}
+
+function getIncomingAlertState(kind) {
+  if (!state.incomingAlertState?.[kind]) {
+    state.incomingAlertState = { ...(state.incomingAlertState || {}), [kind]: { initialized: false, ids: [] } };
+  }
+  return state.incomingAlertState[kind];
+}
+
+function playAttentionTone() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.value = 880;
+    gain.gain.setValueAtTime(0.001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start();
+    oscillator.stop(ctx.currentTime + 0.46);
+    oscillator.onended = () => ctx.close().catch(() => {});
+  } catch {}
+}
+
+function openAttentionPopupTarget(item) {
+  if (!item) return;
+  const kind = String(item.kind || '').trim().toLowerCase();
+  if (kind === 'stage-updates') {
+    state.stageBatchValidationMode = Boolean(state.user && normalizeSectorValue(state.user?.sector) === 'pcp');
+    openStageUpdatesModal();
+    return;
+  }
+  if (kind === 'automatic') {
+    openAlertModal(true);
+    return;
+  }
+  if (kind === 'projectsignals') {
+    state.sectorAlertsMode = 'project-signals';
+    openSectorAlertsModal();
+    return;
+  }
+  state.sectorAlertsMode = 'default';
+  openSectorAlertsModal();
+}
+
+function renderAttentionPopup(item) {
+  if (!attentionPopupEl || !item) return;
+  if (attentionPopupTitleEl) attentionPopupTitleEl.textContent = item.title || 'Novo alerta';
+  if (attentionPopupMetaEl) attentionPopupMetaEl.textContent = item.meta || '';
+  if (attentionPopupBodyEl) attentionPopupBodyEl.textContent = item.message || 'Você recebeu uma nova notificação.';
+  if (attentionPopupActionEl) {
+    attentionPopupActionEl.textContent = item.actionLabel || 'Abrir alerta';
+    attentionPopupActionEl.dataset.attentionAction = item.kind || 'manual';
+  }
+}
+
+function showNextAttentionPopup() {
+  if (!attentionPopupEl || state.attentionPopupCurrent || !state.attentionPopupQueue.length) return;
+  state.attentionPopupCurrent = state.attentionPopupQueue.shift();
+  renderAttentionPopup(state.attentionPopupCurrent);
+  attentionPopupEl.classList.remove('hidden');
+  attentionPopupEl.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('modal-open');
+  playAttentionTone();
+}
+
+function queueAttentionPopup(item) {
+  if (!item?.dedupeKey) return;
+  const currentKey = state.attentionPopupCurrent?.dedupeKey;
+  const queuedKeys = new Set((state.attentionPopupQueue || []).map((entry) => entry?.dedupeKey).filter(Boolean));
+  if (item.dedupeKey === currentKey || queuedKeys.has(item.dedupeKey)) return;
+  state.attentionPopupQueue = [...(state.attentionPopupQueue || []), item];
+  if (document.visibilityState === 'visible') {
+    showNextAttentionPopup();
+  }
+}
+
+function closeAttentionPopup(options = {}) {
+  if (!attentionPopupEl || !state.attentionPopupCurrent) return;
+  const current = state.attentionPopupCurrent;
+  attentionPopupEl.classList.add('hidden');
+  attentionPopupEl.setAttribute('aria-hidden', 'true');
+  state.attentionPopupCurrent = null;
+  if (options.openTarget) {
+    openAttentionPopupTarget(current);
+  }
+  if (
+    modalEl.classList.contains('hidden') &&
+    alertModalEl.classList.contains('hidden') &&
+    sectorAlertsModalEl.classList.contains('hidden') &&
+    stageUpdatesModalEl.classList.contains('hidden') &&
+    adminModalEl.classList.contains('hidden') &&
+    loginModalEl.classList.contains('hidden')
+  ) {
+    document.body.classList.remove('modal-open');
+  }
+  if (document.visibilityState === 'visible') {
+    window.setTimeout(showNextAttentionPopup, 30);
+  }
+}
+
+function buildAttentionPopupItem(kind, item = {}) {
+  const normalizedKind = String(kind || '').trim();
+  const baseId = buildIncomingAlertId(kind, item);
+  if (!baseId) return null;
+  if (normalizedKind === 'manual') {
+    return {
+      kind: 'manual',
+      dedupeKey: `manual:${baseId}`,
+      title: item.title || 'Novo alerta operacional',
+      meta: `Setor: ${sectorLabel(item.sector)}${item.priority ? ` • Prioridade: ${String(item.priority).toUpperCase()}` : ''}`,
+      message: item.message || 'Você recebeu um novo alerta operacional.',
+      actionLabel: 'Abrir alerta',
+    };
+  }
+  if (normalizedKind === 'projectSignals') {
+    return {
+      kind: 'projectsignals',
+      dedupeKey: `projectSignals:${baseId}`,
+      title: item.title || 'Nova sinalização para o PCP',
+      meta: `Projetos • ${item.createdBy || 'Usuário'}`,
+      message: item.message || 'Uma nova sinalização foi enviada para validação.',
+      actionLabel: 'Abrir sinalização',
+    };
+  }
+  if (normalizedKind === 'automatic') {
+    return {
+      kind: 'automatic',
+      dedupeKey: `automatic:${baseId}`,
+      title: 'Prazo em alerta',
+      meta: `${item.projectDisplay || item.projectNumber || 'Projeto'} • ${sectorLabel(item.sector)}`,
+      message: `${item.projectDisplay || item.projectNumber || 'Projeto'} requer atenção do seu setor.`,
+      actionLabel: 'Abrir alertas',
+    };
+  }
+  if (normalizedKind === 'stageUpdates') {
+    return {
+      kind: 'stage-updates',
+      dedupeKey: `stageUpdates:${baseId}`,
+      title: item.status && String(item.status).toLowerCase().includes('review') ? 'Nova revisão para o PCP' : 'Novo apontamento para validação',
+      meta: `${item.projectDisplay || item.projectNumber || 'Projeto'} • ${item.spoolIso || 'Spool'} • ${sectorLabel(item.sector)}`,
+      message: item.note || 'Um novo apontamento foi enviado e aguarda validação do PCP.',
+      actionLabel: 'Abrir apontamentos',
+    };
+  }
+  return null;
+}
+
+function syncIncomingAlerts(kind, items = []) {
+  const bucket = getIncomingAlertState(kind);
+  const currentIds = (Array.isArray(items) ? items : []).map((item) => buildIncomingAlertId(kind, item)).filter(Boolean);
+  if (!bucket.initialized) {
+    bucket.initialized = true;
+    bucket.ids = currentIds;
+    return;
+  }
+  const previousIds = new Set(bucket.ids || []);
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const itemId = buildIncomingAlertId(kind, item);
+    if (!itemId || previousIds.has(itemId)) return;
+    const popupItem = buildAttentionPopupItem(kind, item);
+    if (popupItem) queueAttentionPopup(popupItem);
+  });
+  bucket.ids = currentIds;
+}
+
 function getProjectAlertWindow(date = new Date()) {
   const hours = Number(date.getHours());
   if (hours === 9) return `${date.toISOString().slice(0, 10)}:09`;
@@ -423,7 +617,11 @@ function shouldNotifyAlert(stateEntry, signature, options = {}) {
 function detectNewUserAlerts() {
   if (!state.user || state.user.role === 'admin') return;
   const manualAlerts = Array.isArray(state.manualAlerts) ? state.manualAlerts : [];
+  const projectSignals = Array.isArray(state.projectSignals) ? state.projectSignals : [];
   const automaticAlerts = getUserAutomaticAlerts();
+  syncIncomingAlerts('manual', manualAlerts);
+  syncIncomingAlerts('projectSignals', projectSignals);
+  syncIncomingAlerts('automatic', automaticAlerts);
   const manualSignature = buildAlertSignature(manualAlerts, (item) => `${item.id}:${item.updatedAt || item.createdAt || ''}`);
   const automaticSignature = buildAlertSignature(automaticAlerts, (item) => `${item.projectNumber || item.projectDisplay}:${item.sector}:${item.daysRemaining}`);
   const manualKey = getAlertStorageKey('manual', state.user.sub || state.user.username);
@@ -1489,8 +1687,21 @@ function getActiveWeekLabel() {
   return state.weekFilter || "Todas as semanas";
 }
 
+function projectMatchesWeekFilter(project, weekLabel = state.weekFilter) {
+  if (!weekLabel) return true;
+  const normalizedWeek = String(weekLabel || '').trim();
+  if (!normalizedWeek) return true;
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  if (spools.length) {
+    return spools.some((spool) => String(spool?.weldingWeek || '').trim() === normalizedWeek);
+  }
+  return String(project?.weldingWeek || '').trim() === normalizedWeek;
+}
+
 function getStatsProjectsSource() {
-  return getVisibleProjectsSource();
+  if (Array.isArray(state.filteredProjects) && state.filteredProjects.length) return state.filteredProjects;
+  const source = getVisibleProjectsSource();
+  return source.filter((project) => projectMatchesWeekFilter(project));
 }
 
 function buildClientStats(projects) {
@@ -1944,6 +2155,7 @@ function renderProjectViewTabs() {
 function applyFilter() {
   const query = normalizeText(state.searchQuery).trim();
   const demand = normalizeText(state.demandFilter).trim();
+  const selectedWeek = String(state.weekFilter || '').trim();
 
   const sourceProjects = getVisibleProjectsSource();
 
@@ -1954,7 +2166,8 @@ function applyFilter() {
         || normalizeText(project.currentStageGroup || simplifyCurrentStage(project)).includes(demand)
         || normalizeText(project.currentStage).includes(demand)
         || normalizeText(translateProjectStatus(project.projectStatus, project.uiState)).includes(demand);
-      return matchesQuery && matchesDemand;
+      const matchesWeek = projectMatchesWeekFilter(project, selectedWeek);
+      return matchesQuery && matchesDemand && matchesWeek;
     })
     .sort(compareProjectsByPlannedFinishDate);
 
@@ -2577,11 +2790,21 @@ function startPolling() {
     if (state.user) {
       await loadManualAlerts();
       await loadAlertResponses();
+      await loadStageUpdates();
     }
   }, DEFAULT_POLL_MS);
 }
 
 function bindEvents() {
+  if (attentionPopupCloseEl) {
+    attentionPopupCloseEl.addEventListener('click', () => closeAttentionPopup());
+  }
+  if (attentionPopupActionEl) {
+    attentionPopupActionEl.addEventListener('click', () => closeAttentionPopup({ openTarget: true }));
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') showNextAttentionPopup();
+  });
   if (sectorAlertsContentEl) {
     sectorAlertsContentEl.addEventListener('click', async (event) => {
       const button = event.target.closest('[data-enable-push]');
@@ -2637,7 +2860,11 @@ function bindEvents() {
   if (weekFilterEl) {
     weekFilterEl.addEventListener("change", (event) => {
       state.weekFilter = event.target.value;
+      applyFilter();
       renderStats();
+      renderTable();
+      renderSelectedProjectCard();
+      tableShellEl.scrollTop = 0;
     });
   }
 
@@ -3128,6 +3355,9 @@ if (adminUsersListEl) {
 
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
+    if (attentionPopupEl && !attentionPopupEl.classList.contains('hidden')) {
+      return;
+    }
     if (loginModalEl && !loginModalEl.classList.contains("hidden")) {
       closeLoginModal();
       return;
@@ -4151,6 +4381,9 @@ async function handleLogout() {
   state.stageUpdates = [];
   state.stageDrafts = {};
   state.stageBatchValidationMode = false;
+  state.attentionPopupQueue = [];
+  state.attentionPopupCurrent = null;
+  state.incomingAlertState = { manual: { initialized: false, ids: [] }, projectSignals: { initialized: false, ids: [] }, automatic: { initialized: false, ids: [] }, stageUpdates: { initialized: false, ids: [] } };
   window.clearInterval(state.pollTimer);
   updateSessionUi();
   resetDashboardForLoggedOutState();
@@ -4170,6 +4403,10 @@ async function loadStageUpdates() {
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao carregar apontamentos setoriais.');
     state.stageUpdates = Array.isArray(data.updates) ? data.updates : [];
+    if (normalizeSectorValue(state.user?.sector) === 'pcp') {
+      const pendingForPcp = state.stageUpdates.filter((item) => isPendingStageStatus(item?.status));
+      syncIncomingAlerts('stageUpdates', pendingForPcp);
+    }
   } catch (error) {
     state.stageUpdates = [];
     if (stageUpdatesContentEl && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
