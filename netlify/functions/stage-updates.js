@@ -7,6 +7,7 @@ const { findProjectAndSpool } = require('./_projectLookup');
 const DATA_PATH = 'data/stage-updates.json';
 const SUPPORTED_SECTORS = ['pintura', 'inspecao', 'pendente_envio', 'producao', 'calderaria', 'solda'];
 const PROGRESS_OPTIONS = [25, 50, 75, 100];
+const PENDING_STATUSES = ['pending', 'pending_advance', 'pending_review'];
 
 function canValidate(session) {
   const sector = normalizeSectorValue(session?.sector);
@@ -66,6 +67,7 @@ exports.handler = async (event) => {
       const progress = Number(body.progress || 0);
       const completionDate = String(body.completionDate || '').trim();
       const note = String(body.note || '').trim();
+      const actionType = String(body.actionType || 'advance').trim().toLowerCase() === 'review' ? 'review' : 'advance';
       const sector = session.role === 'admin'
         ? normalizeSectorValue(body.sector || session.sector)
         : getActorSector(session);
@@ -82,7 +84,7 @@ exports.handler = async (event) => {
       }
       const updates = await listUpdates();
       const pendingExists = updates.find((item) =>
-        String(item.status || 'pending') === 'pending'
+        PENDING_STATUSES.includes(String(item.status || 'pending').trim().toLowerCase())
         && Number(item.projectRowId || 0) === projectRowId
         && String(item.spoolIso || '').trim().toLowerCase() === spoolIso.toLowerCase()
         && normalizeSectorValue(item.sector) === sector
@@ -103,7 +105,7 @@ exports.handler = async (event) => {
         progress,
         completionDate: completionDate || (progress === 100 ? now.slice(0, 10) : ''),
         note,
-        status: 'pending',
+        status: actionType === 'review' ? 'pending_review' : 'pending_advance',
         createdBy: session.username || '',
         createdByName: session.name || session.username || 'Usuário',
         createdAt: now,
@@ -132,9 +134,11 @@ exports.handler = async (event) => {
       const updates = await listUpdates();
       const index = updates.findIndex((item) => String(item.id) === id);
       if (index < 0) return jsonResponse(404, { ok: false, error: 'Apontamento não encontrado.' });
+      const currentStatus = String(updates[index]?.status || 'pending').trim().toLowerCase();
+      const nextStatus = currentStatus === 'pending_review' ? 'resolved_review' : 'resolved_advance';
       const updatedRecord = {
         ...updates[index],
-        status: 'resolved',
+        status: nextStatus,
         resolvedBy: session.username || '',
         resolvedByName: session.name || session.username || 'Usuário',
         resolvedAt: new Date().toISOString(),
@@ -142,7 +146,7 @@ exports.handler = async (event) => {
       };
       if (isSupabaseConfigured()) {
         const saved = await updateStageUpdate(id, {
-          status: 'resolved',
+          status: nextStatus,
           resolvedBy: updatedRecord.resolvedBy,
           resolvedByName: updatedRecord.resolvedByName,
           resolvedAt: updatedRecord.resolvedAt,

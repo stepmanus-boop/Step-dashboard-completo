@@ -1016,9 +1016,36 @@ function getStageUpdatesForCurrentSector(source = null, sector = getStageWorkspa
   return list.filter((item) => normalizeSectorValue(item?.sector) === sector);
 }
 
+function isPendingStageStatus(status) {
+  const normalized = String(status || 'pending').trim().toLowerCase();
+  return ['pending', 'pending_advance', 'pending_review'].includes(normalized);
+}
+
+function isResolvedStageStatus(status) {
+  const normalized = String(status || '').trim().toLowerCase();
+  return ['resolved', 'resolved_advance', 'resolved_review'].includes(normalized);
+}
+
+function isReviewStageStatus(status) {
+  const normalized = String(status || '').trim().toLowerCase();
+  return ['pending_review', 'resolved_review'].includes(normalized);
+}
+
+function stageUpdateActionLabel(status) {
+  return isReviewStageStatus(status) ? 'Revisão' : 'Enviado';
+}
+
+function stageUpdateResolveLabel(status) {
+  return isReviewStageStatus(status) ? 'Revisão concluída' : 'Concluído';
+}
+
+function stageUpdatePendingLabel(status) {
+  return isReviewStageStatus(status) ? 'Revisão PCP' : 'Pendente';
+}
+
 function getPendingStageUpdate(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
   return getStageUpdatesForCurrentSector().find((item) =>
-    String(item.status || 'pending') === 'pending'
+    isPendingStageStatus(item.status)
     && Number(item.projectRowId || 0) === Number(projectRowId || 0)
     && String(item.spoolIso || '').trim().toLowerCase() === String(spoolIso || '').trim().toLowerCase()
   ) || null;
@@ -1026,7 +1053,7 @@ function getPendingStageUpdate(projectRowId, spoolIso, sector = getStageWorkspac
 
 function getLatestResolvedStageUpdate(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
   return getStageUpdatesForCurrentSector().filter((item) =>
-    String(item.status || '').toLowerCase() === 'resolved'
+    isResolvedStageStatus(item.status)
     && Number(item.projectRowId || 0) === Number(projectRowId || 0)
     && String(item.spoolIso || '').trim().toLowerCase() === String(spoolIso || '').trim().toLowerCase()
   ).sort((a,b)=> new Date(b.resolvedAt || b.createdAt || 0) - new Date(a.resolvedAt || a.createdAt || 0))[0] || null;
@@ -1055,7 +1082,7 @@ function renderProjectSignals(project) {
     ? signals.map((alert) => {
         const resolved = getSignalResolutionInfo(alert.id);
         return `
-          <article class="project-signal-item">
+          <article class="project-signal-item ${resolved ? 'project-signal-item--resolved' : ''}">
             <div class="admin-list-item-meta">
               ${getSignalStatusBadge(alert)}
               <span>${escapeHtml(new Date(alert.createdAt).toLocaleString('pt-BR'))}</span>
@@ -2480,12 +2507,13 @@ if (stageUpdatesModalEl) {
     }
   });
   stageUpdatesModalEl.addEventListener('click', (event) => {
-    const sendButton = event.target.closest('[data-stage-send="true"]');
-    if (!sendButton) return;
-    const rowEl = sendButton.closest('tr');
+    const actionButton = event.target.closest('[data-stage-send="true"], [data-stage-review="true"]');
+    if (!actionButton) return;
+    const rowEl = actionButton.closest('tr');
     const formEl = rowEl?.querySelector('[data-stage-update-form="true"]');
     if (!formEl) return;
-    handleStageWorkspaceSubmit(formEl);
+    const actionType = actionButton.matches('[data-stage-review="true"]') ? 'review' : 'advance';
+    handleStageWorkspaceSubmit(formEl, actionType);
   });
 }
 
@@ -2856,7 +2884,7 @@ function renderManualAlerts(targetAlerts = state.manualAlerts, targetEl = sector
           ${manualAlerts.map((alert) => {
             const resolved = getSignalResolutionInfo(alert.id);
             return `
-            <article class="manual-alert-item manual-alert-item--operational">
+            <article class="manual-alert-item manual-alert-item--operational ${resolved ? 'manual-alert-item--resolved' : ''}">
               <div class="admin-list-item-meta">
                 ${getSignalStatusBadge(alert)}
                 <span class="manual-alert-tag">${escapeHtml(sectorLabel(alert.sector))}</span>
@@ -2968,7 +2996,7 @@ function renderMyProjectSignals(targetEl = sectorAlertsContentEl) {
         ${signals.map((alert) => {
           const resolved = getSignalResolutionInfo(alert.id);
           return `
-            <article class="manual-alert-item manual-alert-item--operational">
+            <article class="manual-alert-item manual-alert-item--operational ${resolved ? 'manual-alert-item--resolved' : ''}">
               <div class="admin-list-item-meta">
                 ${getSignalStatusBadge(alert)}
                 <span class="manual-alert-tag">PCP</span>
@@ -3017,7 +3045,7 @@ function renderProjectUserSignals(targetEl = sectorAlertsContentEl) {
         ${signals.map((alert) => {
           const resolved = getSignalResolutionInfo(alert.id);
           return `
-            <article class="manual-alert-item manual-alert-item--operational">
+            <article class="manual-alert-item manual-alert-item--operational ${resolved ? 'manual-alert-item--resolved' : ''}">
               <div class="admin-list-item-meta">
                 ${getSignalStatusBadge(alert)}
                 <span class="manual-alert-tag">PCP</span>
@@ -3688,8 +3716,8 @@ function renderStageSectorWorkspace() {
   const stageLabel = getStageWorkspaceLabel(sector);
   const matchedProjects = stageWorkspaceSearchProjects();
   const myUpdates = getMyStageUpdates();
-  const pendingMine = myUpdates.filter((item) => String(item.status || 'pending') === 'pending');
-  const resolvedMine = myUpdates.filter((item) => String(item.status || '') === 'resolved').slice(0, 10);
+  const pendingMine = myUpdates.filter((item) => isPendingStageStatus(item.status));
+  const resolvedMine = myUpdates.filter((item) => isResolvedStageStatus(item.status)).slice(0, 10);
   stageUpdatesContentEl.innerHTML = `
     <div class="stage-workspace-shell">
       <section class="admin-card admin-card--wide">
@@ -3742,11 +3770,11 @@ function renderStageSectorWorkspace() {
                             <td><textarea name="note" rows="2" placeholder="Observação opcional" ${pending || isSubmitting ? 'disabled' : ''}></textarea></td>
                             <td>
                               ${pending
-                                ? `<span class="stage-badge stage-badge--sent">Enviado</span>`
+                                ? `<span class="stage-badge ${isReviewStageStatus(pending.status) ? 'stage-badge--review' : 'stage-badge--sent'}">${escapeHtml(stageUpdateActionLabel(pending.status))}</span>`
                                 : isSubmitting
                                   ? `<button class="primary-button" type="button" disabled>Enviando...</button>`
-                                  : `<button class="primary-button" type="button" data-stage-send="true">Enviar</button>`}
-                              ${lastResolved ? `<div class="stage-muted">Último concluído: ${escapeHtml(formatStageDate(lastResolved.resolvedAt))}</div>` : ''}
+                                  : `<div class="stage-row-actions"><button class="primary-button" type="button" data-stage-send="true">Enviar</button><button class="ghost-button stage-review-button" type="button" data-stage-review="true">Revisão</button></div>`}
+                              ${lastResolved ? `<div class="stage-muted">Último ${escapeHtml(isReviewStageStatus(lastResolved.status) ? 'retorno de revisão' : 'avanço concluído')}: ${escapeHtml(formatStageDate(lastResolved.resolvedAt))}</div>` : ''}
                             </td>
                           </tr>`;
                       }).join('')}
@@ -3767,14 +3795,14 @@ function renderStageSectorWorkspace() {
                       <strong>${escapeHtml(item.projectDisplay || item.projectNumber || 'Projeto')} • ${escapeHtml(item.spoolIso || 'Spool')}</strong>
                       <div class="stage-update-meta">
                         <span class="stage-badge stage-badge--sector">${escapeHtml(sectorLabel(item.sector))}</span>
-                        <span class="stage-badge ${String(item.status)==='resolved' ? 'stage-badge--resolved' : 'stage-badge--sent'}">${String(item.status)==='resolved' ? 'Concluído' : 'Enviado'}</span>
+                        <span class="stage-badge ${isResolvedStageStatus(item.status) ? (isReviewStageStatus(item.status) ? 'stage-badge--review-resolved' : 'stage-badge--resolved') : (isReviewStageStatus(item.status) ? 'stage-badge--review' : 'stage-badge--sent')}">${escapeHtml(isResolvedStageStatus(item.status) ? stageUpdateResolveLabel(item.status) : stageUpdateActionLabel(item.status))}</span>
                         <span class="stage-badge">${escapeHtml(String(item.progress || 0))}%</span>
                       </div>
                     </div>
                   </div>
                   <p>${escapeHtml(item.note || 'Sem observação.')}</p>
                   <div class="stage-muted">Enviado em: ${escapeHtml(formatStageDate(item.createdAt))}</div>
-                  ${item.status === 'resolved' ? `<div class="stage-muted">Concluído por ${escapeHtml(item.resolvedByName || item.resolvedBy || 'PCP')} em ${escapeHtml(formatStageDate(item.resolvedAt))}</div>${item.resolutionNote ? `<div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(item.resolutionNote)}</p></div>` : ''}` : ''}
+                  ${isResolvedStageStatus(item.status) ? `<div class="stage-muted">${escapeHtml(stageUpdateResolveLabel(item.status))} por ${escapeHtml(item.resolvedByName || item.resolvedBy || 'PCP')} em ${escapeHtml(formatStageDate(item.resolvedAt))}</div>${item.resolutionNote ? `<div class="response-bubble response-bubble--admin"><strong>${escapeHtml(isReviewStageStatus(item.status) ? 'Tratativa PCP' : 'Fechamento PCP')}</strong><p>${escapeHtml(item.resolutionNote)}</p></div>` : ''}` : ''}
                 </article>`).join('') : `<div class="empty-state">Nenhum apontamento enviado ainda.</div>`}
             </div>
           </div>
@@ -3792,8 +3820,8 @@ function renderStageValidationWorkspace() {
     return [item.projectNumber, item.projectDisplay, item.client, item.spoolIso, item.sector, item.createdByName]
       .some((value) => normalizeText(value).includes(query));
   }).sort((a,b)=> new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-  const pending = filtered.filter((item) => String(item.status || 'pending') === 'pending');
-  const history = filtered.filter((item) => String(item.status || '') === 'resolved').slice(0, 50);
+  const pending = filtered.filter((item) => isPendingStageStatus(item.status));
+  const history = filtered.filter((item) => isResolvedStageStatus(item.status)).slice(0, 50);
   stageUpdatesContentEl.innerHTML = `
     <div class="stage-workspace-shell">
       <section class="admin-card admin-card--wide">
@@ -3816,14 +3844,14 @@ function renderStageValidationWorkspace() {
                     <strong>${escapeHtml(item.projectDisplay || item.projectNumber || 'Projeto')} • ${escapeHtml(item.spoolIso || 'Spool')}</strong>
                     <div class="stage-update-meta">
                       <span class="stage-badge stage-badge--sector">${escapeHtml(sectorLabel(item.sector))}</span>
-                      <span class="stage-badge stage-badge--pending">Pendente</span>
+                      <span class="stage-badge ${isReviewStageStatus(item.status) ? 'stage-badge--review' : 'stage-badge--pending'}">${escapeHtml(stageUpdatePendingLabel(item.status))}</span>
                       <span class="stage-badge">${escapeHtml(String(item.progress || 0))}%</span>
                     </div>
                   </div>
-                  <button class="primary-button" type="button" data-stage-conclude="${escapeHtml(item.id)}">Concluir</button>
+                  <button class="primary-button" type="button" data-stage-conclude="${escapeHtml(item.id)}">${escapeHtml(isReviewStageStatus(item.status) ? 'Tratar revisão' : 'Concluir')}</button>
                 </div>
                 <p><strong>Spool:</strong> ${escapeHtml(item.spoolDescription || '—')}</p>
-                <p>${escapeHtml(item.note || 'Sem observação do setor.')}</p>
+                <p><strong>${escapeHtml(isReviewStageStatus(item.status) ? 'Motivo da revisão:' : 'Observação do setor:')}</strong> ${escapeHtml(item.note || (isReviewStageStatus(item.status) ? 'Sem motivo informado.' : 'Sem observação do setor.'))}</p>
                 <div class="stage-muted">Informado por ${escapeHtml(item.createdByName || item.createdBy || 'Usuário')} em ${escapeHtml(formatStageDate(item.createdAt))}</div>
               </article>`).join('') : `<div class="empty-state">Nenhum apontamento pendente no momento.</div>`}
           </div>
@@ -3838,12 +3866,12 @@ function renderStageValidationWorkspace() {
                     <strong>${escapeHtml(item.projectDisplay || item.projectNumber || 'Projeto')} • ${escapeHtml(item.spoolIso || 'Spool')}</strong>
                     <div class="stage-update-meta">
                       <span class="stage-badge stage-badge--sector">${escapeHtml(sectorLabel(item.sector))}</span>
-                      <span class="stage-badge stage-badge--resolved">Concluído</span>
+                      <span class="stage-badge ${isReviewStageStatus(item.status) ? 'stage-badge--review-resolved' : 'stage-badge--resolved'}">${escapeHtml(stageUpdateResolveLabel(item.status))}</span>
                       <span class="stage-badge">${escapeHtml(String(item.progress || 0))}%</span>
                     </div>
                   </div>
                 </div>
-                <div class="stage-muted">Informado por ${escapeHtml(item.createdByName || item.createdBy || 'Usuário')} • concluído por ${escapeHtml(item.resolvedByName || item.resolvedBy || 'PCP')} em ${escapeHtml(formatStageDate(item.resolvedAt))}</div>
+                <div class="stage-muted">Informado por ${escapeHtml(item.createdByName || item.createdBy || 'Usuário')} • ${escapeHtml(isReviewStageStatus(item.status) ? 'revisão tratada' : 'concluído')} por ${escapeHtml(item.resolvedByName || item.resolvedBy || 'PCP')} em ${escapeHtml(formatStageDate(item.resolvedAt))}</div>
                 ${item.resolutionNote ? `<div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(item.resolutionNote)}</p></div>` : ''}
               </article>`).join('') : `<div class="empty-state">Nenhum histórico validado encontrado.</div>`}
           </div>
@@ -3902,7 +3930,7 @@ function setStageSubmitting(projectRowId, spoolIso, sector, value) {
   else delete state.stageSubmittingKeys[key];
 }
 
-async function handleStageWorkspaceSubmit(formEl) {
+async function handleStageWorkspaceSubmit(formEl, actionType = 'advance') {
   const rowEl = formEl?.closest('tr');
   const projectRowId = String(formEl?.dataset?.projectRowId || '').trim();
   const spoolIso = String(formEl?.dataset?.spoolIso || '').trim();
@@ -3925,7 +3953,7 @@ async function handleStageWorkspaceSubmit(formEl) {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectRowId, spoolIso, progress, completionDate, note, sector }),
+      body: JSON.stringify({ projectRowId, spoolIso, progress, completionDate, note, sector, actionType }),
     });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao enviar apontamento.');
@@ -3937,7 +3965,7 @@ async function handleStageWorkspaceSubmit(formEl) {
       progress: Number(progress || 0),
       completionDate,
       note,
-      status: 'pending',
+      status: actionType === 'review' ? 'pending_review' : 'pending_advance',
       createdAt: new Date().toISOString(),
     };
     state.stageUpdates = [newUpdate, ...(Array.isArray(state.stageUpdates) ? state.stageUpdates : [])];
@@ -3955,7 +3983,11 @@ async function handleStageWorkspaceSubmit(formEl) {
 
 async function concludeStageUpdate(id) {
   if (!id) return;
-  const resolutionNote = window.prompt('Observação de validação do PCP (opcional):', '') || '';
+  const update = (Array.isArray(state.stageUpdates) ? state.stageUpdates : []).find((item) => String(item.id) === String(id));
+  const resolutionPrompt = isReviewStageStatus(update?.status)
+    ? 'Observação da tratativa da revisão (opcional):'
+    : 'Observação de validação do PCP (opcional):';
+  const resolutionNote = window.prompt(resolutionPrompt, '') || '';
   try {
     const response = await fetch('/api/stage-updates', {
       method: 'PATCH',
