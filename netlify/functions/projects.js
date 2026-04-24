@@ -562,7 +562,7 @@ function buildAlertObservation(project, sector, diffDays) {
   if (sector === 'Inspeção') {
     return {
       title: diffDays < 0 ? 'Inspeção em atraso' : 'Inspeção em atenção',
-      message: `${baseDaysText} O projeto ainda está na Inspeção, preso em ${stageLabel}.`,
+      message: `${baseDaysText} O projeto ainda está na Inspeção, aguardando em ${stageLabel}.`,
     };
   }
 
