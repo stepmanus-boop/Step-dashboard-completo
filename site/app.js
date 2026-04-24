@@ -1761,6 +1761,55 @@ function projectMatchesWeekFilter(project, weekLabel = state.weekFilter) {
   return String(project?.weldingWeek || '').trim() === normalizedWeek;
 }
 
+function getProjectStatusFilterLabel(value) {
+  const normalized = String(value || "").trim();
+  if (normalized === "preparing_shipment") return "Preparando para envio";
+  if (normalized === "awaiting_shipment") return "Aguardando envio";
+  if (normalized === "completed") return "Finalizado";
+  if (normalized === "in_progress") return "Em produção";
+  if (normalized === "not_started") return "Não iniciado";
+  if (normalized === "waiting") return "Em espera";
+  return normalized ? normalized.replace(/_/g, " ") : "";
+}
+
+function getStatusOptionProjectsSource() {
+  const query = normalizeText(state.searchQuery).trim();
+  const demand = normalizeText(state.demandFilter).trim();
+  const selectedWeek = String(state.weekFilter || "").trim();
+
+  return getVisibleProjectsSource().filter((project) => {
+    const matchesQuery = !query || project._searchText.includes(query);
+    const matchesDemand = !demand
+      || normalizeText(project.currentStageGroup || simplifyCurrentStage(project)).includes(demand)
+      || normalizeText(project.currentStage).includes(demand)
+      || normalizeText(translateProjectStatus(project.projectStatus, project.uiState)).includes(demand);
+    const matchesWeek = projectMatchesWeekFilter(project, selectedWeek);
+    return matchesQuery && matchesDemand && matchesWeek;
+  });
+}
+
+function buildStatusOptions() {
+  if (!statusFilterEl) return;
+  const selected = state.statusFilter || "";
+  const projects = getStatusOptionProjectsSource();
+  const values = Array.from(
+    new Set(projects.map((project) => getProjectStatusFilterValue(project)).filter(Boolean))
+  ).sort((a, b) => getProjectStatusFilterLabel(a).localeCompare(getProjectStatusFilterLabel(b), "pt-BR"));
+
+  statusFilterEl.innerHTML = [
+    '<option value="">Todos os status</option>',
+    ...values.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(getProjectStatusFilterLabel(value))}</option>`),
+  ].join("");
+
+  if (selected && values.includes(selected)) {
+    statusFilterEl.value = selected;
+    return;
+  }
+
+  statusFilterEl.value = "";
+  if (selected && !values.includes(selected)) state.statusFilter = "";
+}
+
 function getStatsProjectsSource() {
   if (Array.isArray(state.filteredProjects) && state.filteredProjects.length) return state.filteredProjects;
   const source = getVisibleProjectsSource();
@@ -2850,6 +2899,7 @@ async function loadProjects() {
     state.alerts = data.alerts || [];
     buildDemandOptions();
     buildWeekOptions();
+    buildStatusOptions();
 
     if (!state.selectedProjectId && state.projects.length) {
       state.selectedProjectId = state.projects[0].rowId;
@@ -2927,6 +2977,7 @@ function bindEvents() {
 
   searchInputEl.addEventListener("input", (event) => {
     state.searchQuery = event.target.value;
+    buildStatusOptions();
     applyFilter();
     renderStats();
     renderTable();
@@ -2943,6 +2994,7 @@ function bindEvents() {
     if (demandFilterEl) demandFilterEl.value = "";
     if (weekFilterEl) weekFilterEl.value = "";
     if (statusFilterEl) statusFilterEl.value = "";
+    buildStatusOptions();
     applyFilter();
     renderStats();
     renderTable();
@@ -2954,6 +3006,7 @@ function bindEvents() {
   if (demandFilterEl) {
     demandFilterEl.addEventListener("change", (event) => {
       state.demandFilter = event.target.value;
+      buildStatusOptions();
       applyFilter();
       renderStats();
       renderTable();
@@ -2965,6 +3018,7 @@ function bindEvents() {
   if (weekFilterEl) {
     weekFilterEl.addEventListener("change", (event) => {
       state.weekFilter = event.target.value;
+      buildStatusOptions();
       applyFilter();
       renderStats();
       renderTable();
@@ -3190,6 +3244,7 @@ if (projectViewTabsEl) {
     state.projectView = nextView;
     updatePrimaryUserActionUi();
     renderProjectViewTabs();
+    buildStatusOptions();
     applyFilter();
     renderStats();
     renderTable();
@@ -3208,6 +3263,7 @@ if (openSectorAlertsEl) {
       state.projectView = state.projectView === 'mine' ? 'all' : 'mine';
       updatePrimaryUserActionUi();
       renderProjectViewTabs();
+      buildStatusOptions();
       applyFilter();
       renderStats();
       renderTable();
@@ -3223,6 +3279,7 @@ if (openSectorAlertsEl) {
     saveSectorScopedViewPreference(state.sectorScopedView);
     state.alertSectorFilter = state.sectorScopedView ? normalizeAlertSectorFilterValue(getPrimaryUserSector()) || 'all' : 'all';
     updatePrimaryUserActionUi();
+    buildStatusOptions();
     applyFilter();
     renderStats();
     renderTable();
