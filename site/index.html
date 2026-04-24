@@ -160,14 +160,21 @@
                 <option value="">Todas as semanas</option>
               </select>
             </label>
-            <label class="filter-box" for="status-filter">
+            <div class="filter-box status-filter-box">
               <span class="search-label">Filtrar status</span>
-              <select id="status-filter" multiple size="3" aria-label="Filtrar por um ou mais status">
-                <option value="">Todos os status</option>
-                <option value="preparing_shipment">Em tratativa</option>
-                <option value="awaiting_shipment">Aguardando envio</option>
-              </select>
-            </label>
+              <div class="status-multiselect" id="status-filter-dropdown">
+                <button id="status-filter-toggle" class="status-filter-toggle" type="button" aria-haspopup="listbox" aria-expanded="false">
+                  <span id="status-filter-text">Todos os status</span>
+                  <span class="status-filter-arrow" aria-hidden="true">▾</span>
+                </button>
+                <div id="status-filter-menu" class="status-filter-menu hidden" role="listbox" aria-label="Filtrar por status"></div>
+                <select id="status-filter" class="native-status-select" multiple aria-label="Filtrar por um ou mais status" tabindex="-1">
+                  <option value="">Todos os status</option>
+                  <option value="preparing_shipment">Em tratativa</option>
+                  <option value="awaiting_shipment">Aguardando envio</option>
+                </select>
+              </div>
+            </div>
             <button id="clear-search" class="ghost-button" type="button">Limpar</button>
             <div class="search-count" id="search-count">-- resultado(s)</div>
           </div>

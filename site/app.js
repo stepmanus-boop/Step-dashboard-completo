@@ -63,6 +63,10 @@ const clearSearchEl = document.getElementById("clear-search");
 const demandFilterEl = document.getElementById("demand-filter");
 const weekFilterEl = document.getElementById("week-filter");
 const statusFilterEl = document.getElementById("status-filter");
+const statusFilterDropdownEl = document.getElementById("status-filter-dropdown");
+const statusFilterToggleEl = document.getElementById("status-filter-toggle");
+const statusFilterTextEl = document.getElementById("status-filter-text");
+const statusFilterMenuEl = document.getElementById("status-filter-menu");
 const searchCountEl = document.getElementById("search-count");
 const tableShellEl = document.getElementById("table-shell");
 const projectViewTabsEl = document.getElementById("project-view-tabs");
@@ -1587,6 +1591,81 @@ function setStatusFilterValues(values = []) {
   state.statusFilter = state.statusFilters.join(",");
 }
 
+function getStatusFilterOptionsFromSelect() {
+  if (!statusFilterEl) return [];
+  return Array.from(statusFilterEl.options || [])
+    .filter((option) => option.value)
+    .map((option) => ({ value: option.value, label: option.textContent || getProjectStatusFilterLabel(option.value) }));
+}
+
+function updateStatusFilterButtonText() {
+  if (!statusFilterTextEl) return;
+  const selectedValues = getSelectedStatusFilters();
+  const options = getStatusFilterOptionsFromSelect();
+  if (!selectedValues.length) {
+    statusFilterTextEl.textContent = "Todos os status";
+    return;
+  }
+  if (selectedValues.length === 1) {
+    const selected = options.find((option) => option.value === selectedValues[0]);
+    statusFilterTextEl.textContent = selected?.label || getProjectStatusFilterLabel(selectedValues[0]);
+    return;
+  }
+  statusFilterTextEl.textContent = `${selectedValues.length} status selecionados`;
+}
+
+function syncStatusFilterSelect() {
+  if (!statusFilterEl) return;
+  const selectedValues = getSelectedStatusFilters();
+  Array.from(statusFilterEl.options || []).forEach((option) => {
+    option.selected = option.value ? selectedValues.includes(option.value) : !selectedValues.length;
+  });
+  updateStatusFilterButtonText();
+}
+
+function renderStatusFilterMenu() {
+  if (!statusFilterMenuEl) return;
+  const options = getStatusFilterOptionsFromSelect();
+  const selectedValues = getSelectedStatusFilters();
+  if (!options.length) {
+    statusFilterMenuEl.innerHTML = '<div class="status-filter-empty">Nenhum status disponível</div>';
+    updateStatusFilterButtonText();
+    return;
+  }
+  const allChecked = !selectedValues.length;
+  statusFilterMenuEl.innerHTML = [
+    `<label class="status-filter-option status-filter-option--all">
+      <input type="checkbox" value="" data-status-option="" ${allChecked ? "checked" : ""} />
+      <span>Todos os status</span>
+    </label>`,
+    ...options.map((option) => `
+      <label class="status-filter-option">
+        <input type="checkbox" value="${escapeHtml(option.value)}" data-status-option="${escapeHtml(option.value)}" ${selectedValues.includes(option.value) ? "checked" : ""} />
+        <span>${escapeHtml(option.label)}</span>
+      </label>`)
+  ].join("");
+  updateStatusFilterButtonText();
+}
+
+function closeStatusFilterMenu() {
+  if (!statusFilterDropdownEl || !statusFilterMenuEl || !statusFilterToggleEl) return;
+  statusFilterDropdownEl.classList.remove("is-open");
+  statusFilterMenuEl.classList.add("hidden");
+  statusFilterToggleEl.setAttribute("aria-expanded", "false");
+}
+
+function toggleStatusFilterMenu() {
+  if (!statusFilterDropdownEl || !statusFilterMenuEl || !statusFilterToggleEl) return;
+  const isOpen = statusFilterDropdownEl.classList.toggle("is-open");
+  statusFilterMenuEl.classList.toggle("hidden", !isOpen);
+  statusFilterToggleEl.setAttribute("aria-expanded", isOpen ? "true" : "false");
+}
+
+function refreshStatusFilterUi() {
+  syncStatusFilterSelect();
+  renderStatusFilterMenu();
+}
+
 function readStatusFilterValuesFromElement() {
   if (!statusFilterEl) return [];
   if (statusFilterEl.multiple) {
@@ -1861,14 +1940,8 @@ function buildStatusOptions() {
     ...values.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(getProjectStatusFilterLabel(value))}</option>`),
   ].join("");
 
-  if (statusFilterEl.multiple) {
-    Array.from(statusFilterEl.options).forEach((option) => {
-      option.selected = option.value ? validSelectedValues.includes(option.value) : !validSelectedValues.length;
-    });
-  } else {
-    statusFilterEl.value = validSelectedValues[0] || "";
-  }
   setStatusFilterValues(validSelectedValues);
+  refreshStatusFilterUi();
 }
 
 function getStatsProjectsSource() {
@@ -3056,10 +3129,7 @@ function bindEvents() {
     searchInputEl.value = "";
     if (demandFilterEl) demandFilterEl.value = "";
     if (weekFilterEl) weekFilterEl.value = "";
-    if (statusFilterEl) {
-      Array.from(statusFilterEl.options || []).forEach((option) => { option.selected = option.value === ""; });
-      statusFilterEl.value = "";
-    }
+    refreshStatusFilterUi();
     buildStatusOptions();
     applyFilter();
     renderStats();
@@ -3093,9 +3163,51 @@ function bindEvents() {
     });
   }
 
+  if (statusFilterToggleEl) {
+    statusFilterToggleEl.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleStatusFilterMenu();
+    });
+  }
+
+  if (statusFilterMenuEl) {
+    statusFilterMenuEl.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const input = event.target.closest('input[data-status-option]');
+      if (!input) return;
+      const value = String(input.value || "").trim();
+      if (!value) {
+        setStatusFilterValues([]);
+      } else {
+        const selected = new Set(getSelectedStatusFilters());
+        if (input.checked) selected.add(value);
+        else selected.delete(value);
+        setStatusFilterValues(Array.from(selected));
+      }
+      refreshStatusFilterUi();
+      applyFilter();
+      renderStats();
+      renderTable();
+      renderSelectedProjectCard();
+      tableShellEl.scrollTop = 0;
+    });
+  }
+
+  document.addEventListener("click", (event) => {
+    if (statusFilterDropdownEl && !statusFilterDropdownEl.contains(event.target)) {
+      closeStatusFilterMenu();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeStatusFilterMenu();
+  });
+
   if (statusFilterEl) {
     statusFilterEl.addEventListener("change", () => {
       setStatusFilterValues(readStatusFilterValuesFromElement());
+      refreshStatusFilterUi();
       applyFilter();
       renderStats();
       renderTable();
