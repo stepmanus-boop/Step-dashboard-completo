@@ -2817,14 +2817,14 @@ button.alert-badge {
 }
 
 .topbar--compact .session-card-head {
+  display: contents;
+}
+
+.topbar--compact .session-card-head-main {
   grid-area: access;
   display: inline-flex;
   justify-content: flex-start;
   align-items: center;
-  gap: 10px;
-}
-
-.topbar--compact .session-card-head-main {
   gap: 10px;
 }
 
