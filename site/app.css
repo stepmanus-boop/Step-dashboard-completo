@@ -2728,3 +2728,283 @@ button.alert-badge {
 .modal-dialog--small {
   max-width: 520px;
 }
+
+/* Layout compacto aprovado - alteração visual somente do cabeçalho/cards */
+.topbar.topbar--compact {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  padding: 0;
+  align-items: stretch;
+  overflow: hidden;
+  border-radius: 16px;
+}
+
+.topbar--compact .topbar-mainline {
+  display: grid;
+  grid-template-columns: 156px minmax(360px, 1fr) minmax(360px, 0.42fr);
+  align-items: center;
+  gap: 18px;
+  min-height: 78px;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(67, 131, 222, 0.2);
+}
+
+.topbar--compact .brand-card {
+  min-height: 0;
+  border: 0;
+  border-right: 1px solid rgba(67, 131, 222, 0.2);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-right: 18px;
+}
+
+.topbar--compact .brand-logo {
+  width: auto;
+  max-width: 126px;
+  max-height: 48px;
+  object-fit: contain;
+  filter: none;
+}
+
+.topbar--compact .title-block {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 22px;
+  padding: 0;
+  text-align: left;
+  min-width: 0;
+}
+
+.topbar--compact .title-block .eyebrow {
+  display: none;
+}
+
+.topbar--compact .title-block h1 {
+  margin: 0;
+  font-size: clamp(18px, 1.45vw, 27px);
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.topbar--compact .title-block .subtitle {
+  margin: 0;
+  color: var(--accent);
+  font-size: clamp(11px, 0.78vw, 14px);
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+}
+
+.topbar--compact .session-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: auto minmax(160px, 1fr) auto;
+  grid-template-areas: "access user status" "access meta status";
+  align-items: center;
+  column-gap: 16px;
+  row-gap: 3px;
+  min-width: 0;
+}
+
+.topbar--compact .session-card-head {
+  grid-area: access;
+  display: inline-flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar--compact .session-card-head-main {
+  gap: 10px;
+}
+
+.topbar--compact .session-mini-action {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 10px;
+  color: #dceeff;
+  background: rgba(4, 22, 38, 0.7);
+  border-color: rgba(72, 185, 255, 0.32);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.topbar--compact .session-card strong {
+  grid-area: user;
+  font-size: 14px;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar--compact .session-user-meta {
+  grid-area: meta;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar--compact .session-status {
+  grid-area: status;
+  position: relative;
+  padding-left: 16px;
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.topbar--compact .session-status::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: translateY(-50%);
+  box-shadow: 0 0 10px currentColor;
+}
+
+.topbar--compact .topbar-toolsline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(330px, 0.28fr);
+  align-items: center;
+  gap: 18px;
+  min-height: 72px;
+  padding: 12px 18px;
+}
+
+.topbar--compact .session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.topbar--compact .ghost-button--compact {
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.topbar--compact .clock-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  min-width: 0;
+  border-left: 1px solid rgba(67, 131, 222, 0.18);
+}
+
+.topbar--compact .clock-card {
+  min-height: 58px;
+  padding: 6px 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.topbar--compact .clock-card + .clock-card {
+  border-left: 1px solid rgba(67, 131, 222, 0.22);
+}
+
+.topbar--compact .clock-flag {
+  font-size: 12px;
+}
+
+.topbar--compact .clock-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.topbar--compact .clock-time {
+  font-size: clamp(20px, 1.25vw, 26px);
+}
+
+.topbar--compact .clock-date {
+  font-size: 10px;
+}
+
+.summary-row,
+.summary-row--nine {
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.summary-card {
+  min-height: 80px;
+  padding: 11px 12px;
+  gap: 4px;
+  align-content: center;
+}
+
+.summary-label {
+  font-size: clamp(9px, 0.58vw, 11px);
+  line-height: 1.25;
+  letter-spacing: 0.045em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.summary-subtext {
+  font-size: clamp(8px, 0.5vw, 10px);
+  line-height: 1.2;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.summary-card strong {
+  font-size: clamp(22px, 1.45vw, 30px);
+  line-height: 1.05;
+}
+
+@media (max-width: 1500px) {
+  .topbar.topbar--compact { grid-template-columns: 1fr; }
+  .topbar--compact .topbar-mainline {
+    grid-template-columns: 140px minmax(310px, 1fr) minmax(310px, 0.46fr);
+    gap: 14px;
+  }
+  .topbar--compact .brand-logo { max-width: 112px; }
+  .summary-row, .summary-row--nine { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+
+@media (max-width: 1180px) {
+  .topbar--compact .topbar-mainline,
+  .topbar--compact .topbar-toolsline {
+    grid-template-columns: 1fr;
+  }
+  .topbar--compact .brand-card { border-right: 0; padding-right: 0; }
+  .topbar--compact .title-block { flex-wrap: wrap; gap: 8px 16px; }
+  .topbar--compact .session-card { grid-template-columns: 1fr; grid-template-areas: "access" "user" "meta"; }
+  .topbar--compact .session-status { justify-self: start; }
+  .topbar--compact .clock-grid { border-left: 0; }
+}
+
+@media (max-width: 640px) {
+  .topbar--compact .topbar-mainline,
+  .topbar--compact .topbar-toolsline { padding: 10px 12px; }
+  .topbar--compact .title-block h1 { white-space: normal; }
+  .topbar--compact .title-block .subtitle { white-space: normal; }
+  .summary-row, .summary-row--nine { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .summary-card strong { font-size: 22px; }
+}
