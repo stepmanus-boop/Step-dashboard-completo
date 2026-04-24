@@ -48,6 +48,7 @@ function mapUser(row) {
     role: row.role === 'admin' ? 'admin' : 'sector',
     sector: normalizeSectorValue(row.sector || (row.role === 'admin' ? 'all' : '')), 
     alertSectors: normalizeSectorList(row.sector || '', Array.isArray(row.alert_sectors) ? row.alert_sectors : []),
+    canSendPcpAlerts: row.can_send_pcp_alerts === true,
     active: row.active !== false,
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null,
@@ -153,13 +154,28 @@ async function insertUser(input) {
     role: input.role,
     sector: input.sector,
     alert_sectors: input.alertSectors || [],
+    can_send_pcp_alerts: input.canSendPcpAlerts === true,
     active: input.active !== false,
   };
-  const rows = await supabaseFetch('/rest/v1/users?select=*', {
-    method: 'POST',
-    headers: getSupabaseHeaders('return=representation'),
-    body: JSON.stringify(payload),
-  });
+  let rows;
+  try {
+    rows = await supabaseFetch('/rest/v1/users?select=*', {
+      method: 'POST',
+      headers: getSupabaseHeaders('return=representation'),
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    if (String(error.message || '').includes('can_send_pcp_alerts')) {
+      delete payload.can_send_pcp_alerts;
+      rows = await supabaseFetch('/rest/v1/users?select=*', {
+        method: 'POST',
+        headers: getSupabaseHeaders('return=representation'),
+        body: JSON.stringify(payload),
+      });
+    } else {
+      throw error;
+    }
+  }
   return mapUser(Array.isArray(rows) ? rows[0] : null);
 }
 
@@ -172,12 +188,27 @@ async function updateUser(userId, updates) {
   if ('role' in updates) payload.role = updates.role;
   if ('sector' in updates) payload.sector = updates.sector;
   if ('alertSectors' in updates) payload.alert_sectors = updates.alertSectors || [];
+  if ('canSendPcpAlerts' in updates) payload.can_send_pcp_alerts = updates.canSendPcpAlerts === true;
   if ('active' in updates) payload.active = updates.active !== false;
-  const rows = await supabaseFetch(`/rest/v1/users?id=eq.${q}&select=*`, {
-    method: 'PATCH',
-    headers: getSupabaseHeaders('return=representation'),
-    body: JSON.stringify(payload),
-  });
+  let rows;
+  try {
+    rows = await supabaseFetch(`/rest/v1/users?id=eq.${q}&select=*`, {
+      method: 'PATCH',
+      headers: getSupabaseHeaders('return=representation'),
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    if (String(error.message || '').includes('can_send_pcp_alerts')) {
+      delete payload.can_send_pcp_alerts;
+      rows = await supabaseFetch(`/rest/v1/users?id=eq.${q}&select=*`, {
+        method: 'PATCH',
+        headers: getSupabaseHeaders('return=representation'),
+        body: JSON.stringify(payload),
+      });
+    } else {
+      throw error;
+    }
+  }
   return mapUser(Array.isArray(rows) ? rows[0] : null);
 }
 

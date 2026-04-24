@@ -237,6 +237,7 @@ const adminUserCancelEditEl = document.getElementById("admin-user-cancel-edit");
 const adminUserTogglePasswordEl = document.getElementById("admin-user-toggle-password");
 const adminUserIdEl = document.getElementById("admin-user-id");
 const adminUserSubmitLabelEl = document.getElementById("admin-user-submit-label");
+const adminUserCanSendPcpAlertsEl = document.getElementById("admin-user-can-send-pcp-alerts");
 const adminTabTriggerEls = Array.from(document.querySelectorAll('[data-admin-tab-trigger]'));
 const adminTabPanelEls = Array.from(document.querySelectorAll('[data-admin-tab-panel]'));
 const projectSignalModalEl = document.getElementById('project-signal-modal');
@@ -1238,12 +1239,32 @@ function getSignalStatusBadge(alert) {
     : '<span class="manual-alert-tag manual-alert-tag--pending">Pendente</span>';
 }
 
+function canSendPcpAlerts(user = state.user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  if (user.canSendPcpAlerts === true) return true;
+
+  // Compatibilidade com usuários antigos do setor Projetos, criados antes desta permissão existir.
+  if (typeof user.canSendPcpAlerts === 'undefined' || user.canSendPcpAlerts === null) {
+    return normalizeSectorValue(user.sector) === 'projetos' || userHasProjectsScope(user);
+  }
+
+  return false;
+}
+
 function canCreateProjectSignal(project = null, user = state.user) {
   if (!user) return false;
   if (user.role === 'admin') return true;
-  if (!(normalizeSectorValue(user.sector) === 'projetos' || userHasProjectsScope(user))) return false;
+  if (!canSendPcpAlerts(user)) return false;
   if (!project) return true;
-  return projectBelongsToUser(project, user);
+
+  // Usuários de Projetos continuam limitados às BSPs vinculadas ao nome/PM.
+  if (userHasProjectsScope(user)) {
+    return projectBelongsToUser(project, user);
+  }
+
+  // Demais setores autorizados só sinalizam projetos da própria demanda operacional.
+  return projectMatchesScopedSector(project, user);
 }
 
 function canResolveSignal(user = state.user) {
@@ -1292,7 +1313,7 @@ function getMyProjectSignals(user = state.user, source = null) {
 function canViewMyProjectSignals(user = state.user) {
   if (!user) return false;
   if (user.role === 'admin') return true;
-  return normalizeSectorValue(user.sector) === 'projetos' || userHasProjectsScope(user);
+  return canSendPcpAlerts(user);
 }
 
 
@@ -2229,7 +2250,7 @@ function updatePrimaryUserActionUi() {
   if (openProjectSignalsEl) {
     const canView = canViewProjectSignals();
     openProjectSignalsEl.classList.toggle('hidden', !canView);
-    openProjectSignalsEl.title = 'Visualizar apenas os alertas enviados pelos usuários de Projetos';
+    openProjectSignalsEl.title = 'Visualizar os alertas enviados ao PCP pelos usuários autorizados';
   }
   if (openStageUpdatesEl) {
     const canOpen = canOpenStageWorkspace();
@@ -3186,6 +3207,9 @@ if (adminUserSectorEl) {
       selected.add(next);
       setSelectedAdminAlertSectors([...selected]);
     }
+    if (next === 'projetos' && adminUserCanSendPcpAlertsEl) {
+      adminUserCanSendPcpAlertsEl.checked = true;
+    }
   });
 }
 
@@ -3195,6 +3219,10 @@ if (adminUserRoleEl) {
     document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
       input.disabled = disabled;
     });
+    if (adminUserCanSendPcpAlertsEl) {
+      adminUserCanSendPcpAlertsEl.disabled = disabled;
+      if (disabled) adminUserCanSendPcpAlertsEl.checked = false;
+    }
   });
 }
 
@@ -3313,7 +3341,7 @@ if (openProjectSignalsEl) {
     }
     state.sectorAlertsMode = 'project-signals';
     const titleEl = document.getElementById('sector-alerts-title');
-    if (titleEl) titleEl.textContent = 'Alertas enviados por Projetos';
+    if (titleEl) titleEl.textContent = 'Alertas enviados ao PCP';
     openSectorAlertsModal();
   });
 }
@@ -3999,23 +4027,23 @@ function renderMyProjectSignals(targetEl = sectorAlertsContentEl) {
 function renderProjectUserSignals(targetEl = sectorAlertsContentEl) {
   if (!targetEl) return;
   if (!state.user) {
-    targetEl.innerHTML = '<div class="detail-placeholder">Faça login para visualizar as sinalizações enviadas por usuários de Projetos.</div>';
+    targetEl.innerHTML = '<div class="detail-placeholder">Faça login para visualizar as sinalizações enviadas ao PCP.</div>';
     return;
   }
   const signals = getProjectUserSignals();
   if (!signals.length) {
-    targetEl.innerHTML = '<div class="detail-placeholder">Nenhuma sinalização enviada por usuários de Projetos foi encontrada.</div>';
+    targetEl.innerHTML = '<div class="detail-placeholder">Nenhuma sinalização enviada ao PCP foi encontrada.</div>';
     return;
   }
   targetEl.innerHTML = `
     <div class="manual-alert-summary">
       <span class="manual-alert-tag">Fila do PCP</span>
-      <span class="manual-alert-tag">Origem: Projetos</span>
+      <span class="manual-alert-tag">Origem: usuários autorizados</span>
       <span class="manual-alert-tag">Total: ${signals.length} sinalização(ões)</span>
     </div>
     <section class="manual-alert-section">
       <div class="admin-list-item-meta">
-        <span class="manual-alert-tag">Alertas enviados por Projetos</span>
+        <span class="manual-alert-tag">Alertas enviados ao PCP</span>
         <span>${signals.length} registro(s)</span>
       </div>
       <div class="manual-alert-section-list">
@@ -4187,7 +4215,7 @@ function closeAlertResponseModal() {
 function openProjectSignalModal(project) {
   if (!projectSignalModalEl || !project) return;
   if (!canCreateProjectSignal(project)) {
-    window.alert('Você só pode enviar sinalização para BSPs que estejam vinculadas ao seu nome.');
+    window.alert('Usuário sem permissão para enviar alertas ao PCP ou BSP não vinculada ao seu nome.');
     return;
   }
   state.selectedProjectForSignal = project;
@@ -4369,6 +4397,7 @@ function resetAdminUserForm() {
   if (adminUserIdEl) adminUserIdEl.value = "";
   if (adminUserCancelEditEl) adminUserCancelEditEl.classList.add("hidden");
   if (adminUserSubmitLabelEl) adminUserSubmitLabelEl.textContent = "Criar usuário";
+  if (adminUserCanSendPcpAlertsEl) adminUserCanSendPcpAlertsEl.checked = false;
   setSelectedAdminAlertSectors([document.getElementById("admin-user-sector")?.value || "pintura"]);
 }
 
@@ -4381,6 +4410,7 @@ function startEditUser(userId) {
   document.getElementById("admin-user-password").value = "";
   document.getElementById("admin-user-role").value = user.role === "admin" ? "admin" : "sector";
   document.getElementById("admin-user-sector").value = user.sector && user.sector !== "all" ? user.sector : "pintura";
+  if (adminUserCanSendPcpAlertsEl) adminUserCanSendPcpAlertsEl.checked = user.canSendPcpAlerts === true || (typeof user.canSendPcpAlerts === 'undefined' && normalizeSectorValue(user.sector) === 'projetos');
   setSelectedAdminAlertSectors(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]);
   if (adminUserIdEl) adminUserIdEl.value = user.id || "";
   if (adminUserCancelEditEl) adminUserCancelEditEl.classList.remove("hidden");
@@ -4430,6 +4460,7 @@ function renderAdminUsersList(users = []) {
           <span>Perfil: ${escapeHtml(user.role === "admin" ? "Admin notificações" : "Setor")}</span>
           <span>Setor principal: ${escapeHtml(sectorLabel(user.sector))}</span>
           <span>Recebe alertas de: ${escapeHtml(formatSectorList(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]))}</span>
+          <span>Envia alertas ao PCP: ${canSendPcpAlerts(user) ? "Sim" : "Não"}</span>
           <span>${user.active ? "Ativo" : "Inativo"}</span>
         </div>
         <div class="manual-alert-actions">
@@ -4552,6 +4583,7 @@ async function loadAdminData() {
       role: user.role,
       sector: user.sector,
       alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector],
+      canSendPcpAlerts: user.canSendPcpAlerts === true,
       active: user.active !== false,
       createdAt: user.createdAt || null,
     }));
@@ -4572,6 +4604,7 @@ async function loadAdminData() {
       role: user.role,
       sector: user.sector,
       alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector],
+      canSendPcpAlerts: user.canSendPcpAlerts === true,
       active: user.active !== false,
       createdAt: user.createdAt || null,
     }));
@@ -5137,6 +5170,7 @@ async function handleAdminUserSubmit(event) {
       role: document.getElementById("admin-user-role").value,
       sector: document.getElementById("admin-user-sector").value,
       alertSectors: getSelectedAdminAlertSectors(),
+      canSendPcpAlerts: adminUserCanSendPcpAlertsEl?.checked === true,
     };
     const response = await fetch("/api/admin-users", {
       method: editingId ? "PUT" : "POST",
@@ -5155,6 +5189,7 @@ async function handleAdminUserSubmit(event) {
       role: payload.role,
       sector: payload.role === "admin" ? "all" : payload.sector,
       alertSectors: payload.role === "admin" ? [] : payload.alertSectors,
+      canSendPcpAlerts: payload.role === "admin" ? false : payload.canSendPcpAlerts,
       active: true,
       createdAt: new Date().toISOString(),
     };

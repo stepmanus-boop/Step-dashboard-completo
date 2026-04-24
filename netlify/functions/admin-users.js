@@ -22,6 +22,7 @@ exports.handler = async (event) => {
         role: user.role,
         sector: user.sector,
         alertSectors: normalizeSectorList('', user.alertSectors),
+        canSendPcpAlerts: user.canSendPcpAlerts === true,
         active: Boolean(user.active),
         createdAt: user.createdAt || null,
       })),
@@ -48,6 +49,7 @@ exports.handler = async (event) => {
       const role = body.role === 'admin' ? 'admin' : 'sector';
       const sector = role === 'admin' ? 'all' : normalizeSectorValue(body.sector);
       const alertSectors = role === 'admin' ? [] : normalizeSectorList('', body.alertSectors);
+      const canSendPcpAlerts = role === 'admin' ? false : body.canSendPcpAlerts === true;
 
       if (!name || !username) {
         return jsonResponse(400, { ok: false, error: 'Preencha nome e usuário.' });
@@ -70,6 +72,7 @@ exports.handler = async (event) => {
         role,
         sector,
         alertSectors: role === 'admin' ? [] : alertSectors,
+        canSendPcpAlerts,
         active: body.active === false ? false : true,
         ...(password ? { passwordHash: hashPassword(password) } : {}),
       });
@@ -100,6 +103,7 @@ exports.handler = async (event) => {
         role: nextRole,
         sector: nextRole === 'admin' ? 'all' : (current.sector && current.sector !== 'all' ? current.sector : ''),
         alertSectors: nextRole === 'admin' ? [] : normalizeSectorList('', current.alertSectors),
+        canSendPcpAlerts: nextRole === 'admin' ? false : current.canSendPcpAlerts === true,
       });
       return jsonResponse(200, { ok: true, user: saved });
     } catch (error) {
@@ -119,6 +123,7 @@ exports.handler = async (event) => {
     const role = body.role === 'admin' ? 'admin' : 'sector';
     const sector = role === 'admin' ? 'all' : normalizeSectorValue(body.sector);
     const alertSectors = role === 'admin' ? [] : normalizeSectorList('', body.alertSectors);
+    const canSendPcpAlerts = role === 'admin' ? false : body.canSendPcpAlerts === true;
 
     if (!name || !username || !password) {
       return jsonResponse(400, { ok: false, error: 'Preencha nome, usuário e senha.' });
@@ -141,6 +146,7 @@ exports.handler = async (event) => {
       role,
       sector,
       alertSectors,
+      canSendPcpAlerts,
       active: true,
     });
 
