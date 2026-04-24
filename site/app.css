@@ -2742,7 +2742,7 @@ button.alert-badge {
 
 .topbar--compact .topbar-mainline {
   display: grid;
-  grid-template-columns: 184px minmax(360px, 1fr) minmax(360px, 0.42fr);
+  grid-template-columns: 220px minmax(360px, 1fr) minmax(360px, 0.42fr);
   align-items: center;
   gap: 18px;
   min-height: 78px;
@@ -2765,8 +2765,8 @@ button.alert-badge {
 
 .topbar--compact .brand-logo {
   width: auto;
-  max-width: 158px;
-  max-height: 58px;
+  max-width: 195px;
+  max-height: 70px;
   object-fit: contain;
   filter: none;
 }
@@ -2949,19 +2949,20 @@ button.alert-badge {
 }
 
 .summary-card {
-  min-height: 80px;
+  min-height: 86px;
   padding: 11px 12px;
   gap: 4px;
   align-content: center;
 }
 
 .summary-label {
-  font-size: clamp(9px, 0.58vw, 11px);
-  line-height: 1.25;
-  letter-spacing: 0.045em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: clamp(8.5px, 0.54vw, 10px);
+  line-height: 1.22;
+  letter-spacing: 0.035em;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
 }
 
 .summary-subtext {
@@ -2981,10 +2982,10 @@ button.alert-badge {
 @media (max-width: 1500px) {
   .topbar.topbar--compact { grid-template-columns: 1fr; }
   .topbar--compact .topbar-mainline {
-    grid-template-columns: 164px minmax(310px, 1fr) minmax(310px, 0.46fr);
+    grid-template-columns: 198px minmax(310px, 1fr) minmax(310px, 0.46fr);
     gap: 14px;
   }
-  .topbar--compact .brand-logo { max-width: 140px; max-height: 52px; }
+  .topbar--compact .brand-logo { max-width: 174px; max-height: 62px; }
   .summary-row, .summary-row--nine { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
 
@@ -3007,4 +3008,26 @@ button.alert-badge {
   .topbar--compact .title-block .subtitle { white-space: normal; }
   .summary-row, .summary-row--nine { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .summary-card strong { font-size: 22px; }
+}
+
+
+/* Ajuste fino: logo maior e labels dos cards sem corte */
+.topbar--compact .brand-logo {
+  max-width: 195px;
+  max-height: 70px;
+}
+
+.summary-label {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+
+.summary-card {
+  min-height: 86px;
+}
+
+@media (max-width: 1500px) {
+  .topbar--compact .brand-logo { max-width: 174px; max-height: 62px; }
 }
