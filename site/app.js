@@ -2672,6 +2672,10 @@ function renderModal(project) {
     .map((item) => `<div class="milestone-chip"><span>${item.key || item.label}</span><strong>${item.value}</strong></div>`)
     .join("");
 
+  const modalStatusPresentation = getProjectStatusPresentation(project);
+  const modalStatusText = modalStatusPresentation.text;
+  const modalStatusState = modalStatusPresentation.state;
+
   const sourceSpools = state.modalPendingOnly ? getPendingSpools(project) : (project.spools || []);
   const sortedSpools = [...sourceSpools].sort((a, b) => {
     const aProgress = Number.isFinite(Number(a?.individualProgress)) ? Number(a.individualProgress) : 999999;
@@ -2701,7 +2705,7 @@ function renderModal(project) {
           <td>${spool.weldingWeek || "—"}</td>
           <td>${formatNumber(spool.kilos, 2)}</td>
           <td>${formatNumber(spool.m2Painting, 3)}</td>
-          <td><span class="cell-status cell-status--${["awaiting_shipment", "completed"].includes(spool.uiState) ? "completed" : spool.uiState}">${uiStateLabel(spool.uiState)}</span></td>
+          <td><span class="cell-status cell-status--${modalStatusState}">${modalStatusText}</span></td>
           <td class="${percentStateClass(spool.stagePercent)}">${spool.stage || "—"}</td>
           <td class="${percentStateClass(spool.individualProgress)}">${formatPercent(spool.individualProgress)}</td>
           <td class="${percentStateClass(spool.overallProgress)}">${formatPercent(spool.overallProgress)}</td>
@@ -2712,10 +2716,9 @@ function renderModal(project) {
     .join("");
 
   const stageHeaders = stageOrder.map((stage) => `<th>${stage.label}</th>`).join("");
-  const statusText = translateProjectStatus(project.projectStatus, project.uiState);
 
   modalTitleEl.textContent = projectDisplayWithClient(project);
-  modalSubtitleEl.textContent = `${statusText} • ${state.modalPendingOnly ? getPendingSpools(project).length : (project.spools?.length || 0)} item(ns) interno(s)`;
+  modalSubtitleEl.textContent = `${modalStatusText} • ${state.modalPendingOnly ? getPendingSpools(project).length : (project.spools?.length || 0)} item(ns) interno(s)`;
 
   modalContentEl.innerHTML = `
     <section class="modal-summary-grid">
