@@ -14,6 +14,7 @@ const state = {
   searchQuery: "",
   demandFilter: "",
   weekFilter: "",
+  statusFilter: "",
   alertFilter: "all",
   alertSectorFilter: "all",
   alertClientQuery: "",
@@ -60,6 +61,7 @@ const searchInputEl = document.getElementById("project-search");
 const clearSearchEl = document.getElementById("clear-search");
 const demandFilterEl = document.getElementById("demand-filter");
 const weekFilterEl = document.getElementById("week-filter");
+const statusFilterEl = document.getElementById("status-filter");
 const searchCountEl = document.getElementById("search-count");
 const tableShellEl = document.getElementById("table-shell");
 const projectViewTabsEl = document.getElementById("project-view-tabs");
@@ -1318,14 +1320,57 @@ function canValidateStageWorkspace(user = state.user) {
   return getStageWorkspaceSector(user) === 'pcp';
 }
 
+function getStageSearchTokens(value = state.stageUpdatesSearchQuery) {
+  const raw = String(value || '').trim();
+  return {
+    raw,
+    normalized: normalizeText(raw),
+    compact: normalizeCompactText(raw),
+    digits: raw.replace(/\D+/g, ''),
+  };
+}
+
+function stageSearchTextMatches(value, tokens = getStageSearchTokens()) {
+  if (!tokens.normalized && !tokens.compact && !tokens.digits) return true;
+  const normalizedValue = normalizeText(value);
+  const compactValue = normalizeCompactText(value);
+  const digitsValue = String(value || '').replace(/\D+/g, '');
+  return Boolean(
+    (tokens.normalized && normalizedValue.includes(tokens.normalized))
+    || (tokens.compact && compactValue.includes(tokens.compact))
+    || (tokens.digits && digitsValue.includes(tokens.digits))
+  );
+}
+
+function getStageProjectSearchValues(project) {
+  return [project?.projectNumber, project?.projectDisplay, project?.client, project?.currentStage];
+}
+
+function getStageSpoolSearchValues(spool) {
+  return [spool?.iso, spool?.description, spool?.item, spool?.line, spool?.tag];
+}
+
 function stageWorkspaceSearchProjects() {
-  const query = normalizeText(state.stageUpdatesSearchQuery || '');
+  const tokens = getStageSearchTokens();
   const source = Array.isArray(state.projects) ? state.projects : [];
-  if (!query) return source.slice(0, 8);
+  if (!tokens.normalized && !tokens.compact && !tokens.digits) return source.slice(0, 8);
   return source.filter((project) => {
-    return [project.projectNumber, project.projectDisplay, project.client, project.currentStage]
-      .some((value) => normalizeText(value).includes(query));
-  }).slice(0, 8);
+    const projectMatches = getStageProjectSearchValues(project).some((value) => stageSearchTextMatches(value, tokens));
+    const spoolMatches = (Array.isArray(project?.spools) ? project.spools : []).some((spool) =>
+      getStageSpoolSearchValues(spool).some((value) => stageSearchTextMatches(value, tokens))
+    );
+    return projectMatches || spoolMatches;
+  }).slice(0, 12);
+}
+
+function getStageVisibleSpools(project) {
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  const tokens = getStageSearchTokens();
+  if (!tokens.normalized && !tokens.compact && !tokens.digits) return spools;
+  const matchedSpools = spools.filter((spool) =>
+    getStageSpoolSearchValues(spool).some((value) => stageSearchTextMatches(value, tokens))
+  );
+  return matchedSpools.length ? matchedSpools : spools;
 }
 
 function getStageUpdatesForCurrentSector(source = null, sector = getStageWorkspaceSector()) {
@@ -1492,6 +1537,20 @@ function getProjectStatusPresentation(project) {
     text: translateProjectStatus(project?.projectStatus, project?.uiState),
     state,
   };
+}
+
+function getProjectStatusFilterValue(project) {
+  const presentation = getProjectStatusPresentation(project);
+  const text = normalizeText(presentation?.text || "");
+  const uiState = String(project?.uiState || "").trim();
+
+  if (presentation?.state === "preparing_shipment" || text.includes("preparando para envio")) {
+    return "preparing_shipment";
+  }
+  if (uiState === "awaiting_shipment" || text.includes("aguardando envio")) {
+    return "awaiting_shipment";
+  }
+  return presentation?.state || uiState || "";
 }
 
 
@@ -1719,28 +1778,26 @@ function getProjectPaintingM2(project) {
 }
 
 function getPaintingM2StatsSource() {
-  const baseSource = getStatsProjectsSource();
-  const user = state.user;
-  if (!user || user.role === 'admin') return baseSource;
-  if (userHasProjectsScope(user)) {
-    return state.projectView === 'mine'
-      ? baseSource.filter((project) => projectBelongsToUser(project, user))
-      : baseSource;
-  }
-  const primarySector = getPrimaryUserSector(user);
-  if (!primarySector) return baseSource;
-  return baseSource.filter((project) => projectMatchesScopedSector(project, user));
+  // O card Painting (m²) acompanha a visualização ativa do usuário.
+  // - Todos os alertas/projetos: soma toda a base visível nos filtros atuais.
+  // - Meus alertas/minha demanda: soma apenas a demanda setorial/do usuário.
+  // A restrição por setor/projeto já é aplicada em getVisibleProjectsSource() > applyFilter().
+  return getStatsProjectsSource();
 }
 
 function getPaintingM2ScopeLabel() {
   const user = state.user;
   if (!user || user.role === 'admin') return 'Todas as demandas';
   if (userHasProjectsScope(user)) {
-    return state.projectView === 'mine' ? 'Meus projetos' : 'Projetos';
+    return state.projectView === 'mine' ? 'Meus projetos' : 'Todos os projetos';
   }
-  const sector = getPrimaryUserSector(user);
-  return sector ? `Demanda ${sectorLabel(sector)}` : 'Demanda atual';
+  if (isSectorScopedViewActive()) {
+    const sector = getPrimaryUserSector(user);
+    return sector ? `Minha demanda: ${sectorLabel(sector)}` : 'Minha demanda';
+  }
+  return 'Todos os alertas';
 }
+
 
 function buildClientStats(projects) {
   const stats = {
@@ -2193,7 +2250,8 @@ function renderProjectViewTabs() {
 function applyFilter() {
   const query = normalizeText(state.searchQuery).trim();
   const demand = normalizeText(state.demandFilter).trim();
-  const selectedWeek = String(state.weekFilter || '').trim();
+  const selectedWeek = String(state.weekFilter || "").trim();
+  const selectedStatus = String(state.statusFilter || "").trim();
 
   const sourceProjects = getVisibleProjectsSource();
 
@@ -2205,7 +2263,8 @@ function applyFilter() {
         || normalizeText(project.currentStage).includes(demand)
         || normalizeText(translateProjectStatus(project.projectStatus, project.uiState)).includes(demand);
       const matchesWeek = projectMatchesWeekFilter(project, selectedWeek);
-      return matchesQuery && matchesDemand && matchesWeek;
+      const matchesStatus = !selectedStatus || getProjectStatusFilterValue(project) === selectedStatus;
+      return matchesQuery && matchesDemand && matchesWeek && matchesStatus;
     })
     .sort(compareProjectsByPlannedFinishDate);
 
@@ -2879,9 +2938,11 @@ function bindEvents() {
     state.searchQuery = "";
     state.demandFilter = "";
     state.weekFilter = "";
+    state.statusFilter = "";
     searchInputEl.value = "";
     if (demandFilterEl) demandFilterEl.value = "";
     if (weekFilterEl) weekFilterEl.value = "";
+    if (statusFilterEl) statusFilterEl.value = "";
     applyFilter();
     renderStats();
     renderTable();
@@ -2904,6 +2965,17 @@ function bindEvents() {
   if (weekFilterEl) {
     weekFilterEl.addEventListener("change", (event) => {
       state.weekFilter = event.target.value;
+      applyFilter();
+      renderStats();
+      renderTable();
+      renderSelectedProjectCard();
+      tableShellEl.scrollTop = 0;
+    });
+  }
+
+  if (statusFilterEl) {
+    statusFilterEl.addEventListener("change", (event) => {
+      state.statusFilter = event.target.value;
       applyFilter();
       renderStats();
       renderTable();
@@ -3247,8 +3319,18 @@ if (stageUpdatesModalEl) {
   stageUpdatesModalEl.addEventListener('input', (event) => {
     const searchEl = event.target.closest('[data-stage-search="true"]');
     if (searchEl) {
+      const caretStart = searchEl.selectionStart || 0;
+      const caretEnd = searchEl.selectionEnd || caretStart;
       state.stageUpdatesSearchQuery = searchEl.value || '';
       renderStageUpdatesModal();
+      window.requestAnimationFrame(() => {
+        const nextSearchEl = stageUpdatesModalEl?.querySelector('[data-stage-search="true"]');
+        if (!nextSearchEl) return;
+        nextSearchEl.focus({ preventScroll: true });
+        try {
+          nextSearchEl.setSelectionRange(caretStart, caretEnd);
+        } catch (_) {}
+      });
       return;
     }
     const progressEl = event.target.closest('[data-stage-progress="true"]');
@@ -4577,7 +4659,7 @@ function renderStageSectorWorkspace() {
         <div class="stage-toolbar">
           <label class="stack-field">
             <span>Buscar BSP / cliente</span>
-            <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP 25-1246" />
+            <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP-25-1165-31-ISO-002-SPL-02 ou BSP25116531ISO002SPL02" />
           </label>
           <div class="stage-muted">Etapa atual do seu login: <strong>${escapeHtml(stageLabel)}</strong></div>
         </div>
@@ -4593,7 +4675,7 @@ function renderStageSectorWorkspace() {
         <section class="admin-card admin-card--wide">
           <div class="admin-card-head"><h4>Lançar avanço da etapa</h4></div>
           ${matchedProjects.length ? `<div class="stage-project-list">${matchedProjects.map((project) => {
-            const spools = Array.isArray(project.spools) ? project.spools : [];
+            const spools = getStageVisibleSpools(project);
             return `
               <article class="stage-project-card">
                 <div class="stage-project-head">
@@ -4696,7 +4778,7 @@ function renderStageValidationWorkspace() {
         <div class="stage-toolbar">
           <label class="stack-field">
             <span>Buscar BSP / spool / setor</span>
-            <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP 25-1246" />
+            <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP-25-1165-31-ISO-002-SPL-02 ou BSP25116531ISO002SPL02" />
           </label>
           <div class="stage-row-actions">
             <div class="stage-muted">Pendentes: <strong>${pending.length}</strong> • Histórico: <strong>${history.length}</strong></div>
