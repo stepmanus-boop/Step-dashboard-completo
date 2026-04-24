@@ -561,14 +561,9 @@ function buildAttentionPopupItem(kind, item = {}) {
     };
   }
   if (normalizedKind === 'automatic') {
-    return {
-      kind: 'automatic',
-      dedupeKey: `automatic:${baseId}`,
-      title: 'Prazo em alerta',
-      meta: `${item.projectDisplay || item.projectNumber || 'Projeto'} • ${sectorLabel(item.sector)}`,
-      message: `${item.projectDisplay || item.projectNumber || 'Projeto'} requer atenção do seu setor.`,
-      actionLabel: 'Abrir alertas',
-    };
+    // Alertas automáticos de prazo não devem abrir o popup chamativo.
+    // O popup fica reservado para alertas manuais/PCP enviados diretamente ao setor.
+    return null;
   }
   if (normalizedKind === 'stageUpdates') {
     return {
@@ -629,7 +624,8 @@ function detectNewUserAlerts() {
   const automaticAlerts = getUserAutomaticAlerts();
   syncIncomingAlerts('manual', manualAlerts);
   syncIncomingAlerts('projectSignals', projectSignals);
-  syncIncomingAlerts('automatic', automaticAlerts);
+  // Não abrir popup chamativo para alertas automáticos de prazo.
+  // Eles continuam no painel/contador e nas notificações programadas, mas não bloqueiam a tela.
   const manualSignature = buildAlertSignature(manualAlerts, (item) => `${item.id}:${item.updatedAt || item.createdAt || ''}`);
   const automaticSignature = buildAlertSignature(automaticAlerts, (item) => `${item.projectNumber || item.projectDisplay}:${item.sector}:${item.daysRemaining}`);
   const manualKey = getAlertStorageKey('manual', state.user.sub || state.user.username);
