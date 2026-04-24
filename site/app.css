@@ -263,7 +263,7 @@ body.modal-open { overflow: hidden; }
 
 .search-row {
   display: grid;
-  grid-template-columns: minmax(280px, 1.2fr) minmax(220px, 0.8fr) minmax(220px, 0.8fr) auto auto;
+  grid-template-columns: minmax(280px, 1.2fr) minmax(190px, 0.7fr) minmax(190px, 0.7fr) minmax(190px, 0.7fr) auto auto;
   gap: 10px;
   padding: 12px 16px;
   align-items: end;
@@ -295,6 +295,15 @@ body.modal-open { overflow: hidden; }
 .search-box input:focus,
 .filter-box select:focus { border-color: rgba(0, 200, 255, 0.5); box-shadow: 0 0 0 3px rgba(0, 200, 255, 0.08); }
 .filter-box select { appearance: none; }
+.filter-box select[multiple] {
+  height: 74px;
+  padding: 6px 10px;
+  appearance: auto;
+}
+.filter-box select[multiple] option {
+  padding: 5px 8px;
+}
+
 .ghost-button,
 .primary-button {
   height: 44px;

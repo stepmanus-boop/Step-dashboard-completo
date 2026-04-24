@@ -15,6 +15,7 @@ const state = {
   demandFilter: "",
   weekFilter: "",
   statusFilter: "",
+  statusFilters: [],
   alertFilter: "all",
   alertSectorFilter: "all",
   alertClientQuery: "",
@@ -1500,7 +1501,7 @@ function renderProjectSignals(project) {
 function uiStateLabel(stateValue) {
   if (stateValue === "completed") return "Finalizado";
   if (stateValue === "awaiting_shipment") return "Aguardando envio";
-  if (stateValue === "preparing_shipment") return "Preparando para envio";
+  if (stateValue === "preparing_shipment") return "Em tratativa";
   if (stateValue === "in_progress") return "Em produção";
   return "Não iniciado";
 }
@@ -1508,15 +1509,15 @@ function uiStateLabel(stateValue) {
 function translateProjectStatus(projectStatus, uiState) {
   if (uiState === "completed") return "Finalizado";
   if (uiState === "awaiting_shipment") return "Aguardando envio";
-  if (uiState === "preparing_shipment") return "Preparando para envio";
+  if (uiState === "preparing_shipment") return "Em tratativa";
   if (uiState === "not_started") return "Não iniciado";
 
   const normalized = String(projectStatus || "").trim().toUpperCase().replace(/\s+/g, " ");
   if (["ONGOING", "ON GOING", "IN PROGRESS", "EM PRODUCAO", "EM PRODUÇÃO"].includes(normalized)) {
     return "Em produção";
   }
-  if (["PREPARING SHIPMENT", "PREPARING FOR SHIPMENT", "PREPARANDO PARA ENVIO"].includes(normalized)) {
-    return "Preparando para envio";
+  if (["PREPARING SHIPMENT", "PREPARING FOR SHIPMENT", "PREPARANDO PARA ENVIO", "EM TRATATIVA"].includes(normalized)) {
+    return "Em tratativa";
   }
   if (["ON HOLD", "HOLD", "PAUSED", "EM ESPERA"].includes(normalized)) {
     return uiState === "not_started" ? "Em espera" : "Em produção";
@@ -1550,7 +1551,7 @@ function hasPreparingShipmentWindow(project) {
 
 function getProjectStatusPresentation(project) {
   if (hasPreparingShipmentWindow(project) && !['completed', 'awaiting_shipment'].includes(project?.uiState)) {
-    return { text: 'Preparando para envio', state: 'preparing_shipment' };
+    return { text: 'Em tratativa', state: 'preparing_shipment' };
   }
 
   const state = ['awaiting_shipment', 'completed'].includes(project?.uiState) ? 'completed' : (project?.uiState || 'not_started');
@@ -1565,13 +1566,50 @@ function getProjectStatusFilterValue(project) {
   const text = normalizeText(presentation?.text || "");
   const uiState = String(project?.uiState || "").trim();
 
-  if (presentation?.state === "preparing_shipment" || text.includes("preparando para envio")) {
+  if (presentation?.state === "preparing_shipment" || text.includes("em tratativa") || text.includes("preparando para envio")) {
     return "preparing_shipment";
   }
   if (uiState === "awaiting_shipment" || text.includes("aguardando envio")) {
     return "awaiting_shipment";
   }
   return presentation?.state || uiState || "";
+}
+
+function getSelectedStatusFilters() {
+  if (Array.isArray(state.statusFilters)) {
+    return state.statusFilters.map((value) => String(value || "").trim()).filter(Boolean);
+  }
+  return String(state.statusFilter || "").split(",").map((value) => value.trim()).filter(Boolean);
+}
+
+function setStatusFilterValues(values = []) {
+  state.statusFilters = Array.from(new Set((Array.isArray(values) ? values : [values]).map((value) => String(value || "").trim()).filter(Boolean)));
+  state.statusFilter = state.statusFilters.join(",");
+}
+
+function readStatusFilterValuesFromElement() {
+  if (!statusFilterEl) return [];
+  if (statusFilterEl.multiple) {
+    return Array.from(statusFilterEl.selectedOptions || []).map((option) => option.value).filter(Boolean);
+  }
+  return statusFilterEl.value ? [statusFilterEl.value] : [];
+}
+
+function isProjectFinalizedForPainting(project) {
+  const stageMap = project?.stageValues || {};
+  const candidates = [
+    project?.projectStatus,
+    project?.jobProcessStatus,
+    project?.currentStage,
+    project?.operationalState,
+    project?.uiState,
+    stageMap["Project Finished?"],
+  ].filter(Boolean).map((value) => normalizeText(value));
+  const hasFinishedText = candidates.some((value) => value.includes("project finished") || value.includes("finalizado") || value.includes("finished"));
+  return Boolean(project?.projectFinishedFlag)
+    || Boolean(project?.finished)
+    || Boolean(stageMap["Project Finish Date"])
+    || hasFinishedText;
 }
 
 
@@ -1784,7 +1822,7 @@ function projectMatchesWeekFilter(project, weekLabel = state.weekFilter) {
 
 function getProjectStatusFilterLabel(value) {
   const normalized = String(value || "").trim();
-  if (normalized === "preparing_shipment") return "Preparando para envio";
+  if (normalized === "preparing_shipment") return "Em tratativa";
   if (normalized === "awaiting_shipment") return "Aguardando envio";
   if (normalized === "completed") return "Finalizado";
   if (normalized === "in_progress") return "Em produção";
@@ -1811,24 +1849,26 @@ function getStatusOptionProjectsSource() {
 
 function buildStatusOptions() {
   if (!statusFilterEl) return;
-  const selected = state.statusFilter || "";
+  const selectedValues = getSelectedStatusFilters();
   const projects = getStatusOptionProjectsSource();
   const values = Array.from(
     new Set(projects.map((project) => getProjectStatusFilterValue(project)).filter(Boolean))
   ).sort((a, b) => getProjectStatusFilterLabel(a).localeCompare(getProjectStatusFilterLabel(b), "pt-BR"));
+  const validSelectedValues = selectedValues.filter((value) => values.includes(value));
 
   statusFilterEl.innerHTML = [
     '<option value="">Todos os status</option>',
     ...values.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(getProjectStatusFilterLabel(value))}</option>`),
   ].join("");
 
-  if (selected && values.includes(selected)) {
-    statusFilterEl.value = selected;
-    return;
+  if (statusFilterEl.multiple) {
+    Array.from(statusFilterEl.options).forEach((option) => {
+      option.selected = option.value ? validSelectedValues.includes(option.value) : !validSelectedValues.length;
+    });
+  } else {
+    statusFilterEl.value = validSelectedValues[0] || "";
   }
-
-  statusFilterEl.value = "";
-  if (selected && !values.includes(selected)) state.statusFilter = "";
+  setStatusFilterValues(validSelectedValues);
 }
 
 function getStatsProjectsSource() {
@@ -1852,7 +1892,7 @@ function getPaintingM2StatsSource() {
   // - Todos os alertas/projetos: soma toda a base visível nos filtros atuais.
   // - Meus alertas/minha demanda: soma apenas a demanda setorial/do usuário.
   // A restrição por setor/projeto já é aplicada em getVisibleProjectsSource() > applyFilter().
-  return getStatsProjectsSource();
+  return getStatsProjectsSource().filter((project) => !isProjectFinalizedForPainting(project));
 }
 
 function getPaintingM2ScopeLabel() {
@@ -2321,7 +2361,7 @@ function applyFilter() {
   const query = normalizeText(state.searchQuery).trim();
   const demand = normalizeText(state.demandFilter).trim();
   const selectedWeek = String(state.weekFilter || "").trim();
-  const selectedStatus = String(state.statusFilter || "").trim();
+  const selectedStatuses = getSelectedStatusFilters();
 
   const sourceProjects = getVisibleProjectsSource();
 
@@ -2333,7 +2373,8 @@ function applyFilter() {
         || normalizeText(project.currentStage).includes(demand)
         || normalizeText(translateProjectStatus(project.projectStatus, project.uiState)).includes(demand);
       const matchesWeek = projectMatchesWeekFilter(project, selectedWeek);
-      const matchesStatus = !selectedStatus || getProjectStatusFilterValue(project) === selectedStatus;
+      const projectStatusValue = getProjectStatusFilterValue(project);
+      const matchesStatus = !selectedStatuses.length || selectedStatuses.includes(projectStatusValue);
       return matchesQuery && matchesDemand && matchesWeek && matchesStatus;
     })
     .sort(compareProjectsByPlannedFinishDate);
@@ -2430,7 +2471,7 @@ function renderStats() {
 
 function renderTable() {
   if (!state.filteredProjects.length) {
-    bodyEl.innerHTML = '<tr><td colspan="17" class="loading-cell">Nenhum projeto encontrado para a busca informada.</td></tr>';
+    bodyEl.innerHTML = '<tr><td colspan="18" class="loading-cell">Nenhum projeto encontrado para a busca informada.</td></tr>';
     searchCountEl.textContent = "0 resultado(s)";
     return;
   }
@@ -2478,6 +2519,7 @@ function renderTable() {
           <td>${stageMap["Welding Finish Date"] || "—"}</td>
           <td>${stageMap["Inspection Finish Date (QC)"] || "—"}</td>
           <td>${stageMap["TH Finish Date"] || "—"}</td>
+          <td>${stageMap["Project Finish Date"] || "—"}</td>
           <td class="cell-finished cell-finished--${project.finished ? "yes" : "no"}">${completedSymbol}</td>
         </tr>
       `;
@@ -2952,7 +2994,7 @@ async function loadProjects() {
       return;
     }
 
-    bodyEl.innerHTML = `<tr><td colspan="17" class="loading-cell">${fallbackMessage}</td></tr>`;
+    bodyEl.innerHTML = `<tr><td colspan="18" class="loading-cell">${fallbackMessage}</td></tr>`;
     detailCardEl.innerHTML = `<div class="detail-placeholder">${fallbackMessage}</div>`;
   }
 }
@@ -3010,11 +3052,14 @@ function bindEvents() {
     state.searchQuery = "";
     state.demandFilter = "";
     state.weekFilter = "";
-    state.statusFilter = "";
+    setStatusFilterValues([]);
     searchInputEl.value = "";
     if (demandFilterEl) demandFilterEl.value = "";
     if (weekFilterEl) weekFilterEl.value = "";
-    if (statusFilterEl) statusFilterEl.value = "";
+    if (statusFilterEl) {
+      Array.from(statusFilterEl.options || []).forEach((option) => { option.selected = option.value === ""; });
+      statusFilterEl.value = "";
+    }
     buildStatusOptions();
     applyFilter();
     renderStats();
@@ -3049,8 +3094,8 @@ function bindEvents() {
   }
 
   if (statusFilterEl) {
-    statusFilterEl.addEventListener("change", (event) => {
-      state.statusFilter = event.target.value;
+    statusFilterEl.addEventListener("change", () => {
+      setStatusFilterValues(readStatusFilterValuesFromElement());
       applyFilter();
       renderStats();
       renderTable();
@@ -3801,7 +3846,7 @@ function resetDashboardForLoggedOutState() {
   state.meta = null;
   state.alerts = [];
   state.selectedProjectId = null;
-  if (bodyEl) bodyEl.innerHTML = `<tr><td colspan="17" class="loading-cell">Faça login para visualizar os projetos.</td></tr>`;
+  if (bodyEl) bodyEl.innerHTML = `<tr><td colspan="18" class="loading-cell">Faça login para visualizar os projetos.</td></tr>`;
   if (detailCardEl) detailCardEl.innerHTML = `<div class="detail-placeholder">Painel protegido. Entre com seu usuário e senha para visualizar as informações.</div>`;
   if (searchCountEl) searchCountEl.textContent = '0 resultado(s)';
   if (sheetNameEl) sheetNameEl.textContent = 'Acesso restrito';
