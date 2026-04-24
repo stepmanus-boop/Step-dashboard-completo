@@ -754,7 +754,7 @@ function escapeHtml(value) {
 const AVAILABLE_SECTORS = [
   { value: "pintura", label: "Pintura" },
   { value: "inspecao", label: "Inspeção" },
-  { value: "pendente_envio", label: "Pendente de envio" },
+  { value: "pendente_envio", label: "Logística" },
   { value: "producao", label: "Produção" },
   { value: "calderaria", label: "Calderaria" },
   { value: "solda", label: "Solda" },
@@ -821,7 +821,7 @@ function sectorLabel(value) {
   const normalized = String(value || "").toLowerCase();
   if (normalized === "pintura") return "Pintura";
   if (normalized === "inspecao") return "Inspeção";
-  if (normalized === "pendente_envio") return "Pendente de envio";
+  if (normalized === "pendente_envio") return "Logística";
   if (normalized === "producao") return "Produção";
   if (normalized === "calderaria") return "Calderaria";
   if (normalized === "solda") return "Solda";
@@ -1040,7 +1040,7 @@ function getAlertFilterSummary() {
     calderaria: 'Calderaria',
     inspecao: 'Inspeção',
     pintura: 'Pintura',
-    envio: 'Pendente de envio',
+    envio: 'Logística',
   };
 
   return {
