@@ -2742,7 +2742,7 @@ button.alert-badge {
 
 .topbar--compact .topbar-mainline {
   display: grid;
-  grid-template-columns: 156px minmax(360px, 1fr) minmax(360px, 0.42fr);
+  grid-template-columns: 184px minmax(360px, 1fr) minmax(360px, 0.42fr);
   align-items: center;
   gap: 18px;
   min-height: 78px;
@@ -2765,8 +2765,8 @@ button.alert-badge {
 
 .topbar--compact .brand-logo {
   width: auto;
-  max-width: 126px;
-  max-height: 48px;
+  max-width: 158px;
+  max-height: 58px;
   object-fit: contain;
   filter: none;
 }
@@ -2981,10 +2981,10 @@ button.alert-badge {
 @media (max-width: 1500px) {
   .topbar.topbar--compact { grid-template-columns: 1fr; }
   .topbar--compact .topbar-mainline {
-    grid-template-columns: 140px minmax(310px, 1fr) minmax(310px, 0.46fr);
+    grid-template-columns: 164px minmax(310px, 1fr) minmax(310px, 0.46fr);
     gap: 14px;
   }
-  .topbar--compact .brand-logo { max-width: 112px; }
+  .topbar--compact .brand-logo { max-width: 140px; max-height: 52px; }
   .summary-row, .summary-row--nine { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
 
