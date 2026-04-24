@@ -1708,6 +1708,40 @@ function getStatsProjectsSource() {
   return source.filter((project) => projectMatchesWeekFilter(project));
 }
 
+function getProjectPaintingM2(project) {
+  const directValue = Number(project?.m2Painting || 0);
+  if (Number.isFinite(directValue) && directValue > 0) return directValue;
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  return spools.reduce((total, spool) => {
+    const value = Number(spool?.m2Painting || 0);
+    return total + (Number.isFinite(value) ? value : 0);
+  }, 0);
+}
+
+function getPaintingM2StatsSource() {
+  const baseSource = getStatsProjectsSource();
+  const user = state.user;
+  if (!user || user.role === 'admin') return baseSource;
+  if (userHasProjectsScope(user)) {
+    return state.projectView === 'mine'
+      ? baseSource.filter((project) => projectBelongsToUser(project, user))
+      : baseSource;
+  }
+  const primarySector = getPrimaryUserSector(user);
+  if (!primarySector) return baseSource;
+  return baseSource.filter((project) => projectMatchesScopedSector(project, user));
+}
+
+function getPaintingM2ScopeLabel() {
+  const user = state.user;
+  if (!user || user.role === 'admin') return 'Todas as demandas';
+  if (userHasProjectsScope(user)) {
+    return state.projectView === 'mine' ? 'Meus projetos' : 'Projetos';
+  }
+  const sector = getPrimaryUserSector(user);
+  return sector ? `Demanda ${sectorLabel(sector)}` : 'Demanda atual';
+}
+
 function buildClientStats(projects) {
   const stats = {
     totalProjects: projects.length,
@@ -1738,7 +1772,7 @@ function buildClientStats(projects) {
     stats.totalSpools += tags;
     stats.totalWeightKg += Number(project.kilos || 0);
     stats.totalWeldedWeightKg += Number(project.weldedWeightKg || 0);
-    stats.totalPaintingM2 += Number(project.m2Painting || 0);
+    stats.totalPaintingM2 += getProjectPaintingM2(project);
     progressAccumulator += Number(project.overallProgress || 0);
 
     const stateValue = project.operationalState || project.uiState;
@@ -2216,6 +2250,12 @@ function renderStats() {
   const totalFinishedWeight = getTotalFinishedWeightAllProjects();
   const totalWeldedWeight = Number(stats.totalWeldedWeightKg || 0);
   const totalBacklogWelding = Math.max(0, Number(stats.totalWeightKg || 0) - totalWeldedWeight);
+  const paintingM2Source = getPaintingM2StatsSource();
+  const totalPaintingM2 = paintingM2Source.reduce((total, project) => total + getProjectPaintingM2(project), 0);
+  const paintingM2El = document.getElementById("stat-painting-m2");
+  if (paintingM2El) paintingM2El.textContent = `${formatNumber(totalPaintingM2, 3)} m²`;
+  const paintingM2ScopeEl = document.getElementById("stat-painting-m2-scope");
+  if (paintingM2ScopeEl) paintingM2ScopeEl.textContent = getPaintingM2ScopeLabel();
   document.getElementById("stat-projects").textContent = formatNumber(stats.totalProjects);
   document.getElementById("stat-spools").textContent = `${formatNumber(totalWeldedWeight, 0)} kg`;
   document.getElementById("stat-total-weight").textContent = `${formatNumber(stats.totalWeightKg, 0)} kg`;
