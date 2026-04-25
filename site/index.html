@@ -15,61 +15,58 @@
   </head>
   <body>
     <div class="page-shell">
-      <header class="topbar topbar--compact">
-        <div class="topbar-mainline">
-          <div class="brand-card">
-            <img src="./assets/step-logo.png" alt="STEP Integrated Solutions" class="brand-logo" />
-          </div>
+      <header class="topbar">
+        <div class="brand-card">
+          <img src="./assets/step-logo.png" alt="STEP Oil &amp; Gas" class="brand-logo" />
+        </div>
 
-          <div class="title-block">
-            <p class="eyebrow">STEP OIL &amp; GAS LTDA</p>
-            <h1>PAINEL OPERACIONAL DE PROJETOS</h1>
-            <p class="subtitle">PIPING FABRICATION</p>
-          </div>
+        <div class="title-block">
+          <p class="eyebrow">STEP OIL &amp; GAS LTDA</p>
+          <h1>PAINEL OPERACIONAL DE PROJETOS</h1>
+          <p class="subtitle">PIPING FABRICATION</p>
+        </div>
 
+        <div class="topbar-side">
           <div class="session-card" id="session-card">
             <div class="session-card-head">
               <div class="session-card-head-main">
                 <span class="session-kicker">Acesso</span>
-                <button id="open-change-password-button" class="session-mini-action hidden" type="button">Mudar senha</button>
+                <button id="open-change-password-button" class="session-mini-action hidden" type="button">Senha</button>
               </div>
               <span class="session-status" id="session-status">offline</span>
             </div>
             <strong id="session-user-name">Acesso bloqueado</strong>
             <span id="session-user-meta" class="session-user-meta">Faça login para liberar o painel, os alertas por setor e a administração.</span>
-          </div>
-        </div>
-
-        <div class="topbar-toolsline">
-          <div class="session-actions">
-            <button id="install-app-button" class="ghost-button ghost-button--compact hidden" type="button">Instalar app</button>
-            <button id="open-login-button" class="ghost-button ghost-button--compact" type="button">Login</button>
-            <button id="open-sector-alerts" class="ghost-button ghost-button--compact" type="button">Meus alertas</button>
-            <button id="open-my-project-signals" class="ghost-button ghost-button--compact hidden" type="button">Minhas sinalizações</button>
-            <button id="open-project-signals" class="ghost-button ghost-button--compact hidden" type="button">Alertas Projetos</button>
-            <button id="open-stage-updates" class="ghost-button ghost-button--compact hidden" type="button">Apontamentos</button>
-            <button id="open-admin-panel" class="ghost-button ghost-button--compact hidden" type="button">Admin</button>
-            <button id="logout-button" class="ghost-button ghost-button--compact hidden" type="button">Sair</button>
+            <div class="session-actions">
+              <button id="install-app-button" class="ghost-button ghost-button--compact hidden" type="button">Instalar app</button>
+              <button id="open-login-button" class="ghost-button ghost-button--compact" type="button">Login</button>
+              <button id="open-sector-alerts" class="ghost-button ghost-button--compact" type="button">Meus alertas</button>
+              <button id="open-my-project-signals" class="ghost-button ghost-button--compact hidden" type="button">Minhas sinalizações</button>
+              <button id="open-project-signals" class="ghost-button ghost-button--compact hidden" type="button">Alertas Projetos</button>
+              <button id="open-stage-updates" class="ghost-button ghost-button--compact hidden" type="button">Apontamentos</button>
+              <button id="open-admin-panel" class="ghost-button ghost-button--compact hidden" type="button">Admin</button>
+              <button id="logout-button" class="ghost-button ghost-button--compact hidden" type="button">Sair</button>
+            </div>
           </div>
 
           <div class="clock-grid">
-            <div class="clock-card">
-              <div class="clock-head">
-                <span class="clock-flag" aria-hidden="true">🇧🇷</span>
-                <span class="clock-label">Brasil</span>
-              </div>
-              <strong id="clock-br-time" class="clock-time">--:--:--</strong>
-              <span id="clock-br-date" class="clock-date">--</span>
+          <div class="clock-card">
+            <div class="clock-head">
+              <span class="clock-flag" aria-hidden="true">🇧🇷</span>
+              <span class="clock-label">Brasil</span>
             </div>
-            <div class="clock-card">
-              <div class="clock-head">
-                <span class="clock-flag" aria-hidden="true">🇵🇹</span>
-                <span class="clock-label">Portugal</span>
-              </div>
-              <strong id="clock-pt-time" class="clock-time">--:--:--</strong>
-              <span id="clock-pt-date" class="clock-date">--</span>
-            </div>
+            <strong id="clock-br-time" class="clock-time">--:--:--</strong>
+            <span id="clock-br-date" class="clock-date">--</span>
           </div>
+          <div class="clock-card">
+            <div class="clock-head">
+              <span class="clock-flag" aria-hidden="true">🇵🇹</span>
+              <span class="clock-label">Portugal</span>
+            </div>
+            <strong id="clock-pt-time" class="clock-time">--:--:--</strong>
+            <span id="clock-pt-date" class="clock-date">--</span>
+          </div>
+        </div>
         </div>
       </header>
 

@@ -561,9 +561,14 @@ function buildAttentionPopupItem(kind, item = {}) {
     };
   }
   if (normalizedKind === 'automatic') {
-    // Alertas automáticos de prazo não devem abrir o popup chamativo.
-    // O popup fica reservado para alertas manuais/PCP enviados diretamente ao setor.
-    return null;
+    return {
+      kind: 'automatic',
+      dedupeKey: `automatic:${baseId}`,
+      title: 'Prazo em alerta',
+      meta: `${item.projectDisplay || item.projectNumber || 'Projeto'} • ${sectorLabel(item.sector)}`,
+      message: `${item.projectDisplay || item.projectNumber || 'Projeto'} requer atenção do seu setor.`,
+      actionLabel: 'Abrir alertas',
+    };
   }
   if (normalizedKind === 'stageUpdates') {
     return {
@@ -624,8 +629,7 @@ function detectNewUserAlerts() {
   const automaticAlerts = getUserAutomaticAlerts();
   syncIncomingAlerts('manual', manualAlerts);
   syncIncomingAlerts('projectSignals', projectSignals);
-  // Não abrir popup chamativo para alertas automáticos de prazo.
-  // Eles continuam no painel/contador e nas notificações programadas, mas não bloqueiam a tela.
+  syncIncomingAlerts('automatic', automaticAlerts);
   const manualSignature = buildAlertSignature(manualAlerts, (item) => `${item.id}:${item.updatedAt || item.createdAt || ''}`);
   const automaticSignature = buildAlertSignature(automaticAlerts, (item) => `${item.projectNumber || item.projectDisplay}:${item.sector}:${item.daysRemaining}`);
   const manualKey = getAlertStorageKey('manual', state.user.sub || state.user.username);
@@ -1458,6 +1462,9 @@ function translateProjectStatus(projectStatus, uiState) {
   if (["COMPLETED", "DONE", "FINISHED", "CONCLUIDO", "CONCLUÍDO", "FINALIZADO"].includes(normalized)) {
     return "Finalizado";
   }
+  if (["EM TRATATIVA", "TRATATIVA"].includes(normalized)) {
+    return uiStateLabel(uiState);
+  }
   return projectStatus || uiStateLabel(uiState);
 }
 
@@ -2024,6 +2031,9 @@ function getProjectSectorForScopedView(project) {
 function projectMatchesScopedSector(project, user = state.user) {
   const sector = getPrimaryUserSector(user);
   if (!sector) return true;
+
+  const activeSectors = Array.isArray(project?.activeSectors) ? project.activeSectors.map((item) => normalizeSectorValue(item)).filter(Boolean) : [];
+  if (activeSectors.includes(sector)) return true;
 
   const scopedProjectSector = getProjectSectorForScopedView(project);
   if (sector === 'pendente_envio') {
