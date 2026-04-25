@@ -104,7 +104,7 @@
           <strong id="stat-in-progress">--</strong>
         </article>
         <article class="summary-card summary-card--inspection">
-          <span class="summary-label">Projetos Em inspeção</span>
+          <span class="summary-label">Projetos Em qualidade</span>
           <span class="summary-subtext" id="stat-inspection-tags">Tags --</span>
           <strong id="stat-inspection">--</strong>
         </article>
@@ -168,7 +168,7 @@
                   <th>Peso soldado (kg)</th>
                   <th>Semana finalizado</th>
                   <th>Peso (kg)</th>
-                  <th>Painting (m²)</th>
+                  <th>Área operacional (m²)</th>
                   <th>Etapa atual</th>
                   <th>% Individual</th>
                   <th>% Geral</th>
@@ -358,9 +358,11 @@
             <label class="stack-field">
               <span>Setor</span>
               <select id="admin-user-sector">
+                <option value="engenharia">Engenharia</option>
+                <option value="suprimento">Suprimento</option>
                 <option value="pintura">Pintura</option>
-                <option value="inspecao">Inspeção</option>
-                <option value="pendente_envio">Pendente de envio</option>
+                <option value="inspecao">Qualidade</option>
+                <option value="pendente_envio">Logística</option>
                 <option value="producao">Produção</option>
                 <option value="calderaria">Calderaria</option>
                 <option value="solda">Solda</option>
@@ -372,9 +374,11 @@
           <label class="stack-field">
             <span>Setores monitorados</span>
             <div class="check-grid">
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="engenharia" /> Engenharia</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="suprimento" /> Suprimento</label>
               <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="pintura" checked /> Pintura</label>
-              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="inspecao" /> Inspeção</label>
-              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="pendente_envio" /> Pendente de envio</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="inspecao" /> Qualidade</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="pendente_envio" /> Logística</label>
               <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="producao" /> Produção</label>
               <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="calderaria" /> Calderaria</label>
               <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="solda" /> Solda</label>
@@ -412,9 +416,11 @@
             <label class="stack-field">
               <span>Setor</span>
               <select id="admin-alert-sector">
+                <option value="engenharia">Engenharia</option>
+                <option value="suprimento">Suprimento</option>
                 <option value="pintura">Pintura</option>
-                <option value="inspecao">Inspeção</option>
-                <option value="pendente_envio">Pendente de envio</option>
+                <option value="inspecao">Qualidade</option>
+                <option value="pendente_envio">Logística</option>
                 <option value="producao">Produção</option>
                 <option value="calderaria">Calderaria</option>
                 <option value="solda">Solda</option>

@@ -754,9 +754,11 @@ function escapeHtml(value) {
 
 
 const AVAILABLE_SECTORS = [
+  { value: "engenharia", label: "Engenharia" },
+  { value: "suprimento", label: "Suprimento" },
   { value: "pintura", label: "Pintura" },
-  { value: "inspecao", label: "Inspeção" },
-  { value: "pendente_envio", label: "Pendente de envio" },
+  { value: "inspecao", label: "Qualidade" },
+  { value: "pendente_envio", label: "Logística" },
   { value: "producao", label: "Produção" },
   { value: "calderaria", label: "Calderaria" },
   { value: "solda", label: "Solda" },
@@ -770,8 +772,10 @@ function normalizeSectorValue(value) {
     .replace(/__+/g, '_');
 
   if (!normalized) return "";
-  if (["envio", "pendenteenvio", "pendente_envio", "pendente_de_envio", "pending_shipment", "awaiting_shipment", "logistica", "logistics", "expedicao", "shipping"].includes(normalized)) return "pendente_envio";
-  if (["inspecao", "inspection"].includes(normalized)) return "inspecao";
+  if (["envio", "pendenteenvio", "pendente_envio", "pendente_de_envio", "pending_shipment", "awaiting_shipment", "logistica", "logistica_", "logistics", "expedicao", "shipping"].includes(normalized)) return "pendente_envio";
+  if (["inspecao", "inspection", "qualidade", "quality"].includes(normalized)) return "inspecao";
+  if (["engenharia", "engineering"].includes(normalized)) return "engenharia";
+  if (["suprimento", "suprimentos", "supply", "supply_chain", "procurement"].includes(normalized)) return "suprimento";
   if (["pintura", "painting", "coating"].includes(normalized)) return "pintura";
   if (["producao", "production"].includes(normalized)) return "producao";
   if (["calderaria", "boilermaker", "fabrication"].includes(normalized)) return "calderaria";
@@ -822,8 +826,10 @@ function setSelectedAdminAlertSectors(values = []) {
 function sectorLabel(value) {
   const normalized = String(value || "").toLowerCase();
   if (normalized === "pintura") return "Pintura";
-  if (normalized === "inspecao") return "Inspeção";
-  if (normalized === "pendente_envio") return "Pendente de envio";
+  if (normalized === "inspecao") return "Qualidade";
+  if (normalized === "engenharia") return "Engenharia";
+  if (normalized === "suprimento") return "Suprimento";
+  if (normalized === "pendente_envio") return "Logística";
   if (normalized === "producao") return "Produção";
   if (normalized === "calderaria") return "Calderaria";
   if (normalized === "solda") return "Solda";
@@ -1040,9 +1046,9 @@ function getAlertFilterSummary() {
     all: 'Todos os setores',
     solda: 'Solda',
     calderaria: 'Calderaria',
-    inspecao: 'Inspeção',
+    inspecao: 'Qualidade',
     pintura: 'Pintura',
-    envio: 'Pendente de envio',
+    envio: 'Logística',
   };
 
   return {
@@ -1298,7 +1304,7 @@ function canViewMyProjectSignals(user = state.user) {
 }
 
 
-const STAGE_WORKSPACE_SECTORS = ['pintura', 'inspecao', 'pendente_envio', 'producao', 'calderaria', 'solda'];
+const STAGE_WORKSPACE_SECTORS = ['engenharia', 'suprimento', 'pintura', 'inspecao', 'pendente_envio', 'producao', 'calderaria', 'solda'];
 const STAGE_PROGRESS_OPTIONS = [25, 50, 75, 100];
 
 function getStageWorkspaceSector(user = state.user) {
@@ -1487,13 +1493,16 @@ function hasPreparingShipmentWindow(project) {
 }
 
 function getProjectStatusPresentation(project) {
-  if (project?.statusText) {
-    const state = ['awaiting_shipment', 'completed'].includes(project?.uiState) ? 'completed' : (project?.uiState || 'not_started');
-    return { text: project.statusText, state };
+  const statusText = project?.statusSummary || project?.currentStatus || project?.currentStage || '';
+  if (statusText) {
+    const state = project?.finished || project?.uiState === 'completed'
+      ? 'completed'
+      : (project?.uiState === 'awaiting_shipment' ? 'preparing_shipment' : (project?.uiState || project?.operationalState || 'in_progress'));
+    return { text: statusText, state };
   }
 
   if (hasPreparingShipmentWindow(project) && !['completed', 'awaiting_shipment'].includes(project?.uiState)) {
-    return { text: 'Preparando para envio', state: 'preparing_shipment' };
+    return { text: 'Preparado para envio', state: 'preparing_shipment' };
   }
 
   const state = ['awaiting_shipment', 'completed'].includes(project?.uiState) ? 'completed' : (project?.uiState || 'not_started');
@@ -1501,6 +1510,33 @@ function getProjectStatusPresentation(project) {
     text: translateProjectStatus(project?.projectStatus, project?.uiState),
     state,
   };
+}
+
+function getProjectSectorSummary(project) {
+  return project?.sectorSummary || project?.currentStageGroup || project?.currentSector || project?.operationalSector || '';
+}
+
+function getFlowSectorKey(flow = {}) {
+  return normalizeSectorValue(flow.sector || flow.currentSector || flow.operationalSector || '');
+}
+
+function getProjectOpenFlowItems(project) {
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  const source = spools.length
+    ? spools.map((spool) => ({ flow: spool.flow || { status: spool.stage || spool.currentStatus, sector: spool.currentSector || spool.operationalSector, state: spool.operationalState || spool.uiState }, spool }))
+    : [{ flow: project?.flow || { status: project?.currentStage || project?.statusSummary, sector: getProjectSectorSummary(project), state: project?.operationalState || project?.uiState }, spool: null }];
+  return source.filter((item) => item.flow?.state !== 'completed' && item.flow?.status !== 'Finalizado');
+}
+
+function getProjectSectorKeys(project) {
+  const items = getProjectOpenFlowItems(project);
+  const keys = new Set();
+  for (const item of items) {
+    const key = getFlowSectorKey(item.flow);
+    if (key) keys.add(key);
+  }
+  if (!keys.size && project?.finished) keys.add('pendente_envio');
+  return keys;
 }
 
 
@@ -1530,6 +1566,8 @@ function classifyStageSector(value) {
 }
 
 function simplifyCurrentStage(project) {
+  const directSummary = getProjectSectorSummary(project);
+  if (directSummary) return directSummary;
   const uiState = String(project?.uiState || "").trim().toLowerCase();
   const sector = normalizeText(project?.operationalSector || "");
   const stage = normalizeText(project?.currentStage || "");
@@ -1556,7 +1594,7 @@ function simplifyCurrentStage(project) {
     stage.includes("hydro test") ||
     stage.includes("th")
   ) {
-    return "Inspeção";
+    return "Qualidade";
   }
 
   if (
@@ -1743,55 +1781,56 @@ function buildClientStats(projects) {
 
   let progressAccumulator = 0;
   for (const project of projects) {
-    const tags = Number(project.quantitySpools || 0);
+    const spools = Array.isArray(project.spools) ? project.spools : [];
+    const tags = Number(project.quantitySpools || spools.length || 0);
     stats.totalSpools += tags;
     stats.totalWeightKg += Number(project.kilos || 0);
     stats.totalWeldedWeightKg += Number(project.weldedWeightKg || 0);
-    stats.totalPaintingM2 += Number(project.m2Painting || 0);
+    const openPaintingM2 = spools.length
+      ? spools.filter((spool) => spool.flow?.state !== 'completed' && spool.flow?.status !== 'Finalizado').reduce((total, spool) => total + Number(spool.m2Painting || 0), 0)
+      : 0;
+    stats.totalPaintingM2 += project.finished ? 0 : (openPaintingM2 > 0 ? openPaintingM2 : Number(project.m2Painting || 0));
     progressAccumulator += Number(project.overallProgress || 0);
 
-    const stateValue = project.operationalState || project.uiState;
-    const statusCandidates = [
-      project?.projectStatus,
-      project?.currentStage,
-      project?.operationalState,
-      project?.uiState,
-    ].filter(Boolean).map((value) => String(value).trim().toLowerCase());
-    const excludeFromCompletedCounts = Boolean(project?.projectFinishedFlag) || statusCandidates.some((value) => value.includes("project finished"));
+    const normalizedProjectStatus = String(project?.projectStatus || "").trim().toUpperCase().replace(/\s+/g, " ");
+    const isHoldProject = ["ON HOLD", "HOLD", "PAUSED", "EM ESPERA"].includes(normalizedProjectStatus);
 
-    if (stateValue === "completed") {
-      if (!excludeFromCompletedCounts) {
-        stats.completed += 1;
-        stats.completedTags += tags;
-      }
-    } else if (stateValue === "awaiting_shipment") {
-      stats.awaitingShipment += 1;
-      stats.awaitingShipmentTags += tags;
-      if (!excludeFromCompletedCounts) {
-        stats.completed += 1;
-        stats.completedTags += tags;
-      }
-    } else if (stateValue === "in_inspection") {
+    if (project.finished || project.uiState === 'completed') {
+      stats.completed += 1;
+      stats.completedTags += tags;
+      continue;
+    }
+
+    const openItems = getProjectOpenFlowItems(project);
+    const countSector = (sectorKey) => openItems.filter((item) => getFlowSectorKey(item.flow) === sectorKey).length;
+    const producaoTags = countSector('producao') + countSector('solda') + countSector('calderaria');
+    const qualidadeTags = countSector('inspecao');
+    const pinturaTags = countSector('pintura');
+    const logisticaTags = countSector('pendente_envio');
+    const preStartTags = countSector('engenharia') + countSector('suprimento');
+
+    if (producaoTags) {
+      stats.inProgress += 1;
+      stats.inProgressTags += producaoTags;
+    }
+    if (qualidadeTags) {
       stats.inspectionProjects += 1;
-      stats.inspectionTags += tags;
-    } else if (stateValue === "in_production") {
-      if (project.operationalSector === "Pintura") {
-        stats.paintingProjects += 1;
-        stats.paintingTags += tags;
-      } else {
-        stats.inProgress += 1;
-        stats.inProgressTags += tags;
-      }
-    } else {
-      const normalizedProjectStatus = String(project?.projectStatus || "").trim().toUpperCase().replace(/\s+/g, " ");
-      const isHoldProject = ["ON HOLD", "HOLD", "PAUSED", "EM ESPERA"].includes(normalizedProjectStatus);
-
+      stats.inspectionTags += qualidadeTags;
+    }
+    if (pinturaTags) {
+      stats.paintingProjects += 1;
+      stats.paintingTags += pinturaTags;
+    }
+    if (logisticaTags) {
+      stats.awaitingShipment += 1;
+      stats.awaitingShipmentTags += logisticaTags;
+    }
+    if (preStartTags || (!openItems.length && !project.finished)) {
       stats.notStarted += 1;
-      stats.notStartedTags += tags;
-
+      stats.notStartedTags += preStartTags || tags;
       if (isHoldProject) {
         stats.notStartedHold += 1;
-        stats.notStartedHoldTags += tags;
+        stats.notStartedHoldTags += preStartTags || tags;
       }
     }
   }
@@ -1813,8 +1852,7 @@ function getTotalWeldedWeightAllProjects() {
 
 function getTotalFinishedWeightAllProjects() {
   return getStatsProjectsSource().reduce((total, project) => {
-    const isFinished = Boolean(project?.finished) || normalizeText(project?.projectStatus).includes("project finished") || normalizeText(project?.jobProcessStatus).includes("project finished");
-    if (!isFinished) return total;
+    if (!project?.finished) return total;
     return total + Number(project?.kilos || 0);
   }, 0);
 }
@@ -1864,26 +1902,17 @@ function isSectorScopedViewActive(user = state.user) {
 function getScopedDemandLabelsForUser(user = state.user) {
   const sector = getPrimaryUserSector(user);
   if (sector === 'pendente_envio') return ['Logística', 'Pendente de envio'];
-  if (sector === 'inspecao') return ['Inspeção'];
+  if (sector === 'inspecao') return ['Qualidade', 'Inspeção'];
   if (sector === 'pintura') return ['Pintura'];
   if (sector === 'solda') return ['Solda'];
   if (sector === 'calderaria') return ['Calderaria'];
+  if (sector === 'engenharia') return ['Engenharia'];
+  if (sector === 'suprimento') return ['Suprimento'];
   if (sector === 'producao') return ['Produção'];
   return [];
 }
 
 function getProjectSectorForScopedView(project) {
-  const operationalSectors = Array.isArray(project?.operationalSectors) ? project.operationalSectors.map((item) => normalizeSectorValue(item)).filter(Boolean) : [];
-  if (operationalSectors.length) {
-    const sector = getPrimaryUserSector();
-    if (sector && operationalSectors.includes(sector)) return sector;
-    if (sector === 'producao' && operationalSectors.some((item) => ['producao', 'solda', 'calderaria'].includes(item))) return 'producao';
-    if (operationalSectors.includes('pendente_envio')) return 'pendente_envio';
-    if (operationalSectors.includes('pintura')) return 'pintura';
-    if (operationalSectors.includes('solda')) return 'solda';
-    if (operationalSectors.includes('inspecao')) return 'inspecao';
-    return operationalSectors[0];
-  }
   const operationalSector = normalizeSectorValue(project?.operationalSector || '');
   const currentStageSector = normalizeSectorValue(classifyStageSector(project?.currentStage || ''));
   const jobProcessSector = normalizeSectorValue(classifyStageSector(project?.jobProcessStatus || ''));
@@ -2045,30 +2074,22 @@ function projectMatchesScopedSector(project, user = state.user) {
   const sector = getPrimaryUserSector(user);
   if (!sector) return true;
 
-  const scopedProjectSector = getProjectSectorForScopedView(project);
-  if (sector === 'pendente_envio') {
-    return scopedProjectSector === 'pendente_envio';
-  }
-  if (sector === 'inspecao') {
-    return scopedProjectSector === 'inspecao';
-  }
-  if (sector === 'pintura') {
-    return scopedProjectSector === 'pintura';
-  }
-  if (sector === 'solda') {
-    return scopedProjectSector === 'solda';
-  }
-  if (sector === 'calderaria') {
-    return scopedProjectSector === 'calderaria';
-  }
-  if (sector === 'producao') {
-    return ['producao', 'solda', 'calderaria'].includes(scopedProjectSector);
-  }
+  const sectorKeys = getProjectSectorKeys(project);
+  const hasAny = (...keys) => keys.some((key) => sectorKeys.has(key));
+
+  if (sector === 'pendente_envio') return hasAny('pendente_envio');
+  if (sector === 'inspecao') return hasAny('inspecao');
+  if (sector === 'pintura') return hasAny('pintura');
+  if (sector === 'solda') return hasAny('solda', 'producao');
+  if (sector === 'calderaria') return hasAny('calderaria', 'producao');
+  if (sector === 'producao') return hasAny('producao', 'solda', 'calderaria');
+  if (sector === 'engenharia') return hasAny('engenharia');
+  if (sector === 'suprimento') return hasAny('suprimento');
 
   const labels = getScopedDemandLabelsForUser(user).map((item) => normalizeText(item).trim()).filter(Boolean);
   if (!labels.length) return true;
   const currentGroup = normalizeText(project?.currentStageGroup || simplifyCurrentStage(project)).trim();
-  return labels.includes(currentGroup);
+  return labels.some((label) => currentGroup.includes(label));
 }
 
 function alertMatchesScopedSector(alert, user = state.user) {
@@ -2368,7 +2389,7 @@ function renderSelectedProjectCard() {
         <div class="metric-chip"><span>Início planejado</span><strong>${project.plannedStartDate || "—"}</strong></div>
         <div class="metric-chip"><span>Término planejado</span><strong>${project.plannedFinishDate || "—"}</strong></div>
         <div class="metric-chip"><span>Peso total</span><strong>${formatNumber(project.kilos, 0)}kg</strong></div>
-        <div class="metric-chip"><span>Painting</span><strong>${formatNumber(project.m2Painting, 3)}</strong></div>
+        <div class="metric-chip"><span>Área operacional</span><strong>${formatNumber(project.m2Painting, 3)}</strong></div>
         <div class="metric-chip"><span>% Individual</span><strong>${formatPercent(project.individualProgress)}</strong></div>
         <div class="metric-chip"><span>% Geral</span><strong>${formatPercent(project.overallProgress)}</strong></div>
         <div class="metric-chip"><span>Itens internos</span><strong>${matchedSpools}</strong></div>
@@ -2427,6 +2448,9 @@ function renderModal(project) {
         .join("");
 
       const observations = spool.observations ? escapeHtml(spool.observations).replace(/\n/g, "<br>") : "—";
+      const spoolStatusText = spool.currentStatus || spool.stage || uiStateLabel(spool.uiState);
+      const spoolSectorText = spool.currentSector || spool.operationalSector || sectorLabel(getFlowSectorKey(spool.flow || {})) || "—";
+      const spoolStatusClass = spool.finished || spool.uiState === "completed" ? "completed" : (spool.uiState === "awaiting_shipment" ? "preparing_shipment" : (spool.uiState || "in_progress"));
 
       return `
         <tr data-modal-row="true">
@@ -2437,8 +2461,8 @@ function renderModal(project) {
           <td>${spool.weldingWeek || "—"}</td>
           <td>${formatNumber(spool.kilos, 2)}</td>
           <td>${formatNumber(spool.m2Painting, 3)}</td>
-          <td><span class="cell-status cell-status--${["awaiting_shipment", "completed"].includes(spool.uiState) ? "completed" : spool.uiState}">${spool.statusText || uiStateLabel(spool.uiState)}</span></td>
-          <td class="${percentStateClass(spool.stagePercent)}">${spool.stage || "—"}</td>
+          <td><span class="cell-status cell-status--${spoolStatusClass}">${escapeHtml(spoolStatusText)}</span></td>
+          <td class="${percentStateClass(spool.stagePercent)}">${escapeHtml(spoolSectorText)}</td>
           <td class="${percentStateClass(spool.individualProgress)}">${formatPercent(spool.individualProgress)}</td>
           <td class="${percentStateClass(spool.overallProgress)}">${formatPercent(spool.overallProgress)}</td>
           ${stageColumns}
@@ -2448,7 +2472,8 @@ function renderModal(project) {
     .join("");
 
   const stageHeaders = stageOrder.map((stage) => `<th>${stage.label}</th>`).join("");
-  const statusText = project.statusText || translateProjectStatus(project.projectStatus, project.uiState);
+  const statusPresentation = getProjectStatusPresentation(project);
+  const statusText = statusPresentation.text;
 
   modalTitleEl.textContent = projectDisplayWithClient(project);
   modalSubtitleEl.textContent = `${statusText} • ${state.modalPendingOnly ? getPendingSpools(project).length : (project.spools?.length || 0)} item(ns) interno(s)`;
@@ -2463,10 +2488,11 @@ function renderModal(project) {
       <article class="metric-chip"><span>Início planejado</span><strong>${project.plannedStartDate || "—"}</strong></article>
       <article class="metric-chip"><span>Término planejado</span><strong>${project.plannedFinishDate || "—"}</strong></article>
       <article class="metric-chip"><span>Peso total</span><strong>${formatNumber(project.kilos, 0)}kg</strong></article>
-      <article class="metric-chip"><span>Painting total</span><strong>${formatNumber(project.m2Painting, 3)}</strong></article>
+      <article class="metric-chip"><span>Área operacional total</span><strong>${formatNumber(project.m2Painting, 3)}</strong></article>
       <article class="metric-chip"><span>% Individual</span><strong>${formatPercent(project.individualProgress)}</strong></article>
       <article class="metric-chip"><span>% Geral</span><strong>${formatPercent(project.overallProgress)}</strong></article>
-      <article class="metric-chip"><span>Etapa atual</span><strong>${project.currentStage}</strong></article>
+      <article class="metric-chip"><span>Status atual</span><strong>${statusText}</strong></article>
+      <article class="metric-chip"><span>Etapa atual</span><strong>${getProjectSectorSummary(project) || simplifyCurrentStage(project)}</strong></article>
     </section>
 
     <section class="modal-milestones">
@@ -2485,7 +2511,7 @@ function renderModal(project) {
             <th>Peso soldado</th>
             <th>Semana finalizado</th>
             <th>Peso</th>
-            <th>Painting</th>
+            <th>Área operacional</th>
             <th>Status</th>
             <th>Etapa atual</th>
             <th>% Individual</th>
@@ -2624,7 +2650,7 @@ function renderAlertModal() {
   const sectorButtons = [
     { key: "solda", label: "Solda", match: ["Solda"] },
     { key: "calderaria", label: "Calderaria", match: ["Calderaria"] },
-    { key: "inspecao", label: "Inspeção", match: ["Inspeção"] },
+    { key: "inspecao", label: "Qualidade", match: ["Qualidade", "Inspeção"] },
     { key: "pintura", label: "Pintura", match: ["Pintura"] },
     { key: "envio", label: "Logística", match: ["Logística", "Envio", "Pendente de envio"] },
   ];
