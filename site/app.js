@@ -14,8 +14,6 @@ const state = {
   searchQuery: "",
   demandFilter: "",
   weekFilter: "",
-  statusFilter: "",
-  statusFilters: [],
   alertFilter: "all",
   alertSectorFilter: "all",
   alertClientQuery: "",
@@ -62,11 +60,6 @@ const searchInputEl = document.getElementById("project-search");
 const clearSearchEl = document.getElementById("clear-search");
 const demandFilterEl = document.getElementById("demand-filter");
 const weekFilterEl = document.getElementById("week-filter");
-const statusFilterEl = document.getElementById("status-filter");
-const statusFilterDropdownEl = document.getElementById("status-filter-dropdown");
-const statusFilterToggleEl = document.getElementById("status-filter-toggle");
-const statusFilterTextEl = document.getElementById("status-filter-text");
-const statusFilterMenuEl = document.getElementById("status-filter-menu");
 const searchCountEl = document.getElementById("search-count");
 const tableShellEl = document.getElementById("table-shell");
 const projectViewTabsEl = document.getElementById("project-view-tabs");
@@ -242,7 +235,6 @@ const adminUserCancelEditEl = document.getElementById("admin-user-cancel-edit");
 const adminUserTogglePasswordEl = document.getElementById("admin-user-toggle-password");
 const adminUserIdEl = document.getElementById("admin-user-id");
 const adminUserSubmitLabelEl = document.getElementById("admin-user-submit-label");
-const adminUserCanSendPcpAlertsEl = document.getElementById("admin-user-can-send-pcp-alerts");
 const adminTabTriggerEls = Array.from(document.querySelectorAll('[data-admin-tab-trigger]'));
 const adminTabPanelEls = Array.from(document.querySelectorAll('[data-admin-tab-panel]'));
 const projectSignalModalEl = document.getElementById('project-signal-modal');
@@ -760,7 +752,7 @@ function escapeHtml(value) {
 const AVAILABLE_SECTORS = [
   { value: "pintura", label: "Pintura" },
   { value: "inspecao", label: "Inspeção" },
-  { value: "pendente_envio", label: "Logística" },
+  { value: "pendente_envio", label: "Pendente de envio" },
   { value: "producao", label: "Produção" },
   { value: "calderaria", label: "Calderaria" },
   { value: "solda", label: "Solda" },
@@ -827,7 +819,7 @@ function sectorLabel(value) {
   const normalized = String(value || "").toLowerCase();
   if (normalized === "pintura") return "Pintura";
   if (normalized === "inspecao") return "Inspeção";
-  if (normalized === "pendente_envio") return "Logística";
+  if (normalized === "pendente_envio") return "Pendente de envio";
   if (normalized === "producao") return "Produção";
   if (normalized === "calderaria") return "Calderaria";
   if (normalized === "solda") return "Solda";
@@ -1046,7 +1038,7 @@ function getAlertFilterSummary() {
     calderaria: 'Calderaria',
     inspecao: 'Inspeção',
     pintura: 'Pintura',
-    envio: 'Logística',
+    envio: 'Pendente de envio',
   };
 
   return {
@@ -1244,32 +1236,12 @@ function getSignalStatusBadge(alert) {
     : '<span class="manual-alert-tag manual-alert-tag--pending">Pendente</span>';
 }
 
-function canSendPcpAlerts(user = state.user) {
-  if (!user) return false;
-  if (user.role === 'admin') return true;
-  if (user.canSendPcpAlerts === true) return true;
-
-  // Compatibilidade com usuários antigos do setor Projetos, criados antes desta permissão existir.
-  if (typeof user.canSendPcpAlerts === 'undefined' || user.canSendPcpAlerts === null) {
-    return normalizeSectorValue(user.sector) === 'projetos' || userHasProjectsScope(user);
-  }
-
-  return false;
-}
-
 function canCreateProjectSignal(project = null, user = state.user) {
   if (!user) return false;
   if (user.role === 'admin') return true;
-  if (!canSendPcpAlerts(user)) return false;
+  if (!(normalizeSectorValue(user.sector) === 'projetos' || userHasProjectsScope(user))) return false;
   if (!project) return true;
-
-  // Usuários de Projetos continuam limitados às BSPs vinculadas ao nome/PM.
-  if (userHasProjectsScope(user)) {
-    return projectBelongsToUser(project, user);
-  }
-
-  // Demais setores autorizados só sinalizam projetos da própria demanda operacional.
-  return projectMatchesScopedSector(project, user);
+  return projectBelongsToUser(project, user);
 }
 
 function canResolveSignal(user = state.user) {
@@ -1318,7 +1290,7 @@ function getMyProjectSignals(user = state.user, source = null) {
 function canViewMyProjectSignals(user = state.user) {
   if (!user) return false;
   if (user.role === 'admin') return true;
-  return canSendPcpAlerts(user);
+  return normalizeSectorValue(user.sector) === 'projetos' || userHasProjectsScope(user);
 }
 
 
@@ -1346,57 +1318,14 @@ function canValidateStageWorkspace(user = state.user) {
   return getStageWorkspaceSector(user) === 'pcp';
 }
 
-function getStageSearchTokens(value = state.stageUpdatesSearchQuery) {
-  const raw = String(value || '').trim();
-  return {
-    raw,
-    normalized: normalizeText(raw),
-    compact: normalizeCompactText(raw),
-    digits: raw.replace(/\D+/g, ''),
-  };
-}
-
-function stageSearchTextMatches(value, tokens = getStageSearchTokens()) {
-  if (!tokens.normalized && !tokens.compact && !tokens.digits) return true;
-  const normalizedValue = normalizeText(value);
-  const compactValue = normalizeCompactText(value);
-  const digitsValue = String(value || '').replace(/\D+/g, '');
-  return Boolean(
-    (tokens.normalized && normalizedValue.includes(tokens.normalized))
-    || (tokens.compact && compactValue.includes(tokens.compact))
-    || (tokens.digits && digitsValue.includes(tokens.digits))
-  );
-}
-
-function getStageProjectSearchValues(project) {
-  return [project?.projectNumber, project?.projectDisplay, project?.client, project?.currentStage];
-}
-
-function getStageSpoolSearchValues(spool) {
-  return [spool?.iso, spool?.description, spool?.item, spool?.line, spool?.tag];
-}
-
 function stageWorkspaceSearchProjects() {
-  const tokens = getStageSearchTokens();
+  const query = normalizeText(state.stageUpdatesSearchQuery || '');
   const source = Array.isArray(state.projects) ? state.projects : [];
-  if (!tokens.normalized && !tokens.compact && !tokens.digits) return source.slice(0, 8);
+  if (!query) return source.slice(0, 8);
   return source.filter((project) => {
-    const projectMatches = getStageProjectSearchValues(project).some((value) => stageSearchTextMatches(value, tokens));
-    const spoolMatches = (Array.isArray(project?.spools) ? project.spools : []).some((spool) =>
-      getStageSpoolSearchValues(spool).some((value) => stageSearchTextMatches(value, tokens))
-    );
-    return projectMatches || spoolMatches;
-  }).slice(0, 12);
-}
-
-function getStageVisibleSpools(project) {
-  const spools = Array.isArray(project?.spools) ? project.spools : [];
-  const tokens = getStageSearchTokens();
-  if (!tokens.normalized && !tokens.compact && !tokens.digits) return spools;
-  const matchedSpools = spools.filter((spool) =>
-    getStageSpoolSearchValues(spool).some((value) => stageSearchTextMatches(value, tokens))
-  );
-  return matchedSpools.length ? matchedSpools : spools;
+    return [project.projectNumber, project.projectDisplay, project.client, project.currentStage]
+      .some((value) => normalizeText(value).includes(query));
+  }).slice(0, 8);
 }
 
 function getStageUpdatesForCurrentSector(source = null, sector = getStageWorkspaceSector()) {
@@ -1505,7 +1434,7 @@ function renderProjectSignals(project) {
 function uiStateLabel(stateValue) {
   if (stateValue === "completed") return "Finalizado";
   if (stateValue === "awaiting_shipment") return "Aguardando envio";
-  if (stateValue === "preparing_shipment") return "Em tratativa";
+  if (stateValue === "preparing_shipment") return "Preparando para envio";
   if (stateValue === "in_progress") return "Em produção";
   return "Não iniciado";
 }
@@ -1513,15 +1442,15 @@ function uiStateLabel(stateValue) {
 function translateProjectStatus(projectStatus, uiState) {
   if (uiState === "completed") return "Finalizado";
   if (uiState === "awaiting_shipment") return "Aguardando envio";
-  if (uiState === "preparing_shipment") return "Em tratativa";
+  if (uiState === "preparing_shipment") return "Preparando para envio";
   if (uiState === "not_started") return "Não iniciado";
 
   const normalized = String(projectStatus || "").trim().toUpperCase().replace(/\s+/g, " ");
   if (["ONGOING", "ON GOING", "IN PROGRESS", "EM PRODUCAO", "EM PRODUÇÃO"].includes(normalized)) {
     return "Em produção";
   }
-  if (["PREPARING SHIPMENT", "PREPARING FOR SHIPMENT", "PREPARANDO PARA ENVIO", "EM TRATATIVA"].includes(normalized)) {
-    return "Em tratativa";
+  if (["PREPARING SHIPMENT", "PREPARING FOR SHIPMENT", "PREPARANDO PARA ENVIO"].includes(normalized)) {
+    return "Preparando para envio";
   }
   if (["ON HOLD", "HOLD", "PAUSED", "EM ESPERA"].includes(normalized)) {
     return uiState === "not_started" ? "Em espera" : "Em produção";
@@ -1553,142 +1482,73 @@ function hasPreparingShipmentWindow(project) {
   return spoolMatches || projectMatches;
 }
 
+function isProjectFinishedByData(item) {
+  const statusText = normalizeText([
+    item?.projectStatus,
+    item?.jobProcessStatus,
+    item?.currentStage,
+    item?.stage,
+    item?.stageValues?.['Project Finished?'],
+  ].filter(Boolean).join(' '));
+
+  const packageDelivered = Number(item?.stageValues?.['Package and Delivered'] ?? item?.stageValues?.['Unitização e envio'] ?? NaN);
+  const projectFinishDate = item?.stageValues?.['Project Finish Date'] || item?.projectFinishDate || '';
+
+  return Boolean(item?.finished)
+    || Boolean(item?.projectFinishedFlag)
+    || item?.uiState === 'completed'
+    || statusText.includes('project finished')
+    || statusText.includes('finalizado')
+    || statusText.includes('concluido')
+    || (Number.isFinite(packageDelivered) && packageDelivered >= 100)
+    || Boolean(projectFinishDate);
+}
+
+function isDetailingNotStartedByData(item) {
+  if (isProjectFinishedByData(item)) return false;
+
+  const stageText = normalizeText([item?.currentStage, item?.stage, item?.jobProcessStatus].filter(Boolean).join(' '));
+  const isDetailing = stageText.includes('emissao de detalhamento')
+    || stageText.includes('emission de detalhamento')
+    || stageText.includes('detalhamento');
+
+  if (!isDetailing) return false;
+
+  const stagePercent = Number(item?.currentStagePercent ?? item?.stagePercent ?? NaN);
+  const individual = Number(item?.individualProgress ?? NaN);
+  const overall = Number(item?.overallProgress ?? NaN);
+  const hasAnyProgress = [stagePercent, individual, overall].some((value) => Number.isFinite(value) && value > 0);
+
+  return !hasAnyProgress;
+}
+
+function getItemStatusPresentation(item) {
+  if (isProjectFinishedByData(item)) {
+    return { text: 'Finalizado', state: 'completed' };
+  }
+
+  if (isDetailingNotStartedByData(item)) {
+    return { text: 'Não iniciado', state: 'not_started' };
+  }
+
+  const uiState = item?.uiState || 'not_started';
+  const state = ['awaiting_shipment', 'completed'].includes(uiState) ? 'completed' : uiState;
+  const text = item?.projectStatus !== undefined
+    ? translateProjectStatus(item?.projectStatus, uiState)
+    : uiStateLabel(uiState);
+
+  return { text, state };
+}
+
 function getProjectStatusPresentation(project) {
+  const baseStatus = getItemStatusPresentation(project);
+  if (['completed', 'not_started'].includes(baseStatus.state)) return baseStatus;
+
   if (hasPreparingShipmentWindow(project) && !['completed', 'awaiting_shipment'].includes(project?.uiState)) {
-    return { text: 'Em tratativa', state: 'preparing_shipment' };
+    return { text: 'Preparando para envio', state: 'preparing_shipment' };
   }
 
-  const state = ['awaiting_shipment', 'completed'].includes(project?.uiState) ? 'completed' : (project?.uiState || 'not_started');
-  return {
-    text: translateProjectStatus(project?.projectStatus, project?.uiState),
-    state,
-  };
-}
-
-function getProjectStatusFilterValue(project) {
-  const presentation = getProjectStatusPresentation(project);
-  const text = normalizeText(presentation?.text || "");
-  const uiState = String(project?.uiState || "").trim();
-
-  if (presentation?.state === "preparing_shipment" || text.includes("em tratativa") || text.includes("preparando para envio")) {
-    return "preparing_shipment";
-  }
-  if (uiState === "awaiting_shipment" || text.includes("aguardando envio")) {
-    return "awaiting_shipment";
-  }
-  return presentation?.state || uiState || "";
-}
-
-function getSelectedStatusFilters() {
-  if (Array.isArray(state.statusFilters)) {
-    return state.statusFilters.map((value) => String(value || "").trim()).filter(Boolean);
-  }
-  return String(state.statusFilter || "").split(",").map((value) => value.trim()).filter(Boolean);
-}
-
-function setStatusFilterValues(values = []) {
-  state.statusFilters = Array.from(new Set((Array.isArray(values) ? values : [values]).map((value) => String(value || "").trim()).filter(Boolean)));
-  state.statusFilter = state.statusFilters.join(",");
-}
-
-function getStatusFilterOptionsFromSelect() {
-  if (!statusFilterEl) return [];
-  return Array.from(statusFilterEl.options || [])
-    .filter((option) => option.value)
-    .map((option) => ({ value: option.value, label: option.textContent || getProjectStatusFilterLabel(option.value) }));
-}
-
-function updateStatusFilterButtonText() {
-  if (!statusFilterTextEl) return;
-  const selectedValues = getSelectedStatusFilters();
-  const options = getStatusFilterOptionsFromSelect();
-  if (!selectedValues.length) {
-    statusFilterTextEl.textContent = "Todos os status";
-    return;
-  }
-  if (selectedValues.length === 1) {
-    const selected = options.find((option) => option.value === selectedValues[0]);
-    statusFilterTextEl.textContent = selected?.label || getProjectStatusFilterLabel(selectedValues[0]);
-    return;
-  }
-  statusFilterTextEl.textContent = `${selectedValues.length} status selecionados`;
-}
-
-function syncStatusFilterSelect() {
-  if (!statusFilterEl) return;
-  const selectedValues = getSelectedStatusFilters();
-  Array.from(statusFilterEl.options || []).forEach((option) => {
-    option.selected = option.value ? selectedValues.includes(option.value) : !selectedValues.length;
-  });
-  updateStatusFilterButtonText();
-}
-
-function renderStatusFilterMenu() {
-  if (!statusFilterMenuEl) return;
-  const options = getStatusFilterOptionsFromSelect();
-  const selectedValues = getSelectedStatusFilters();
-  if (!options.length) {
-    statusFilterMenuEl.innerHTML = '<div class="status-filter-empty">Nenhum status disponível</div>';
-    updateStatusFilterButtonText();
-    return;
-  }
-  const allChecked = !selectedValues.length;
-  statusFilterMenuEl.innerHTML = [
-    `<label class="status-filter-option status-filter-option--all">
-      <input type="checkbox" value="" data-status-option="" ${allChecked ? "checked" : ""} />
-      <span>Todos os status</span>
-    </label>`,
-    ...options.map((option) => `
-      <label class="status-filter-option">
-        <input type="checkbox" value="${escapeHtml(option.value)}" data-status-option="${escapeHtml(option.value)}" ${selectedValues.includes(option.value) ? "checked" : ""} />
-        <span>${escapeHtml(option.label)}</span>
-      </label>`)
-  ].join("");
-  updateStatusFilterButtonText();
-}
-
-function closeStatusFilterMenu() {
-  if (!statusFilterDropdownEl || !statusFilterMenuEl || !statusFilterToggleEl) return;
-  statusFilterDropdownEl.classList.remove("is-open");
-  statusFilterMenuEl.classList.add("hidden");
-  statusFilterToggleEl.setAttribute("aria-expanded", "false");
-}
-
-function toggleStatusFilterMenu() {
-  if (!statusFilterDropdownEl || !statusFilterMenuEl || !statusFilterToggleEl) return;
-  const isOpen = statusFilterDropdownEl.classList.toggle("is-open");
-  statusFilterMenuEl.classList.toggle("hidden", !isOpen);
-  statusFilterToggleEl.setAttribute("aria-expanded", isOpen ? "true" : "false");
-}
-
-function refreshStatusFilterUi() {
-  syncStatusFilterSelect();
-  renderStatusFilterMenu();
-}
-
-function readStatusFilterValuesFromElement() {
-  if (!statusFilterEl) return [];
-  if (statusFilterEl.multiple) {
-    return Array.from(statusFilterEl.selectedOptions || []).map((option) => option.value).filter(Boolean);
-  }
-  return statusFilterEl.value ? [statusFilterEl.value] : [];
-}
-
-function isProjectFinalizedForPainting(project) {
-  const stageMap = project?.stageValues || {};
-  const candidates = [
-    project?.projectStatus,
-    project?.jobProcessStatus,
-    project?.currentStage,
-    project?.operationalState,
-    project?.uiState,
-    stageMap["Project Finished?"],
-  ].filter(Boolean).map((value) => normalizeText(value));
-  const hasFinishedText = candidates.some((value) => value.includes("project finished") || value.includes("finalizado") || value.includes("finished"));
-  return Boolean(project?.projectFinishedFlag)
-    || Boolean(project?.finished)
-    || Boolean(stageMap["Project Finish Date"])
-    || hasFinishedText;
+  return baseStatus;
 }
 
 
@@ -1899,88 +1759,11 @@ function projectMatchesWeekFilter(project, weekLabel = state.weekFilter) {
   return String(project?.weldingWeek || '').trim() === normalizedWeek;
 }
 
-function getProjectStatusFilterLabel(value) {
-  const normalized = String(value || "").trim();
-  if (normalized === "preparing_shipment") return "Em tratativa";
-  if (normalized === "awaiting_shipment") return "Aguardando envio";
-  if (normalized === "completed") return "Finalizado";
-  if (normalized === "in_progress") return "Em produção";
-  if (normalized === "not_started") return "Não iniciado";
-  if (normalized === "waiting") return "Em espera";
-  return normalized ? normalized.replace(/_/g, " ") : "";
-}
-
-function getStatusOptionProjectsSource() {
-  const query = normalizeText(state.searchQuery).trim();
-  const demand = normalizeText(state.demandFilter).trim();
-  const selectedWeek = String(state.weekFilter || "").trim();
-
-  return getVisibleProjectsSource().filter((project) => {
-    const matchesQuery = !query || project._searchText.includes(query);
-    const matchesDemand = !demand
-      || normalizeText(project.currentStageGroup || simplifyCurrentStage(project)).includes(demand)
-      || normalizeText(project.currentStage).includes(demand)
-      || normalizeText(translateProjectStatus(project.projectStatus, project.uiState)).includes(demand);
-    const matchesWeek = projectMatchesWeekFilter(project, selectedWeek);
-    return matchesQuery && matchesDemand && matchesWeek;
-  });
-}
-
-function buildStatusOptions() {
-  if (!statusFilterEl) return;
-  const selectedValues = getSelectedStatusFilters();
-  const projects = getStatusOptionProjectsSource();
-  const values = Array.from(
-    new Set(projects.map((project) => getProjectStatusFilterValue(project)).filter(Boolean))
-  ).sort((a, b) => getProjectStatusFilterLabel(a).localeCompare(getProjectStatusFilterLabel(b), "pt-BR"));
-  const validSelectedValues = selectedValues.filter((value) => values.includes(value));
-
-  statusFilterEl.innerHTML = [
-    '<option value="">Todos os status</option>',
-    ...values.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(getProjectStatusFilterLabel(value))}</option>`),
-  ].join("");
-
-  setStatusFilterValues(validSelectedValues);
-  refreshStatusFilterUi();
-}
-
 function getStatsProjectsSource() {
   if (Array.isArray(state.filteredProjects) && state.filteredProjects.length) return state.filteredProjects;
   const source = getVisibleProjectsSource();
   return source.filter((project) => projectMatchesWeekFilter(project));
 }
-
-function getProjectPaintingM2(project) {
-  const directValue = Number(project?.m2Painting || 0);
-  if (Number.isFinite(directValue) && directValue > 0) return directValue;
-  const spools = Array.isArray(project?.spools) ? project.spools : [];
-  return spools.reduce((total, spool) => {
-    const value = Number(spool?.m2Painting || 0);
-    return total + (Number.isFinite(value) ? value : 0);
-  }, 0);
-}
-
-function getPaintingM2StatsSource() {
-  // O card Painting (m²) acompanha a visualização ativa do usuário.
-  // - Todos os alertas/projetos: soma toda a base visível nos filtros atuais.
-  // - Meus alertas/minha demanda: soma apenas a demanda setorial/do usuário.
-  // A restrição por setor/projeto já é aplicada em getVisibleProjectsSource() > applyFilter().
-  return getStatsProjectsSource().filter((project) => !isProjectFinalizedForPainting(project));
-}
-
-function getPaintingM2ScopeLabel() {
-  const user = state.user;
-  if (!user || user.role === 'admin') return 'Todas as demandas';
-  if (userHasProjectsScope(user)) {
-    return state.projectView === 'mine' ? 'Meus projetos' : 'Todos os projetos';
-  }
-  if (isSectorScopedViewActive()) {
-    const sector = getPrimaryUserSector(user);
-    return sector ? `Minha demanda: ${sectorLabel(sector)}` : 'Minha demanda';
-  }
-  return 'Todos os alertas';
-}
-
 
 function buildClientStats(projects) {
   const stats = {
@@ -2012,7 +1795,7 @@ function buildClientStats(projects) {
     stats.totalSpools += tags;
     stats.totalWeightKg += Number(project.kilos || 0);
     stats.totalWeldedWeightKg += Number(project.weldedWeightKg || 0);
-    stats.totalPaintingM2 += getProjectPaintingM2(project);
+    stats.totalPaintingM2 += Number(project.m2Painting || 0);
     progressAccumulator += Number(project.overallProgress || 0);
 
     const stateValue = project.operationalState || project.uiState;
@@ -2363,7 +2146,7 @@ function updatePrimaryUserActionUi() {
   if (openProjectSignalsEl) {
     const canView = canViewProjectSignals();
     openProjectSignalsEl.classList.toggle('hidden', !canView);
-    openProjectSignalsEl.title = 'Visualizar os alertas enviados ao PCP pelos usuários autorizados';
+    openProjectSignalsEl.title = 'Visualizar apenas os alertas enviados pelos usuários de Projetos';
   }
   if (openStageUpdatesEl) {
     const canOpen = canOpenStageWorkspace();
@@ -2433,8 +2216,7 @@ function renderProjectViewTabs() {
 function applyFilter() {
   const query = normalizeText(state.searchQuery).trim();
   const demand = normalizeText(state.demandFilter).trim();
-  const selectedWeek = String(state.weekFilter || "").trim();
-  const selectedStatuses = getSelectedStatusFilters();
+  const selectedWeek = String(state.weekFilter || '').trim();
 
   const sourceProjects = getVisibleProjectsSource();
 
@@ -2446,9 +2228,7 @@ function applyFilter() {
         || normalizeText(project.currentStage).includes(demand)
         || normalizeText(translateProjectStatus(project.projectStatus, project.uiState)).includes(demand);
       const matchesWeek = projectMatchesWeekFilter(project, selectedWeek);
-      const projectStatusValue = getProjectStatusFilterValue(project);
-      const matchesStatus = !selectedStatuses.length || selectedStatuses.includes(projectStatusValue);
-      return matchesQuery && matchesDemand && matchesWeek && matchesStatus;
+      return matchesQuery && matchesDemand && matchesWeek;
     })
     .sort(compareProjectsByPlannedFinishDate);
 
@@ -2493,12 +2273,6 @@ function renderStats() {
   const totalFinishedWeight = getTotalFinishedWeightAllProjects();
   const totalWeldedWeight = Number(stats.totalWeldedWeightKg || 0);
   const totalBacklogWelding = Math.max(0, Number(stats.totalWeightKg || 0) - totalWeldedWeight);
-  const paintingM2Source = getPaintingM2StatsSource();
-  const totalPaintingM2 = paintingM2Source.reduce((total, project) => total + getProjectPaintingM2(project), 0);
-  const paintingM2El = document.getElementById("stat-painting-m2");
-  if (paintingM2El) paintingM2El.textContent = `${formatNumber(totalPaintingM2, 3)} m²`;
-  const paintingM2ScopeEl = document.getElementById("stat-painting-m2-scope");
-  if (paintingM2ScopeEl) paintingM2ScopeEl.textContent = getPaintingM2ScopeLabel();
   document.getElementById("stat-projects").textContent = formatNumber(stats.totalProjects);
   document.getElementById("stat-spools").textContent = `${formatNumber(totalWeldedWeight, 0)} kg`;
   document.getElementById("stat-total-weight").textContent = `${formatNumber(stats.totalWeightKg, 0)} kg`;
@@ -2544,7 +2318,7 @@ function renderStats() {
 
 function renderTable() {
   if (!state.filteredProjects.length) {
-    bodyEl.innerHTML = '<tr><td colspan="18" class="loading-cell">Nenhum projeto encontrado para a busca informada.</td></tr>';
+    bodyEl.innerHTML = '<tr><td colspan="17" class="loading-cell">Nenhum projeto encontrado para a busca informada.</td></tr>';
     searchCountEl.textContent = "0 resultado(s)";
     return;
   }
@@ -2592,7 +2366,6 @@ function renderTable() {
           <td>${stageMap["Welding Finish Date"] || "—"}</td>
           <td>${stageMap["Inspection Finish Date (QC)"] || "—"}</td>
           <td>${stageMap["TH Finish Date"] || "—"}</td>
-          <td>${stageMap["Project Finish Date"] || "—"}</td>
           <td class="cell-finished cell-finished--${project.finished ? "yes" : "no"}">${completedSymbol}</td>
         </tr>
       `;
@@ -2672,10 +2445,6 @@ function renderModal(project) {
     .map((item) => `<div class="milestone-chip"><span>${item.key || item.label}</span><strong>${item.value}</strong></div>`)
     .join("");
 
-  const modalStatusPresentation = getProjectStatusPresentation(project);
-  const modalStatusText = modalStatusPresentation.text;
-  const modalStatusState = modalStatusPresentation.state;
-
   const sourceSpools = state.modalPendingOnly ? getPendingSpools(project) : (project.spools || []);
   const sortedSpools = [...sourceSpools].sort((a, b) => {
     const aProgress = Number.isFinite(Number(a?.individualProgress)) ? Number(a.individualProgress) : 999999;
@@ -2705,7 +2474,7 @@ function renderModal(project) {
           <td>${spool.weldingWeek || "—"}</td>
           <td>${formatNumber(spool.kilos, 2)}</td>
           <td>${formatNumber(spool.m2Painting, 3)}</td>
-          <td><span class="cell-status cell-status--${modalStatusState}">${modalStatusText}</span></td>
+          ${(() => { const statusPresentation = getItemStatusPresentation(spool); return `<td><span class="cell-status cell-status--${statusPresentation.state}">${escapeHtml(statusPresentation.text)}</span></td>`; })()}
           <td class="${percentStateClass(spool.stagePercent)}">${spool.stage || "—"}</td>
           <td class="${percentStateClass(spool.individualProgress)}">${formatPercent(spool.individualProgress)}</td>
           <td class="${percentStateClass(spool.overallProgress)}">${formatPercent(spool.overallProgress)}</td>
@@ -2716,9 +2485,10 @@ function renderModal(project) {
     .join("");
 
   const stageHeaders = stageOrder.map((stage) => `<th>${stage.label}</th>`).join("");
+  const statusText = translateProjectStatus(project.projectStatus, project.uiState);
 
   modalTitleEl.textContent = projectDisplayWithClient(project);
-  modalSubtitleEl.textContent = `${modalStatusText} • ${state.modalPendingOnly ? getPendingSpools(project).length : (project.spools?.length || 0)} item(ns) interno(s)`;
+  modalSubtitleEl.textContent = `${statusText} • ${state.modalPendingOnly ? getPendingSpools(project).length : (project.spools?.length || 0)} item(ns) interno(s)`;
 
   modalContentEl.innerHTML = `
     <section class="modal-summary-grid">
@@ -3038,7 +2808,6 @@ async function loadProjects() {
     state.alerts = data.alerts || [];
     buildDemandOptions();
     buildWeekOptions();
-    buildStatusOptions();
 
     if (!state.selectedProjectId && state.projects.length) {
       state.selectedProjectId = state.projects[0].rowId;
@@ -3070,7 +2839,7 @@ async function loadProjects() {
       return;
     }
 
-    bodyEl.innerHTML = `<tr><td colspan="18" class="loading-cell">${fallbackMessage}</td></tr>`;
+    bodyEl.innerHTML = `<tr><td colspan="17" class="loading-cell">${fallbackMessage}</td></tr>`;
     detailCardEl.innerHTML = `<div class="detail-placeholder">${fallbackMessage}</div>`;
   }
 }
@@ -3116,7 +2885,6 @@ function bindEvents() {
 
   searchInputEl.addEventListener("input", (event) => {
     state.searchQuery = event.target.value;
-    buildStatusOptions();
     applyFilter();
     renderStats();
     renderTable();
@@ -3128,12 +2896,9 @@ function bindEvents() {
     state.searchQuery = "";
     state.demandFilter = "";
     state.weekFilter = "";
-    setStatusFilterValues([]);
     searchInputEl.value = "";
     if (demandFilterEl) demandFilterEl.value = "";
     if (weekFilterEl) weekFilterEl.value = "";
-    refreshStatusFilterUi();
-    buildStatusOptions();
     applyFilter();
     renderStats();
     renderTable();
@@ -3145,7 +2910,6 @@ function bindEvents() {
   if (demandFilterEl) {
     demandFilterEl.addEventListener("change", (event) => {
       state.demandFilter = event.target.value;
-      buildStatusOptions();
       applyFilter();
       renderStats();
       renderTable();
@@ -3157,60 +2921,6 @@ function bindEvents() {
   if (weekFilterEl) {
     weekFilterEl.addEventListener("change", (event) => {
       state.weekFilter = event.target.value;
-      buildStatusOptions();
-      applyFilter();
-      renderStats();
-      renderTable();
-      renderSelectedProjectCard();
-      tableShellEl.scrollTop = 0;
-    });
-  }
-
-  if (statusFilterToggleEl) {
-    statusFilterToggleEl.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      toggleStatusFilterMenu();
-    });
-  }
-
-  if (statusFilterMenuEl) {
-    statusFilterMenuEl.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const input = event.target.closest('input[data-status-option]');
-      if (!input) return;
-      const value = String(input.value || "").trim();
-      if (!value) {
-        setStatusFilterValues([]);
-      } else {
-        const selected = new Set(getSelectedStatusFilters());
-        if (input.checked) selected.add(value);
-        else selected.delete(value);
-        setStatusFilterValues(Array.from(selected));
-      }
-      refreshStatusFilterUi();
-      applyFilter();
-      renderStats();
-      renderTable();
-      renderSelectedProjectCard();
-      tableShellEl.scrollTop = 0;
-    });
-  }
-
-  document.addEventListener("click", (event) => {
-    if (statusFilterDropdownEl && !statusFilterDropdownEl.contains(event.target)) {
-      closeStatusFilterMenu();
-    }
-  });
-
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeStatusFilterMenu();
-  });
-
-  if (statusFilterEl) {
-    statusFilterEl.addEventListener("change", () => {
-      setStatusFilterValues(readStatusFilterValuesFromElement());
-      refreshStatusFilterUi();
       applyFilter();
       renderStats();
       renderTable();
@@ -3367,9 +3077,6 @@ if (adminUserSectorEl) {
       selected.add(next);
       setSelectedAdminAlertSectors([...selected]);
     }
-    if (next === 'projetos' && adminUserCanSendPcpAlertsEl) {
-      adminUserCanSendPcpAlertsEl.checked = true;
-    }
   });
 }
 
@@ -3379,10 +3086,6 @@ if (adminUserRoleEl) {
     document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
       input.disabled = disabled;
     });
-    if (adminUserCanSendPcpAlertsEl) {
-      adminUserCanSendPcpAlertsEl.disabled = disabled;
-      if (disabled) adminUserCanSendPcpAlertsEl.checked = false;
-    }
   });
 }
 
@@ -3432,7 +3135,6 @@ if (projectViewTabsEl) {
     state.projectView = nextView;
     updatePrimaryUserActionUi();
     renderProjectViewTabs();
-    buildStatusOptions();
     applyFilter();
     renderStats();
     renderTable();
@@ -3451,7 +3153,6 @@ if (openSectorAlertsEl) {
       state.projectView = state.projectView === 'mine' ? 'all' : 'mine';
       updatePrimaryUserActionUi();
       renderProjectViewTabs();
-      buildStatusOptions();
       applyFilter();
       renderStats();
       renderTable();
@@ -3467,7 +3168,6 @@ if (openSectorAlertsEl) {
     saveSectorScopedViewPreference(state.sectorScopedView);
     state.alertSectorFilter = state.sectorScopedView ? normalizeAlertSectorFilterValue(getPrimaryUserSector()) || 'all' : 'all';
     updatePrimaryUserActionUi();
-    buildStatusOptions();
     applyFilter();
     renderStats();
     renderTable();
@@ -3501,7 +3201,7 @@ if (openProjectSignalsEl) {
     }
     state.sectorAlertsMode = 'project-signals';
     const titleEl = document.getElementById('sector-alerts-title');
-    if (titleEl) titleEl.textContent = 'Alertas enviados ao PCP';
+    if (titleEl) titleEl.textContent = 'Alertas enviados por Projetos';
     openSectorAlertsModal();
   });
 }
@@ -3564,18 +3264,8 @@ if (stageUpdatesModalEl) {
   stageUpdatesModalEl.addEventListener('input', (event) => {
     const searchEl = event.target.closest('[data-stage-search="true"]');
     if (searchEl) {
-      const caretStart = searchEl.selectionStart || 0;
-      const caretEnd = searchEl.selectionEnd || caretStart;
       state.stageUpdatesSearchQuery = searchEl.value || '';
       renderStageUpdatesModal();
-      window.requestAnimationFrame(() => {
-        const nextSearchEl = stageUpdatesModalEl?.querySelector('[data-stage-search="true"]');
-        if (!nextSearchEl) return;
-        nextSearchEl.focus({ preventScroll: true });
-        try {
-          nextSearchEl.setSelectionRange(caretStart, caretEnd);
-        } catch (_) {}
-      });
       return;
     }
     const progressEl = event.target.closest('[data-stage-progress="true"]');
@@ -3961,7 +3651,7 @@ function resetDashboardForLoggedOutState() {
   state.meta = null;
   state.alerts = [];
   state.selectedProjectId = null;
-  if (bodyEl) bodyEl.innerHTML = `<tr><td colspan="18" class="loading-cell">Faça login para visualizar os projetos.</td></tr>`;
+  if (bodyEl) bodyEl.innerHTML = `<tr><td colspan="17" class="loading-cell">Faça login para visualizar os projetos.</td></tr>`;
   if (detailCardEl) detailCardEl.innerHTML = `<div class="detail-placeholder">Painel protegido. Entre com seu usuário e senha para visualizar as informações.</div>`;
   if (searchCountEl) searchCountEl.textContent = '0 resultado(s)';
   if (sheetNameEl) sheetNameEl.textContent = 'Acesso restrito';
@@ -4187,23 +3877,23 @@ function renderMyProjectSignals(targetEl = sectorAlertsContentEl) {
 function renderProjectUserSignals(targetEl = sectorAlertsContentEl) {
   if (!targetEl) return;
   if (!state.user) {
-    targetEl.innerHTML = '<div class="detail-placeholder">Faça login para visualizar as sinalizações enviadas ao PCP.</div>';
+    targetEl.innerHTML = '<div class="detail-placeholder">Faça login para visualizar as sinalizações enviadas por usuários de Projetos.</div>';
     return;
   }
   const signals = getProjectUserSignals();
   if (!signals.length) {
-    targetEl.innerHTML = '<div class="detail-placeholder">Nenhuma sinalização enviada ao PCP foi encontrada.</div>';
+    targetEl.innerHTML = '<div class="detail-placeholder">Nenhuma sinalização enviada por usuários de Projetos foi encontrada.</div>';
     return;
   }
   targetEl.innerHTML = `
     <div class="manual-alert-summary">
       <span class="manual-alert-tag">Fila do PCP</span>
-      <span class="manual-alert-tag">Origem: usuários autorizados</span>
+      <span class="manual-alert-tag">Origem: Projetos</span>
       <span class="manual-alert-tag">Total: ${signals.length} sinalização(ões)</span>
     </div>
     <section class="manual-alert-section">
       <div class="admin-list-item-meta">
-        <span class="manual-alert-tag">Alertas enviados ao PCP</span>
+        <span class="manual-alert-tag">Alertas enviados por Projetos</span>
         <span>${signals.length} registro(s)</span>
       </div>
       <div class="manual-alert-section-list">
@@ -4375,7 +4065,7 @@ function closeAlertResponseModal() {
 function openProjectSignalModal(project) {
   if (!projectSignalModalEl || !project) return;
   if (!canCreateProjectSignal(project)) {
-    window.alert('Usuário sem permissão para enviar alertas ao PCP ou BSP não vinculada ao seu nome.');
+    window.alert('Você só pode enviar sinalização para BSPs que estejam vinculadas ao seu nome.');
     return;
   }
   state.selectedProjectForSignal = project;
@@ -4557,7 +4247,6 @@ function resetAdminUserForm() {
   if (adminUserIdEl) adminUserIdEl.value = "";
   if (adminUserCancelEditEl) adminUserCancelEditEl.classList.add("hidden");
   if (adminUserSubmitLabelEl) adminUserSubmitLabelEl.textContent = "Criar usuário";
-  if (adminUserCanSendPcpAlertsEl) adminUserCanSendPcpAlertsEl.checked = false;
   setSelectedAdminAlertSectors([document.getElementById("admin-user-sector")?.value || "pintura"]);
 }
 
@@ -4570,7 +4259,6 @@ function startEditUser(userId) {
   document.getElementById("admin-user-password").value = "";
   document.getElementById("admin-user-role").value = user.role === "admin" ? "admin" : "sector";
   document.getElementById("admin-user-sector").value = user.sector && user.sector !== "all" ? user.sector : "pintura";
-  if (adminUserCanSendPcpAlertsEl) adminUserCanSendPcpAlertsEl.checked = user.canSendPcpAlerts === true || (typeof user.canSendPcpAlerts === 'undefined' && normalizeSectorValue(user.sector) === 'projetos');
   setSelectedAdminAlertSectors(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]);
   if (adminUserIdEl) adminUserIdEl.value = user.id || "";
   if (adminUserCancelEditEl) adminUserCancelEditEl.classList.remove("hidden");
@@ -4620,7 +4308,6 @@ function renderAdminUsersList(users = []) {
           <span>Perfil: ${escapeHtml(user.role === "admin" ? "Admin notificações" : "Setor")}</span>
           <span>Setor principal: ${escapeHtml(sectorLabel(user.sector))}</span>
           <span>Recebe alertas de: ${escapeHtml(formatSectorList(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]))}</span>
-          <span>Envia alertas ao PCP: ${canSendPcpAlerts(user) ? "Sim" : "Não"}</span>
           <span>${user.active ? "Ativo" : "Inativo"}</span>
         </div>
         <div class="manual-alert-actions">
@@ -4743,7 +4430,6 @@ async function loadAdminData() {
       role: user.role,
       sector: user.sector,
       alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector],
-      canSendPcpAlerts: user.canSendPcpAlerts === true,
       active: user.active !== false,
       createdAt: user.createdAt || null,
     }));
@@ -4764,7 +4450,6 @@ async function loadAdminData() {
       role: user.role,
       sector: user.sector,
       alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector],
-      canSendPcpAlerts: user.canSendPcpAlerts === true,
       active: user.active !== false,
       createdAt: user.createdAt || null,
     }));
@@ -4909,7 +4594,7 @@ function renderStageSectorWorkspace() {
         <div class="stage-toolbar">
           <label class="stack-field">
             <span>Buscar BSP / cliente</span>
-            <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP-25-1165-31-ISO-002-SPL-02 ou BSP25116531ISO002SPL02" />
+            <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP 25-1246" />
           </label>
           <div class="stage-muted">Etapa atual do seu login: <strong>${escapeHtml(stageLabel)}</strong></div>
         </div>
@@ -4925,7 +4610,7 @@ function renderStageSectorWorkspace() {
         <section class="admin-card admin-card--wide">
           <div class="admin-card-head"><h4>Lançar avanço da etapa</h4></div>
           ${matchedProjects.length ? `<div class="stage-project-list">${matchedProjects.map((project) => {
-            const spools = getStageVisibleSpools(project);
+            const spools = Array.isArray(project.spools) ? project.spools : [];
             return `
               <article class="stage-project-card">
                 <div class="stage-project-head">
@@ -5028,7 +4713,7 @@ function renderStageValidationWorkspace() {
         <div class="stage-toolbar">
           <label class="stack-field">
             <span>Buscar BSP / spool / setor</span>
-            <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP-25-1165-31-ISO-002-SPL-02 ou BSP25116531ISO002SPL02" />
+            <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP 25-1246" />
           </label>
           <div class="stage-row-actions">
             <div class="stage-muted">Pendentes: <strong>${pending.length}</strong> • Histórico: <strong>${history.length}</strong></div>
@@ -5330,7 +5015,6 @@ async function handleAdminUserSubmit(event) {
       role: document.getElementById("admin-user-role").value,
       sector: document.getElementById("admin-user-sector").value,
       alertSectors: getSelectedAdminAlertSectors(),
-      canSendPcpAlerts: adminUserCanSendPcpAlertsEl?.checked === true,
     };
     const response = await fetch("/api/admin-users", {
       method: editingId ? "PUT" : "POST",
@@ -5349,7 +5033,6 @@ async function handleAdminUserSubmit(event) {
       role: payload.role,
       sector: payload.role === "admin" ? "all" : payload.sector,
       alertSectors: payload.role === "admin" ? [] : payload.alertSectors,
-      canSendPcpAlerts: payload.role === "admin" ? false : payload.canSendPcpAlerts,
       active: true,
       createdAt: new Date().toISOString(),
     };

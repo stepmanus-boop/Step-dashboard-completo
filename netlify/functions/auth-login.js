@@ -24,7 +24,6 @@ exports.handler = async (event) => {
       role: 'admin',
       sector: 'all',
       alertSectors: [],
-      canSendPcpAlerts: false,
       active: true,
       passwordHash: 'admin123',
     };
@@ -47,7 +46,6 @@ exports.handler = async (event) => {
         role: user.role,
         sector: user.sector,
         alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [],
-        canSendPcpAlerts: user.canSendPcpAlerts === true,
       },
     }, {
       headers: {

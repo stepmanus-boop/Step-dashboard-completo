@@ -73,7 +73,7 @@
         </div>
       </header>
 
-      <section class="summary-row summary-row--ten">
+      <section class="summary-row summary-row--nine">
         <article class="summary-card">
           <span class="summary-label">Total de projetos</span>
           <strong id="stat-projects">--</strong>
@@ -121,11 +121,6 @@
           <span class="summary-subtext" id="stat-awaiting-tags">Tags --</span>
           <strong id="stat-awaiting-shipment">--</strong>
         </article>
-        <article class="summary-card summary-card--accent">
-          <span class="summary-label">Painting (m²)</span>
-          <span class="summary-subtext" id="stat-painting-m2-scope">Demanda atual</span>
-          <strong id="stat-painting-m2">--</strong>
-        </article>
       </section>
 
       <main class="content-grid">
@@ -160,21 +155,6 @@
                 <option value="">Todas as semanas</option>
               </select>
             </label>
-            <div class="filter-box status-filter-box">
-              <span class="search-label">Filtrar status</span>
-              <div class="status-multiselect" id="status-filter-dropdown">
-                <button id="status-filter-toggle" class="status-filter-toggle" type="button" aria-haspopup="listbox" aria-expanded="false">
-                  <span id="status-filter-text">Todos os status</span>
-                  <span class="status-filter-arrow" aria-hidden="true">▾</span>
-                </button>
-                <div id="status-filter-menu" class="status-filter-menu hidden" role="listbox" aria-label="Filtrar por status"></div>
-                <select id="status-filter" class="native-status-select" multiple aria-label="Filtrar por um ou mais status" tabindex="-1">
-                  <option value="">Todos os status</option>
-                  <option value="preparing_shipment">Em tratativa</option>
-                  <option value="awaiting_shipment">Aguardando envio</option>
-                </select>
-              </div>
-            </div>
             <button id="clear-search" class="ghost-button" type="button">Limpar</button>
             <div class="search-count" id="search-count">-- resultado(s)</div>
           </div>
@@ -201,13 +181,12 @@
                   <th>Solda</th>
                   <th>Inspeção (QC)</th>
                   <th>TH</th>
-                  <th>Project Finish Date</th>
                   <th>Concluído?</th>
                 </tr>
               </thead>
               <tbody id="projects-body">
                 <tr>
-                  <td colspan="18" class="loading-cell">Carregando projetos...</td>
+                  <td colspan="17" class="loading-cell">Carregando projetos...</td>
                 </tr>
               </tbody>
             </table>
@@ -384,7 +363,7 @@
               <select id="admin-user-sector">
                 <option value="pintura">Pintura</option>
                 <option value="inspecao">Inspeção</option>
-                <option value="pendente_envio">Logística</option>
+                <option value="pendente_envio">Pendente de envio</option>
                 <option value="producao">Produção</option>
                 <option value="calderaria">Calderaria</option>
                 <option value="solda">Solda</option>
@@ -398,18 +377,12 @@
             <div class="check-grid">
               <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="pintura" checked /> Pintura</label>
               <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="inspecao" /> Inspeção</label>
-              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="pendente_envio" /> Logística</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="pendente_envio" /> Pendente de envio</label>
               <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="producao" /> Produção</label>
               <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="calderaria" /> Calderaria</label>
               <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="solda" /> Solda</label>
               <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="pcp" /> PCP</label>
               <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="projetos" /> Projetos</label>
-            </div>
-          </label>
-          <label class="stack-field">
-            <span>Permissão de sinalização</span>
-            <div class="check-grid">
-              <label class="check-row"><input id="admin-user-can-send-pcp-alerts" type="checkbox" /> Pode enviar alertas ao PCP</label>
             </div>
           </label>
           <div class="stack-actions">
@@ -444,7 +417,7 @@
               <select id="admin-alert-sector">
                 <option value="pintura">Pintura</option>
                 <option value="inspecao">Inspeção</option>
-                <option value="pendente_envio">Logística</option>
+                <option value="pendente_envio">Pendente de envio</option>
                 <option value="producao">Produção</option>
                 <option value="calderaria">Calderaria</option>
                 <option value="solda">Solda</option>
