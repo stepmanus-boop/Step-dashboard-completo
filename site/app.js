@@ -1462,9 +1462,6 @@ function translateProjectStatus(projectStatus, uiState) {
   if (["COMPLETED", "DONE", "FINISHED", "CONCLUIDO", "CONCLUÍDO", "FINALIZADO"].includes(normalized)) {
     return "Finalizado";
   }
-  if (["EM TRATATIVA", "TRATATIVA"].includes(normalized)) {
-    return uiStateLabel(uiState);
-  }
   return projectStatus || uiStateLabel(uiState);
 }
 
@@ -1490,6 +1487,11 @@ function hasPreparingShipmentWindow(project) {
 }
 
 function getProjectStatusPresentation(project) {
+  if (project?.statusText) {
+    const state = ['awaiting_shipment', 'completed'].includes(project?.uiState) ? 'completed' : (project?.uiState || 'not_started');
+    return { text: project.statusText, state };
+  }
+
   if (hasPreparingShipmentWindow(project) && !['completed', 'awaiting_shipment'].includes(project?.uiState)) {
     return { text: 'Preparando para envio', state: 'preparing_shipment' };
   }
@@ -1871,6 +1873,17 @@ function getScopedDemandLabelsForUser(user = state.user) {
 }
 
 function getProjectSectorForScopedView(project) {
+  const operationalSectors = Array.isArray(project?.operationalSectors) ? project.operationalSectors.map((item) => normalizeSectorValue(item)).filter(Boolean) : [];
+  if (operationalSectors.length) {
+    const sector = getPrimaryUserSector();
+    if (sector && operationalSectors.includes(sector)) return sector;
+    if (sector === 'producao' && operationalSectors.some((item) => ['producao', 'solda', 'calderaria'].includes(item))) return 'producao';
+    if (operationalSectors.includes('pendente_envio')) return 'pendente_envio';
+    if (operationalSectors.includes('pintura')) return 'pintura';
+    if (operationalSectors.includes('solda')) return 'solda';
+    if (operationalSectors.includes('inspecao')) return 'inspecao';
+    return operationalSectors[0];
+  }
   const operationalSector = normalizeSectorValue(project?.operationalSector || '');
   const currentStageSector = normalizeSectorValue(classifyStageSector(project?.currentStage || ''));
   const jobProcessSector = normalizeSectorValue(classifyStageSector(project?.jobProcessStatus || ''));
@@ -2031,9 +2044,6 @@ function getProjectSectorForScopedView(project) {
 function projectMatchesScopedSector(project, user = state.user) {
   const sector = getPrimaryUserSector(user);
   if (!sector) return true;
-
-  const activeSectors = Array.isArray(project?.activeSectors) ? project.activeSectors.map((item) => normalizeSectorValue(item)).filter(Boolean) : [];
-  if (activeSectors.includes(sector)) return true;
 
   const scopedProjectSector = getProjectSectorForScopedView(project);
   if (sector === 'pendente_envio') {
@@ -2427,7 +2437,7 @@ function renderModal(project) {
           <td>${spool.weldingWeek || "—"}</td>
           <td>${formatNumber(spool.kilos, 2)}</td>
           <td>${formatNumber(spool.m2Painting, 3)}</td>
-          <td><span class="cell-status cell-status--${["awaiting_shipment", "completed"].includes(spool.uiState) ? "completed" : spool.uiState}">${uiStateLabel(spool.uiState)}</span></td>
+          <td><span class="cell-status cell-status--${["awaiting_shipment", "completed"].includes(spool.uiState) ? "completed" : spool.uiState}">${spool.statusText || uiStateLabel(spool.uiState)}</span></td>
           <td class="${percentStateClass(spool.stagePercent)}">${spool.stage || "—"}</td>
           <td class="${percentStateClass(spool.individualProgress)}">${formatPercent(spool.individualProgress)}</td>
           <td class="${percentStateClass(spool.overallProgress)}">${formatPercent(spool.overallProgress)}</td>
@@ -2438,7 +2448,7 @@ function renderModal(project) {
     .join("");
 
   const stageHeaders = stageOrder.map((stage) => `<th>${stage.label}</th>`).join("");
-  const statusText = translateProjectStatus(project.projectStatus, project.uiState);
+  const statusText = project.statusText || translateProjectStatus(project.projectStatus, project.uiState);
 
   modalTitleEl.textContent = projectDisplayWithClient(project);
   modalSubtitleEl.textContent = `${statusText} • ${state.modalPendingOnly ? getPendingSpools(project).length : (project.spools?.length || 0)} item(ns) interno(s)`;

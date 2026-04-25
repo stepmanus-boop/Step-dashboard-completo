@@ -332,6 +332,251 @@ function buildStageValues(row) {
   return stageValues;
 }
 
+
+const PROCESS_STATUS_RULES = [
+  { key: "Drawing Execution Advance%", label: "AG. Emissao de detalhamento", sector: "Engenharia", type: "percent", notStartedLabel: "AG. Emissao de detalhamento" },
+  { key: "Procuremnt Status %", label: "Verificando estoque", sector: "Suprimento", type: "percent" },
+  { key: "Material Separation", label: "Separação de material", sector: "Suprimento", type: "percent" },
+  { key: "Material Release to Fabrication", label: "Verificando estoque", sector: "Suprimento", type: "percent" },
+  { key: "Fabrication Start Date", label: "Corte e Limpeza", sector: "Produção", type: "date" },
+  { key: "Withdrew Material", ignore: true, jumpTo: "Welding Preparation" },
+  { key: "Welding Preparation", label: "Pré - Montagem", sector: "Produção", type: "percent" },
+  { key: "Spool Assemble and tack weld", label: "Pré - Montagem", sector: "Produção", type: "percent" },
+  { key: "Boilermaker Finish Date", ignore: true, jumpTo: "Initial Dimensional Inspection/3D" },
+  { key: "Initial Dimensional Inspection/3D", label: "Inspeção Dimencional de Ajuste - 3D", sector: "Qualidade", type: "percent" },
+  { key: "Full welding execution", label: "Solda", sector: "Produção", type: "percent" },
+  { key: "Final Dimensional Inpection/3D (QC)", label: "Inspeção Dimencional Final - 3D", sector: "Qualidade", type: "percent" },
+  { key: "Hydro Test Pressure (QC)", label: "TH", sector: "Qualidade", type: "percent" },
+  { key: "Surface preparation and/or coating", label: "Pintura", sector: "Pintura", type: "percent", paint: true },
+  { key: "Final Inspection", label: "Unitização e Inspeção", sector: "Logística", type: "percent" },
+  { key: "Package and Delivered", label: "Preparado para envio", sector: "Logística", type: "percent" },
+  { key: "Project Finish Date", label: "Finalizado", sector: "Logística", type: "date", final: true },
+  { key: "Project Finished?", label: "Finalizado", sector: "Logística", type: "boolean", final: true },
+];
+
+function normalizeProcessSector(sector) {
+  const value = String(sector || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (value.includes("logistica")) return "Logística";
+  if (value.includes("pintura")) return "Pintura";
+  if (value.includes("qualidade") || value.includes("inspec")) return "Inspeção";
+  if (value.includes("engenharia")) return "Engenharia";
+  if (value.includes("suprimento")) return "Suprimento";
+  if (value.includes("solda")) return "Solda";
+  if (value.includes("producao") || value.includes("produção")) return "Produção";
+  return sector || "Produção";
+}
+
+function getPaintStatusText(percent) {
+  if (percent >= 100) return "Concluído";
+  if (percent >= 90) return "Acabamento";
+  if (percent >= 75) return "Intermediaria";
+  if (percent >= 50) return "J/F";
+  if (percent >= 25) return "Aguardando início de pintura";
+  return "Pintura";
+}
+
+function isRuleCompleted(rule, row) {
+  if (!rule || rule.ignore) return false;
+  if (rule.type === "boolean") return isTruthyValue(textValue(row, rule.key) || getCellValue(row, rule.key).raw);
+  if (rule.type === "date") return Boolean(textValue(row, rule.key));
+  if (rule.type === "percent") {
+    const percent = parsePercent(row, rule.key);
+    return Number.isFinite(percent) && percent >= 100;
+  }
+  return false;
+}
+
+function getRulePercent(row, key) {
+  const value = parsePercent(row, key);
+  return Number.isFinite(value) ? value : null;
+}
+
+function classifySpoolProcess(row, parentSummary) {
+  const overallProgress = parsePercent(row, "% Overall Progress") ?? parsePercent(parentSummary, "% Overall Progress") ?? 0;
+  const individualProgress = parsePercent(row, "% Individual Progress") ?? overallProgress;
+  const packageDelivered = getRulePercent(row, "Package and Delivered") ?? 0;
+  const projectFinishedFlag = isTruthyValue(textValue(row, "Project Finished?") || getCellValue(row, "Project Finished?").raw);
+  const projectFinishDate = textValue(row, "Project Finish Date");
+  const finalFinished = projectFinishedFlag || Boolean(projectFinishDate) || packageDelivered >= 100;
+
+  if (finalFinished) {
+    return {
+      statusText: "Finalizado",
+      stageText: "Project Finished?",
+      stageLabel: "Finalizado",
+      sector: "Logística",
+      sectors: [],
+      state: "completed",
+      uiState: "completed",
+      stagePercent: 100,
+      stageStatus: "completed",
+      stageAlert: false,
+      projectFinishedFlag: true,
+      finished: true,
+      individualProgress,
+      overallProgress,
+    };
+  }
+
+  let lastCompletedRule = null;
+  let firstConfiguredRule = PROCESS_STATUS_RULES.find((rule) => !rule.ignore && rule.type === "percent");
+
+  for (const rule of PROCESS_STATUS_RULES) {
+    if (rule.ignore || rule.final) continue;
+
+    if (rule.type === "date") {
+      if (textValue(row, rule.key)) {
+        lastCompletedRule = rule;
+      }
+      continue;
+    }
+
+    if (rule.type === "boolean") continue;
+
+    const percent = getRulePercent(row, rule.key);
+    const hasText = Boolean(textValue(row, rule.key));
+    if (percent == null && !hasText) continue;
+    const numericPercent = percent ?? 0;
+
+    if (numericPercent > 0 && numericPercent < 100) {
+      const stageText = rule.paint ? getPaintStatusText(numericPercent) : rule.label;
+      const sector = normalizeProcessSector(rule.sector);
+      return {
+        statusText: stageText,
+        stageText,
+        stageLabel: rule.label,
+        sector,
+        sectors: [sector],
+        state: "in_progress",
+        uiState: "in_progress",
+        stagePercent: numericPercent,
+        stageStatus: "in_progress",
+        stageAlert: true,
+        projectFinishedFlag: false,
+        finished: false,
+        individualProgress,
+        overallProgress,
+      };
+    }
+
+    if (numericPercent >= 100) {
+      lastCompletedRule = rule;
+    }
+  }
+
+  // Se chegou até aqui, não existe etapa ativa entre 1% e 99%.
+  // Se houver apenas etapas concluídas intermediárias, o item ainda não está finalizado; fica na próxima fila operacional.
+  if (lastCompletedRule) {
+    const idx = PROCESS_STATUS_RULES.indexOf(lastCompletedRule);
+    const nextRule = PROCESS_STATUS_RULES.slice(idx + 1).find((rule) => !rule.ignore && !rule.final);
+    if (nextRule) {
+      const sector = normalizeProcessSector(nextRule.sector);
+      return {
+        statusText: nextRule.label,
+        stageText: nextRule.label,
+        stageLabel: nextRule.label,
+        sector,
+        sectors: [sector],
+        state: "in_progress",
+        uiState: "in_progress",
+        stagePercent: 0,
+        stageStatus: "waiting",
+        stageAlert: false,
+        projectFinishedFlag: false,
+        finished: false,
+        individualProgress,
+        overallProgress,
+      };
+    }
+  }
+
+  const statusText = "Não iniciado";
+  const stageLabel = firstConfiguredRule?.notStartedLabel || firstConfiguredRule?.label || "AG. Emissao de detalhamento";
+  const sector = normalizeProcessSector(firstConfiguredRule?.sector || "Engenharia");
+  return {
+    statusText,
+    stageText: stageLabel,
+    stageLabel,
+    sector,
+    sectors: [sector],
+    state: "not_started",
+    uiState: "not_started",
+    stagePercent: 0,
+    stageStatus: "waiting",
+    stageAlert: false,
+    projectFinishedFlag: false,
+    finished: false,
+    individualProgress,
+    overallProgress,
+  };
+}
+
+function aggregateProjectStatusFromSpools(spools, fallbackFlow, fallbackUiState) {
+  if (!Array.isArray(spools) || !spools.length) {
+    const fallbackSector = fallbackFlow?.sector || "Geral";
+    return {
+      statusText: fallbackUiState === "completed" ? "Finalizado" : uiStateProjectLabel(fallbackUiState),
+      uiState: fallbackUiState || "not_started",
+      finished: fallbackUiState === "completed",
+      currentStage: fallbackFlow?.label || fallbackSector,
+      currentStageGroup: fallbackSector,
+      currentStagePercent: 0,
+      currentStageStatus: fallbackUiState === "completed" ? "completed" : fallbackUiState === "in_progress" ? "in_progress" : "waiting",
+      operationalSector: fallbackSector,
+      operationalSectors: fallbackSector && fallbackSector !== "Geral" ? [fallbackSector] : [],
+      operationalState: fallbackFlow?.state || fallbackUiState || "not_started",
+    };
+  }
+
+  const allFinished = spools.every((spool) => spool.uiState === "completed" || spool.finished);
+  const activeSpools = spools.filter((spool) => !spool.finished && spool.uiState !== "completed" && spool.uiState !== "not_started");
+  const notStartedSpools = spools.filter((spool) => !spool.finished && spool.uiState === "not_started");
+  const sectorSet = new Set();
+  for (const spool of spools) {
+    if (spool.finished || spool.uiState === "completed") continue;
+    for (const sector of spool.operationalSectors || []) sectorSet.add(sector);
+    if (spool.operationalSector) sectorSet.add(spool.operationalSector);
+  }
+  const operationalSectors = Array.from(sectorSet);
+
+  if (allFinished) {
+    return {
+      statusText: "Finalizado",
+      uiState: "completed",
+      finished: true,
+      currentStage: "Finalizado",
+      currentStageGroup: "Logística",
+      currentStagePercent: 100,
+      currentStageStatus: "completed",
+      operationalSector: "Logística",
+      operationalSectors: [],
+      operationalState: "completed",
+    };
+  }
+
+  const leadingSpool = activeSpools[0] || notStartedSpools[0] || spools.find((spool) => !spool.finished) || spools[0];
+  const hasActive = activeSpools.length > 0;
+  return {
+    statusText: hasActive ? "Em produção" : "Não iniciado",
+    uiState: hasActive ? "in_progress" : "not_started",
+    finished: false,
+    currentStage: leadingSpool?.stage || leadingSpool?.statusText || (hasActive ? "Em produção" : "AG. Emissao de detalhamento"),
+    currentStageGroup: hasActive ? "Produção" : "Engenharia",
+    currentStagePercent: leadingSpool?.stagePercent ?? 0,
+    currentStageStatus: hasActive ? "in_progress" : "waiting",
+    operationalSector: operationalSectors[0] || leadingSpool?.operationalSector || (hasActive ? "Produção" : "Engenharia"),
+    operationalSectors,
+    operationalState: hasActive ? "in_progress" : "not_started",
+  };
+}
+
+function uiStateProjectLabel(uiState) {
+  if (uiState === "completed") return "Finalizado";
+  if (uiState === "awaiting_shipment") return "Preparando para envio";
+  if (uiState === "in_progress") return "Em produção";
+  return "Não iniciado";
+}
+
 function deriveProgress(row) {
   const milestones = [];
   const completedStages = [];
@@ -408,199 +653,6 @@ function projectUiState(projectStatus, overallProgress, finished, fabricationSta
   if (overallProgress <= 0) return "not_started";
   return "in_progress";
 }
-
-
-function numberFromStageValue(value) {
-  if (value == null || value === '' || value === 'N/A') return null;
-  const parsed = Number(String(value).replace(',', '.').replace('%', '').trim());
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function stagePercentValue(stageValues, key) {
-  return numberFromStageValue(stageValues?.[key]);
-}
-
-function stageHasDateValue(stageValues, key) {
-  const value = stageValues?.[key];
-  return Boolean(value && String(value).trim() && String(value).trim() !== '—');
-}
-
-function mappedPaintingStageLabel(percent) {
-  if (percent >= 100) return 'Concluído';
-  if (percent >= 90) return 'Acabamento';
-  if (percent >= 75) return 'Intermediária';
-  if (percent >= 50) return 'J/F';
-  if (percent >= 25) return 'Aguardando início de pintura';
-  return 'Pintura';
-}
-
-function mappedSpoolStateFromStages(stageValues, fabricationStartDate, overallProgress) {
-  const pct = (key) => stagePercentValue(stageValues, key) ?? 0;
-  const hasDate = (key) => stageHasDateValue(stageValues, key);
-  const projectFinished = String(stageValues?.['Project Finished?'] || '').trim().toLowerCase() === 'sim';
-
-  const drawing = pct('Drawing Execution Advance%');
-  const procurement = pct('Procuremnt Status %');
-  const materialSeparation = pct('Material Separation');
-  const materialRelease = pct('Material Release to Fabrication');
-  const weldingPreparation = pct('Welding Preparation');
-  const preAssembly = pct('Spool Assemble and tack weld');
-  const dma3d = pct('Initial Dimensional Inspection/3D');
-  const welding = pct('Full welding execution');
-  const finalInspection3d = pct('Final Dimensional Inpection/3D (QC)');
-  const th = pct('Hydro Test Pressure (QC)');
-  const painting = pct('Surface preparation and/or coating');
-  const finalInspection = pct('Final Inspection');
-  const packageDelivered = pct('Package and Delivered');
-
-  const make = (stage, uiState, sector, state, percent = 0, stageStatus = null) => ({
-    stage,
-    uiState,
-    sector,
-    state,
-    percent,
-    stageStatus: stageStatus || (uiState === 'completed' ? 'completed' : (uiState === 'not_started' ? 'waiting' : 'in_progress')),
-    finished: uiState === 'completed',
-  });
-
-  // Finalizado só quando o marco final do item estiver concluído.
-  if (projectFinished || packageDelivered >= 100) {
-    return make('Finalizado', 'completed', 'Logística', 'completed', 100, 'completed');
-  }
-
-  // Logística.
-  if (packageDelivered >= 25 && packageDelivered < 100) {
-    return make('Preparado para envio', 'awaiting_shipment', 'Logística', 'awaiting_shipment', packageDelivered);
-  }
-  if (finalInspection >= 25 && finalInspection < 100) {
-    return make('Unitização e Inspeção', 'preparing_shipment', 'Logística', 'preparing_shipment', finalInspection);
-  }
-
-  // Pintura.
-  if (painting > 0 && painting < 100) {
-    return make(mappedPaintingStageLabel(painting), 'in_progress', 'Pintura', 'in_painting', painting);
-  }
-
-  // Qualidade.
-  if (th > 0 && th < 100) {
-    return make('TH', 'in_progress', 'Inspeção', 'in_inspection', th);
-  }
-  if (finalInspection3d > 0 && finalInspection3d < 100) {
-    return make('Inspeção Dimensional Final - 3D', 'in_progress', 'Inspeção', 'in_inspection', finalInspection3d);
-  }
-
-  // Produção / solda.
-  if (welding > 0 && welding < 100) {
-    return make('Solda', 'in_progress', welding >= 25 ? 'Solda' : 'Produção', 'in_production', welding);
-  }
-
-  // Boilermaker finish date é ignorado como status e avança para DMA/3D.
-  if ((dma3d > 0 && dma3d < 100) || hasDate('Boilermaker Finish Date')) {
-    return make('Inspeção Dimensional de Ajuste - 3D', 'in_progress', 'Inspeção', 'in_inspection', dma3d || 0);
-  }
-
-  if ((preAssembly > 0 && preAssembly < 100) || (weldingPreparation > 0 && weldingPreparation < 100)) {
-    return make('Pré - Montagem', 'in_progress', 'Produção', 'in_production', Math.max(preAssembly, weldingPreparation));
-  }
-
-  // Withdrew material é ignorado como status e avança para Welding preparation.
-  if (pct('Withdrew Material') > 0) {
-    return make('Pré - Montagem', 'in_progress', 'Produção', 'in_production', pct('Withdrew Material'));
-  }
-
-  if (fabricationStartDate || materialRelease > 0) {
-    return make('Corte e Limpeza', 'in_progress', 'Produção', 'in_production', materialRelease || 1);
-  }
-
-  if (materialSeparation > 0 && materialSeparation < 100) {
-    return make('Separação de material', 'in_progress', 'Suprimento', 'in_supply', materialSeparation);
-  }
-
-  if (procurement > 0 && procurement < 100) {
-    return make('Verificando estoque', 'in_progress', 'Suprimento', 'in_supply', procurement);
-  }
-
-  if (drawing > 0 && drawing < 100) {
-    return make('AG. Emissão de detalhamento', 'in_progress', 'Engenharia', 'in_engineering', drawing);
-  }
-
-  // Sem progresso real: ainda não iniciou, mas a etapa inicial é emissão de detalhamento.
-  return make('AG. Emissão de detalhamento', 'not_started', 'Engenharia', 'not_started', 0, 'waiting');
-}
-
-function applyMappedStateToSpool(spool, mapped) {
-  spool.stage = mapped.stage;
-  spool.currentStage = mapped.stage;
-  spool.stagePercent = mapped.percent;
-  spool.stageStatus = mapped.stageStatus;
-  spool.stageAlert = mapped.uiState !== 'completed';
-  spool.uiState = mapped.uiState;
-  spool.operationalSector = mapped.sector;
-  spool.operationalState = mapped.state;
-  spool.finished = mapped.finished;
-  spool.projectFinishedFlag = mapped.finished;
-  return spool;
-}
-
-function summarizeProjectFromSpools(project) {
-  const spools = Array.isArray(project?.spools) ? project.spools : [];
-  if (!spools.length) return project;
-
-  const allCompleted = spools.every((spool) => spool.uiState === 'completed' || spool.finished || spool.projectFinishedFlag);
-  const activeSpools = spools.filter((spool) => !['completed', 'not_started'].includes(spool.uiState));
-  const notStartedSpools = spools.filter((spool) => spool.uiState === 'not_started');
-  const referenceSpool = activeSpools[0] || notStartedSpools[0] || spools[0];
-  const activeSectors = Array.from(new Set(activeSpools.map((spool) => spool.operationalSector).filter(Boolean)));
-
-  project.spoolStats = spools.reduce((acc, spool) => {
-    acc.total += 1;
-    if (spool.uiState === 'completed') acc.completed += 1;
-    else if (spool.uiState === 'not_started') acc.notStarted += 1;
-    else acc.inProgress += 1;
-    return acc;
-  }, { total: 0, completed: 0, inProgress: 0, notStarted: 0 });
-
-  if (allCompleted) {
-    project.finished = true;
-    project.projectFinishedFlag = true;
-    project.uiState = 'completed';
-    project.operationalState = 'completed';
-    project.operationalSector = 'Logística';
-    project.currentStage = 'Finalizado';
-    project.jobProcessStatus = 'Finalizado';
-    project.projectStatus = 'Finalizado';
-    project.currentStagePercent = 100;
-    project.currentStageStatus = 'completed';
-    project.activeSectors = [];
-    return project;
-  }
-
-  project.finished = false;
-  project.projectFinishedFlag = false;
-  project.activeSectors = activeSectors;
-  project.currentStage = referenceSpool?.stage || 'AG. Emissão de detalhamento';
-  project.jobProcessStatus = project.currentStage;
-  project.currentStagePercent = referenceSpool?.stagePercent ?? 0;
-  project.currentStageStatus = referenceSpool?.stageStatus || 'waiting';
-  project.operationalSector = referenceSpool?.operationalSector || 'Engenharia';
-  project.operationalState = referenceSpool?.operationalState || 'not_started';
-
-  if (activeSpools.length) {
-    project.uiState = activeSpools.some((spool) => spool.uiState === 'awaiting_shipment') ? 'awaiting_shipment'
-      : activeSpools.some((spool) => spool.uiState === 'preparing_shipment') ? 'preparing_shipment'
-      : 'in_progress';
-    project.projectStatus = project.uiState === 'awaiting_shipment' ? 'Preparado para envio'
-      : project.uiState === 'preparing_shipment' ? 'Preparando para envio'
-      : 'Em produção';
-  } else {
-    project.uiState = 'not_started';
-    project.projectStatus = 'Não iniciado';
-    project.operationalState = 'not_started';
-  }
-
-  return project;
-}
-
 
 function getOperationalFlow(stageValues, fabricationStartDate, coatingPercent, finished, projectStatus) {
   const fabricationStarted = Boolean(fabricationStartDate);
@@ -795,16 +847,9 @@ function isChildRow(row) {
 function buildSpoolRow(row, parentSummary) {
   const drawingText = textValue(row, "Drawing");
   const parsedDrawing = extractIsoDescription(drawingText);
+  const statusInfo = classifySpoolProcess(row, parentSummary);
   const progress = deriveProgress(row);
-  const overallProgress = parsePercent(row, "% Overall Progress") ?? parsePercent(parentSummary, "% Overall Progress") ?? 0;
-  const individualProgress = parsePercent(row, "% Individual Progress") ?? overallProgress;
-  const projectFinishedFlag = isTruthyValue(getCellValue(row, "Project Finished?").raw);
-  const finished = projectFinishedFlag || overallProgress >= 100 || (parsePercent(row, "Package and Delivered") ?? 0) >= 100;
-  const fabricationStartDate = textValue(row, "Fabrication Start Date");
   const stageValues = buildStageValues(row);
-  const flow = getOperationalFlow(stageValues, fabricationStartDate, parsePercent(row, "Surface preparation and/or coating") ?? 0, finished, textValue(row, "PROJECT STATUS"));
-  const awaitingShipment = flow.state === "awaiting_shipment";
-  const uiState = flow.state === "in_inspection" ? "in_progress" : projectUiState(textValue(row, "PROJECT STATUS"), overallProgress, finished, fabricationStartDate, awaitingShipment);
   const coatingPercent = parsePercent(row, "Surface preparation and/or coating") ?? 0;
   const weldingPercent = parsePercent(row, "Full welding execution") ?? 0;
   const weldingFinishDate = textValue(row, "Welding Finish Date");
@@ -817,9 +862,7 @@ function buildSpoolRow(row, parentSummary) {
   })();
   const weldingWeek = weldingPercent >= 100 && weldingFinishDate ? getProductionWeekLabel(weldingFinishDate) : "";
 
-  const mappedState = mappedSpoolStateFromStages(stageValues, fabricationStartDate, individualProgress);
-
-  return applyMappedStateToSpool({
+  return {
     rowId: row.id,
     rowNumber: row.rowNumber,
     iso: parsedDrawing.iso,
@@ -827,8 +870,9 @@ function buildSpoolRow(row, parentSummary) {
     drawing: drawingText,
     observations: textValue(row, "OBSERVATIONS"),
     pm: textValue(row, "PM") || textValue(parentSummary, "PM"),
-    operationalSector: flow.sector,
-    operationalState: flow.state,
+    operationalSector: statusInfo.sector,
+    operationalSectors: statusInfo.sectors || (statusInfo.sector ? [statusInfo.sector] : []),
+    operationalState: statusInfo.state,
     plannedStartDate: formatDateValue(textValue(row, "Start Date")),
     plannedFinishDate: formatDateValue(textValue(row, "Finish Date")),
     kilos: parseNumber(row, "Kilos"),
@@ -836,18 +880,20 @@ function buildSpoolRow(row, parentSummary) {
     weldingWeek,
     coatingPercent,
     m2Painting: parseNumber(row, "M2 Painting"),
-    stage: progress.currentStage.label,
-    stagePercent: progress.currentStage.percent,
-    stageStatus: progress.currentStage.status,
-    stageAlert: progress.currentStage.isAlert,
-    individualProgress,
-    overallProgress,
+    stage: statusInfo.stageText || progress.currentStage.label,
+    stagePercent: statusInfo.stagePercent ?? progress.currentStage.percent,
+    stageStatus: statusInfo.stageStatus || progress.currentStage.status,
+    stageAlert: Boolean(statusInfo.stageAlert),
+    statusText: statusInfo.statusText,
+    stageLabel: statusInfo.stageLabel,
+    individualProgress: statusInfo.individualProgress,
+    overallProgress: statusInfo.overallProgress,
     milestones: progress.milestones,
     stageValues,
-    finished: finished,
-    projectFinishedFlag,
-    uiState,
-  }, mappedState);
+    finished: Boolean(statusInfo.finished),
+    projectFinishedFlag: Boolean(statusInfo.projectFinishedFlag),
+    uiState: statusInfo.uiState,
+  };
 }
 
 function normalizeSpoolIdentity(value) {
@@ -904,20 +950,20 @@ function buildProject(summaryRow, childRows) {
   const projectText = textValue(summaryRow, "Project");
   const parts = parseProjectParts(projectText);
   const progress = deriveProgress(summaryRow);
-  const overallProgress = parsePercent(summaryRow, "% Overall Progress") ?? 0;
-  const individualProgress = parsePercent(summaryRow, "% Individual Progress") ?? overallProgress;
-  const projectFinishedFlag = isTruthyValue(getCellValue(summaryRow, "Project Finished?").raw);
-  const finished = projectFinishedFlag || overallProgress >= 100 || (parsePercent(summaryRow, "Package and Delivered") ?? 0) >= 100;
+  const summaryOverallProgress = parsePercent(summaryRow, "% Overall Progress") ?? 0;
+  const summaryIndividualProgress = parsePercent(summaryRow, "% Individual Progress") ?? summaryOverallProgress;
   const projectStatus = textValue(summaryRow, "PROJECT STATUS") || textValue(summaryRow, "Overall Project Status") || textValue(summaryRow, "Status");
   const coatingPercent = parsePercent(summaryRow, "Surface preparation and/or coating") ?? 0;
   const fabricationStartDate = textValue(summaryRow, "Fabrication Start Date");
   const stageValues = buildStageValues(summaryRow);
-  const flow = getOperationalFlow(stageValues, fabricationStartDate, coatingPercent, finished, projectStatus);
-  const awaitingShipment = flow.state === "awaiting_shipment";
-  const uiState = flow.state === "in_inspection" ? "in_progress" : projectUiState(projectStatus, overallProgress, finished, fabricationStartDate, awaitingShipment);
+  const summaryProjectFinishedFlag = isTruthyValue(getCellValue(summaryRow, "Project Finished?").raw);
+  const summaryFinished = summaryProjectFinishedFlag || summaryOverallProgress >= 100 || (parsePercent(summaryRow, "Package and Delivered") ?? 0) >= 100;
+  const flow = getOperationalFlow(stageValues, fabricationStartDate, coatingPercent, summaryFinished, projectStatus);
+  const fallbackUiState = flow.state === "in_inspection" ? "in_progress" : projectUiState(projectStatus, summaryOverallProgress, summaryFinished, fabricationStartDate, flow.state === "awaiting_shipment");
   const weldingPercent = parsePercent(summaryRow, "Full welding execution") ?? 0;
   const weldingFinishDate = textValue(summaryRow, "Welding Finish Date");
   const spools = childRows.map((row) => buildSpoolRow(row, summaryRow));
+  const aggregate = aggregateProjectStatusFromSpools(spools, flow, fallbackUiState);
   const summaryWeldedWeightKg = (() => {
     const kilos = parseNumber(summaryRow, "Kilos");
     if (kilos == null) return null;
@@ -938,9 +984,14 @@ function buildProject(summaryRow, childRows) {
     return acc;
   }, { total: 0, completed: 0, inProgress: 0, notStarted: 0 });
 
-  const operationalSector = flow.sector;
+  const overallProgress = spools.length
+    ? spools.reduce((total, spool) => total + Number(spool.overallProgress || 0), 0) / spools.length
+    : summaryOverallProgress;
+  const individualProgress = spools.length
+    ? spools.reduce((total, spool) => total + Number(spool.individualProgress || 0), 0) / spools.length
+    : summaryIndividualProgress;
 
-  const project = {
+  return {
     rowId: summaryRow.id,
     rowNumber: summaryRow.rowNumber,
     projectPrefix: parts.prefix,
@@ -952,14 +1003,16 @@ function buildProject(summaryRow, childRows) {
     weldingWeek,
     coatingPercent,
     m2Painting: parseNumber(summaryRow, "M2 Painting"),
-    currentStage: progress.currentStage.label,
-    currentStagePercent: progress.currentStage.percent,
-    currentStageStatus: progress.currentStage.status,
-    currentStageAlert: progress.currentStage.isAlert,
+    currentStage: aggregate.currentStage || progress.currentStage.label,
+    currentStagePercent: aggregate.currentStagePercent ?? progress.currentStage.percent,
+    currentStageStatus: aggregate.currentStageStatus || progress.currentStage.status,
+    currentStageAlert: aggregate.currentStageStatus === "in_progress",
+    currentStageGroup: aggregate.currentStageGroup,
+    statusText: aggregate.statusText,
     individualProgress,
     overallProgress,
-    projectStatus,
-    jobProcessStatus: textValue(summaryRow, "Job Process Status") || progress.currentStage.label,
+    projectStatus: aggregate.statusText || projectStatus,
+    jobProcessStatus: aggregate.currentStage || textValue(summaryRow, "Job Process Status") || progress.currentStage.label,
     summaryDrawing: textValue(summaryRow, "Drawing"),
     projectType: textValue(summaryRow, "Project Type"),
     fabricationStartDate: formatDateValue(textValue(summaryRow, "Fabrication Start Date")),
@@ -971,16 +1024,15 @@ function buildProject(summaryRow, childRows) {
     className: textValue(summaryRow, "Class"),
     milestones: progress.milestones,
     stageValues,
-    finished: finished,
-    projectFinishedFlag,
-    uiState,
-    operationalSector,
-    operationalState: flow.state,
+    finished: aggregate.finished,
+    projectFinishedFlag: aggregate.finished,
+    uiState: aggregate.uiState,
+    operationalSector: aggregate.operationalSector,
+    operationalSectors: aggregate.operationalSectors,
+    operationalState: aggregate.operationalState,
     spools,
     spoolStats,
   };
-
-  return summarizeProjectFromSpools(project);
 }
 
 function mapApiRows(sheet) {
@@ -1054,11 +1106,10 @@ function buildProjects(rows) {
     project.spoolStats = unique.reduce((acc, spool) => {
       acc.total += 1;
       if (spool.uiState === "completed") acc.completed += 1;
-      else if (spool.uiState === "not_started") acc.notStarted += 1;
-      else acc.inProgress += 1;
+      else if (spool.uiState === "in_progress") acc.inProgress += 1;
+      else acc.notStarted += 1;
       return acc;
     }, { total: 0, completed: 0, inProgress: 0, notStarted: 0 });
-    summarizeProjectFromSpools(project);
   }
 
   return projects;
