@@ -1544,6 +1544,12 @@ function isDetailingNotStartedByData(item) {
 }
 
 function getItemStatusPresentation(item) {
+  if (item?.processStatusLabel) {
+    const state = item?.processStatusState || item?.processState || item?.uiState || 'in_progress';
+    const normalizedState = state === 'completed' ? 'completed' : (state === 'not_started' ? 'not_started' : state);
+    return { text: item.processStatusLabel, state: normalizedState };
+  }
+
   if (isProjectFinishedByData(item)) {
     return { text: 'Finalizado', state: 'completed' };
   }
