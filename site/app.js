@@ -1482,106 +1482,16 @@ function hasPreparingShipmentWindow(project) {
   return spoolMatches || projectMatches;
 }
 
-function hasInternalPendingItems(item) {
-  const spools = Array.isArray(item?.spools) ? item.spools : [];
-  if (!spools.length) return false;
-  return spools.some((spool) => !isProjectFinishedByData(spool));
-}
-
-function hasInternalProgressItems(item) {
-  const spools = Array.isArray(item?.spools) ? item.spools : [];
-  if (!spools.length) return false;
-  return spools.some((spool) => {
-    const stagePercent = Number(spool?.currentStagePercent ?? spool?.stagePercent ?? NaN);
-    const individual = Number(spool?.individualProgress ?? NaN);
-    const overall = Number(spool?.overallProgress ?? NaN);
-    const packageDelivered = Number(spool?.stageValues?.['Package and Delivered'] ?? spool?.stageValues?.['Unitização e envio'] ?? NaN);
-    return [stagePercent, individual, overall, packageDelivered].some((value) => Number.isFinite(value) && value > 0);
-  });
-}
-
-function isProjectFinishedByData(item) {
-  const spools = Array.isArray(item?.spools) ? item.spools : [];
-  if (spools.length) {
-    return spools.every((spool) => isProjectFinishedByData(spool));
-  }
-
-  const statusText = normalizeText([
-    item?.projectStatus,
-    item?.jobProcessStatus,
-    item?.currentStage,
-    item?.stage,
-    item?.stageValues?.['Project Finished?'],
-  ].filter(Boolean).join(' '));
-
-  const packageDelivered = Number(item?.stageValues?.['Package and Delivered'] ?? item?.stageValues?.['Unitização e envio'] ?? NaN);
-
-  return Boolean(item?.finished)
-    || Boolean(item?.projectFinishedFlag)
-    || item?.uiState === 'completed'
-    || statusText.includes('project finished')
-    || statusText.includes('finalizado')
-    || statusText.includes('concluido')
-    || (Number.isFinite(packageDelivered) && packageDelivered >= 100);
-}
-
-function isDetailingNotStartedByData(item) {
-  if (isProjectFinishedByData(item)) return false;
-
-  const stageText = normalizeText([item?.currentStage, item?.stage, item?.jobProcessStatus].filter(Boolean).join(' '));
-  const isDetailing = stageText.includes('emissao de detalhamento')
-    || stageText.includes('emission de detalhamento')
-    || stageText.includes('detalhamento');
-
-  if (!isDetailing) return false;
-
-  const stagePercent = Number(item?.currentStagePercent ?? item?.stagePercent ?? NaN);
-  const individual = Number(item?.individualProgress ?? NaN);
-  const overall = Number(item?.overallProgress ?? NaN);
-  const hasAnyProgress = [stagePercent, individual, overall].some((value) => Number.isFinite(value) && value > 0);
-
-  return !hasAnyProgress;
-}
-
-function getItemStatusPresentation(item) {
-  if (item?.processStatusLabel) {
-    const state = item?.processStatusState || item?.processState || item?.uiState || 'in_progress';
-    const normalizedState = state === 'completed' ? 'completed' : (state === 'not_started' ? 'not_started' : state);
-    return { text: item.processStatusLabel, state: normalizedState };
-  }
-
-  if (isProjectFinishedByData(item)) {
-    return { text: 'Finalizado', state: 'completed' };
-  }
-
-  if (isDetailingNotStartedByData(item)) {
-    return { text: 'Não iniciado', state: 'not_started' };
-  }
-
-  if (hasInternalPendingItems(item)) {
-    return hasInternalProgressItems(item)
-      ? { text: 'Em produção', state: 'in_progress' }
-      : { text: 'Não iniciado', state: 'not_started' };
-  }
-
-  const uiState = item?.uiState || 'not_started';
-  const state = ['awaiting_shipment', 'completed'].includes(uiState) ? 'completed' : uiState;
-  const text = item?.projectStatus !== undefined
-    ? translateProjectStatus(item?.projectStatus, uiState)
-    : uiStateLabel(uiState);
-
-  return { text, state };
-}
-
 function getProjectStatusPresentation(project) {
-  const baseStatus = getItemStatusPresentation(project);
-  if (['completed', 'not_started'].includes(baseStatus.state)) return baseStatus;
-
   if (hasPreparingShipmentWindow(project) && !['completed', 'awaiting_shipment'].includes(project?.uiState)) {
     return { text: 'Preparando para envio', state: 'preparing_shipment' };
   }
 
-  return baseStatus;
+  const state = ['awaiting_shipment', 'completed'].includes(project?.uiState) ? 'completed' : (project?.uiState || 'not_started');
+  return {
+    text: translateProjectStatus(project?.projectStatus, project?.uiState),
+    state,
+  };
 }
 
 
@@ -2507,7 +2417,7 @@ function renderModal(project) {
           <td>${spool.weldingWeek || "—"}</td>
           <td>${formatNumber(spool.kilos, 2)}</td>
           <td>${formatNumber(spool.m2Painting, 3)}</td>
-          ${(() => { const statusPresentation = getItemStatusPresentation(spool); return `<td><span class="cell-status cell-status--${statusPresentation.state}">${escapeHtml(statusPresentation.text)}</span></td>`; })()}
+          <td><span class="cell-status cell-status--${["awaiting_shipment", "completed"].includes(spool.uiState) ? "completed" : spool.uiState}">${uiStateLabel(spool.uiState)}</span></td>
           <td class="${percentStateClass(spool.stagePercent)}">${spool.stage || "—"}</td>
           <td class="${percentStateClass(spool.individualProgress)}">${formatPercent(spool.individualProgress)}</td>
           <td class="${percentStateClass(spool.overallProgress)}">${formatPercent(spool.overallProgress)}</td>

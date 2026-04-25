@@ -103,7 +103,7 @@ function isTruthyValue(value) {
   if (value == null) return false;
   if (typeof value === "boolean") return value;
   const normalized = String(value).trim().toLowerCase();
-  return ["true", "yes", "sim", "y", "1", "concluído", "concluido", "finalizado"].includes(normalized);
+  return ["true", "yes", "sim", "y", "1", "100", "100%", "concluído", "concluido", "finalizado"].includes(normalized);
 }
 
 function excelSerialToDate(serial) {
@@ -325,11 +325,21 @@ function nextVisibleProcessRule(startIndex) {
 }
 
 function detectProcessStatus(row, stageValues = null) {
-  const projectFinished = isTruthyValue(textValue(row, "Project Finished?") || getCellValue(row, "Project Finished?").raw);
+  const projectFinishedRaw = textValue(row, "Project Finished?") || getCellValue(row, "Project Finished?").raw;
+  const projectFinishedPercent = parsePercent(row, "Project Finished?") ?? 0;
+  const packageDeliveredPercent = parsePercent(row, "Package and Delivered") ?? 0;
+  const projectFinishDate = textValue(row, "Project Finish Date");
+  const overallProgress = parsePercent(row, "% Overall Progress") ?? 0;
+  const individualProgress = parsePercent(row, "% Individual Progress") ?? overallProgress;
+  const projectFinished = isTruthyValue(projectFinishedRaw)
+    || projectFinishedPercent >= 100
+    || packageDeliveredPercent >= 100
+    || (Boolean(projectFinishDate) && overallProgress >= 100 && individualProgress >= 100);
+
   if (projectFinished) {
     return {
       key: "Project Finished?",
-      label: "Finalizado",
+      label: "Project Finished?",
       group: "Logística",
       state: "completed",
       percent: 100,
@@ -339,9 +349,8 @@ function detectProcessStatus(row, stageValues = null) {
     };
   }
 
-  let firstWaiting = null;
   let lastCompletedIndex = -1;
-  let lastCompletedRule = null;
+  let firstPendingRule = null;
 
   for (let i = 0; i < PROCESS_STATUS_RULES.length; i += 1) {
     const rule = PROCESS_STATUS_RULES[i];
@@ -356,7 +365,7 @@ function detectProcessStatus(row, stageValues = null) {
           if (!targetInfo.completed && !targetInfo.active) {
             return {
               key: target.key,
-              label: target.label,
+              label: target.paint ? formatPaintingProcessLabel(0) : target.label,
               group: target.group,
               state: "in_progress",
               percent: 0,
@@ -370,9 +379,7 @@ function detectProcessStatus(row, stageValues = null) {
       continue;
     }
 
-    if (!firstWaiting && i === 0) {
-      firstWaiting = { rule, index: i };
-    }
+    if (!firstPendingRule) firstPendingRule = { rule, index: i };
 
     if (info.active) {
       const label = rule.paint ? formatPaintingProcessLabel(info.percent) : rule.label;
@@ -390,12 +397,12 @@ function detectProcessStatus(row, stageValues = null) {
 
     if (info.completed) {
       lastCompletedIndex = i;
-      lastCompletedRule = rule;
       continue;
     }
 
-    if (info.hasValue && info.percent === 0 && !lastCompletedRule) {
-      const label = rule.paint ? formatPaintingProcessLabel(info.percent) : rule.label;
+    // Primeira etapa sem progresso, antes de qualquer avanço real.
+    if (lastCompletedIndex < 0) {
+      const label = rule.paint ? formatPaintingProcessLabel(0) : rule.label;
       return {
         key: rule.key,
         label,
@@ -407,30 +414,31 @@ function detectProcessStatus(row, stageValues = null) {
         sector: rule.group,
       };
     }
-  }
 
-  const next = lastCompletedIndex >= 0 ? nextVisibleProcessRule(lastCompletedIndex) : firstWaiting;
-  if (next && next.rule) {
+    // Existe algo concluído antes, e esta é a próxima etapa pendente.
+    const label = rule.paint ? formatPaintingProcessLabel(0) : rule.label;
     return {
-      key: next.rule.key,
-      label: next.rule.paint ? formatPaintingProcessLabel(0) : next.rule.label,
-      group: next.rule.group,
-      state: lastCompletedIndex >= 0 ? "in_progress" : "not_started",
+      key: rule.key,
+      label,
+      group: rule.group,
+      state: "in_progress",
       percent: 0,
       completed: false,
       isFinal: false,
-      sector: next.rule.group,
+      sector: rule.group,
     };
   }
 
+  // Se chegou ao fim sem Project Finished explícito, trata como preparado para finalizar,
+  // mas sem marcar como concluído automaticamente.
   return {
     key: "Project Finished?",
-    label: "Finalizado",
+    label: "Project Finished?",
     group: "Logística",
-    state: "completed",
-    percent: 100,
-    completed: true,
-    isFinal: true,
+    state: "in_progress",
+    percent: 0,
+    completed: false,
+    isFinal: false,
     sector: "Logística",
   };
 }
@@ -450,33 +458,47 @@ function normalizeProcessSectorKey(value) {
 function aggregateProjectProcess(spools) {
   const rows = Array.isArray(spools) ? spools : [];
   if (!rows.length) return null;
-  const allFinished = rows.every((spool) => spool?.processState === "completed" || spool?.uiState === "completed" || spool?.projectFinishedFlag);
+
+  const isCompleted = (spool) => spool?.processState === "completed" || spool?.uiState === "completed" || spool?.projectFinishedFlag || spool?.finished;
+  const allFinished = rows.every(isCompleted);
   if (allFinished) {
-    return { label: "Finalizado", state: "completed", group: "Logística", sectors: ["pendente_envio"], stageLabel: "Finalizado" };
+    return {
+      label: "Finalizado",
+      state: "completed",
+      group: "Logística",
+      sectors: ["pendente_envio"],
+      stageLabel: "Project Finished?",
+      percent: 100,
+    };
   }
 
-  const activeRows = rows.filter((spool) => spool?.processState === "in_progress");
-  const notStartedRows = rows.filter((spool) => spool?.processState === "not_started");
-  const sourceRows = activeRows.length ? activeRows : notStartedRows;
-  const sectors = [...new Set(sourceRows.map((spool) => normalizeProcessSectorKey(spool?.processStageGroup || spool?.operationalSector)).filter(Boolean))];
-  const first = sourceRows[0] || rows.find((spool) => spool?.processState !== "completed") || rows[0];
+  const pendingRows = rows.filter((spool) => !isCompleted(spool));
+  const activeRows = pendingRows.filter((spool) => spool?.processState === "in_progress" || spool?.uiState === "in_progress");
+  const notStartedRows = pendingRows.filter((spool) => spool?.processState === "not_started" || spool?.uiState === "not_started");
+
+  const sectorRows = pendingRows.length ? pendingRows : rows;
+  const sectors = [...new Set(sectorRows.map((spool) => normalizeProcessSectorKey(spool?.processStageGroup || spool?.operationalSector || spool?.currentStageGroup)).filter(Boolean))];
 
   if (activeRows.length) {
+    const first = activeRows[0];
     return {
       label: "Em produção",
       state: "in_progress",
       group: first?.processStageGroup || first?.operationalSector || "Produção",
       sectors,
       stageLabel: first?.processStatusLabel || first?.stage || "Em produção",
+      percent: first?.stagePercent || first?.currentStagePercent || 0,
     };
   }
 
+  const first = notStartedRows[0] || pendingRows[0] || rows[0];
   return {
     label: "Não iniciado",
     state: "not_started",
     group: first?.processStageGroup || first?.operationalSector || "Engenharia",
     sectors,
     stageLabel: first?.processStatusLabel || first?.stage || "Não iniciado",
+    percent: 0,
   };
 }
 
@@ -993,7 +1015,7 @@ function buildProject(summaryRow, childRows) {
     className: textValue(summaryRow, "Class"),
     milestones: progress.milestones,
     stageValues,
-    finished: projectProcessInfo?.state === "completed" || finished,
+    finished: spools.length ? projectProcessInfo?.state === "completed" : finished,
     projectFinishedFlag,
     uiState: projectProcessInfo?.state || uiState,
     operationalSector,
