@@ -1482,7 +1482,30 @@ function hasPreparingShipmentWindow(project) {
   return spoolMatches || projectMatches;
 }
 
+function hasInternalPendingItems(item) {
+  const spools = Array.isArray(item?.spools) ? item.spools : [];
+  if (!spools.length) return false;
+  return spools.some((spool) => !isProjectFinishedByData(spool));
+}
+
+function hasInternalProgressItems(item) {
+  const spools = Array.isArray(item?.spools) ? item.spools : [];
+  if (!spools.length) return false;
+  return spools.some((spool) => {
+    const stagePercent = Number(spool?.currentStagePercent ?? spool?.stagePercent ?? NaN);
+    const individual = Number(spool?.individualProgress ?? NaN);
+    const overall = Number(spool?.overallProgress ?? NaN);
+    const packageDelivered = Number(spool?.stageValues?.['Package and Delivered'] ?? spool?.stageValues?.['Unitização e envio'] ?? NaN);
+    return [stagePercent, individual, overall, packageDelivered].some((value) => Number.isFinite(value) && value > 0);
+  });
+}
+
 function isProjectFinishedByData(item) {
+  const spools = Array.isArray(item?.spools) ? item.spools : [];
+  if (spools.length) {
+    return spools.every((spool) => isProjectFinishedByData(spool));
+  }
+
   const statusText = normalizeText([
     item?.projectStatus,
     item?.jobProcessStatus,
@@ -1492,7 +1515,6 @@ function isProjectFinishedByData(item) {
   ].filter(Boolean).join(' '));
 
   const packageDelivered = Number(item?.stageValues?.['Package and Delivered'] ?? item?.stageValues?.['Unitização e envio'] ?? NaN);
-  const projectFinishDate = item?.stageValues?.['Project Finish Date'] || item?.projectFinishDate || '';
 
   return Boolean(item?.finished)
     || Boolean(item?.projectFinishedFlag)
@@ -1500,8 +1522,7 @@ function isProjectFinishedByData(item) {
     || statusText.includes('project finished')
     || statusText.includes('finalizado')
     || statusText.includes('concluido')
-    || (Number.isFinite(packageDelivered) && packageDelivered >= 100)
-    || Boolean(projectFinishDate);
+    || (Number.isFinite(packageDelivered) && packageDelivered >= 100);
 }
 
 function isDetailingNotStartedByData(item) {
@@ -1529,6 +1550,12 @@ function getItemStatusPresentation(item) {
 
   if (isDetailingNotStartedByData(item)) {
     return { text: 'Não iniciado', state: 'not_started' };
+  }
+
+  if (hasInternalPendingItems(item)) {
+    return hasInternalProgressItems(item)
+      ? { text: 'Em produção', state: 'in_progress' }
+      : { text: 'Não iniciado', state: 'not_started' };
   }
 
   const uiState = item?.uiState || 'not_started';
