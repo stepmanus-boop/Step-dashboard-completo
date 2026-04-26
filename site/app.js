@@ -1529,6 +1529,17 @@ function isProjectPreparedForShipment(project) {
     && (!Number.isFinite(projectPackageDelivered) || projectPackageDelivered < 100);
 }
 
+function getPreparedShipmentTags(project) {
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  const openSpools = spools.filter((spool) => spool?.flow?.state !== 'completed' && spool?.flow?.status !== 'Finalizado');
+  if (openSpools.length) {
+    return openSpools.filter((spool) => isPreparedShipmentSpool(spool)).length;
+  }
+  return isProjectPreparedForShipment(project)
+    ? Number(project?.quantitySpools || 1)
+    : 0;
+}
+
 function getProjectStatusPresentation(project) {
   const preparedForShipment = isProjectPreparedForShipment(project);
   if (preparedForShipment && project?.uiState !== 'completed') {
@@ -1724,7 +1735,7 @@ function enrichProjects(projects) {
   });
 }
 
-const PROJECT_STATUS_FILTER_OPTIONS = ["Aguardando envio", "Em produção", "Em tratativa", "Finalizado", "Não iniciado"];
+const PROJECT_STATUS_FILTER_OPTIONS = ["Preparado para envio", "Aguardando envio", "Em produção", "Em tratativa", "Finalizado", "Não iniciado"];
 
 function normalizeStatusFilterValue(value) {
   return normalizeText(String(value || '').trim());
@@ -1803,7 +1814,10 @@ function getProjectStatusFilterLabel(project) {
   if (uiState === 'completed' || presentationText.includes('finalizado')) {
     return 'Finalizado';
   }
-  if (uiState === 'awaiting_shipment' || uiState === 'preparing_shipment' || presentationText.includes('aguardando envio') || presentationText.includes('preparado para envio') || presentationText.includes('preparando para envio')) {
+  if (presentationText.includes('preparado para envio') || presentationText.includes('preparando para envio')) {
+    return 'Preparado para envio';
+  }
+  if (uiState === 'awaiting_shipment' || presentationText.includes('aguardando envio')) {
     return 'Aguardando envio';
   }
   if (uiState === 'not_started' || presentationText.includes('nao iniciado') || presentationText.includes('não iniciado') || presentationText.includes('em espera')) {
@@ -1944,7 +1958,7 @@ function buildClientStats(projects) {
     const producaoTags = countSector('producao') + countSector('solda') + countSector('calderaria');
     const qualidadeTags = countSector('inspecao');
     const pinturaTags = countSector('pintura');
-    const logisticaTags = countSector('pendente_envio');
+    const logisticaTags = getPreparedShipmentTags(project);
     const preStartTags = countSector('engenharia') + countSector('suprimento');
 
     if (producaoTags) {
