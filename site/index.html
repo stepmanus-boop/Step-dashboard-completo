@@ -35,21 +35,25 @@
               </div>
               <span class="session-status" id="session-status">offline</span>
             </div>
-            <strong id="session-user-name">Acesso bloqueado</strong>
-            <span id="session-user-meta" class="session-user-meta">Faça login para liberar o painel, os alertas por setor e a administração.</span>
-            <div class="session-actions">
-              <button id="install-app-button" class="ghost-button ghost-button--compact hidden" type="button">Instalar app</button>
-              <button id="open-login-button" class="ghost-button ghost-button--compact" type="button">Login</button>
-              <button id="open-sector-alerts" class="ghost-button ghost-button--compact" type="button">Meus alertas</button>
-              <button id="open-my-project-signals" class="ghost-button ghost-button--compact hidden" type="button">Minhas sinalizações</button>
-              <button id="open-project-signals" class="ghost-button ghost-button--compact hidden" type="button">Alertas Projetos</button>
-              <button id="open-stage-updates" class="ghost-button ghost-button--compact hidden" type="button">Apontamentos</button>
-              <button id="open-admin-panel" class="ghost-button ghost-button--compact hidden" type="button">Admin</button>
-              <button id="logout-button" class="ghost-button ghost-button--compact hidden" type="button">Sair</button>
+            <div class="session-card-body">
+              <strong id="session-user-name">Acesso bloqueado</strong>
+              <span id="session-user-meta" class="session-user-meta">Faça login para liberar o painel, os alertas por setor e a administração.</span>
             </div>
           </div>
+        </div>
 
-          <div class="clock-grid">
+        <div class="topbar-actions session-actions">
+          <button id="install-app-button" class="ghost-button ghost-button--compact hidden" type="button">Instalar app</button>
+          <button id="open-login-button" class="ghost-button ghost-button--compact" type="button">Login</button>
+          <button id="open-sector-alerts" class="ghost-button ghost-button--compact" type="button">Meus alertas</button>
+          <button id="open-my-project-signals" class="ghost-button ghost-button--compact hidden" type="button">Minhas sinalizações</button>
+          <button id="open-project-signals" class="ghost-button ghost-button--compact hidden" type="button">Alertas Projetos</button>
+          <button id="open-stage-updates" class="ghost-button ghost-button--compact hidden" type="button">Apontamentos</button>
+          <button id="open-admin-panel" class="ghost-button ghost-button--compact hidden" type="button">Admin</button>
+          <button id="logout-button" class="ghost-button ghost-button--compact hidden" type="button">Sair</button>
+        </div>
+
+        <div class="clock-grid">
           <div class="clock-card">
             <div class="clock-head">
               <span class="clock-flag" aria-hidden="true">🇧🇷</span>
@@ -66,7 +70,6 @@
             <strong id="clock-pt-time" class="clock-time">--:--:--</strong>
             <span id="clock-pt-date" class="clock-date">--</span>
           </div>
-        </div>
         </div>
       </header>
 
