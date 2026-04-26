@@ -309,12 +309,29 @@ function deriveOperationalStage(stageValues, fabricationStartDate, coatingPercen
   const isHold = ["ON HOLD", "HOLD", "PAUSED", "EM ESPERA"].includes(normalizedProjectStatus);
 
   if (finished || projectFinished || projectFinishDate) return makeFlow("Finalizado", "Logística", 100, "completed", "completed");
-  if (packageDelivered >= 100) return makeFlow("Preparado para envio", "Logística", packageDelivered, "completed", "awaiting_shipment");
-  if (packageDelivered > 0) return makeFlow("Preparado para envio", "Logística", packageDelivered, null, "awaiting_shipment");
-  if (finalInspection >= 100) return makeFlow("Preparado para envio", "Logística", finalInspection, "waiting", "awaiting_shipment");
-  if (finalInspection > 0) return makeFlow("Unitização e Inspeção", "Logística", finalInspection, null, "awaiting_shipment");
-  if (coating >= 100) return makeFlow("Unitização e Inspeção", "Logística", coating, "waiting", "awaiting_shipment");
-  if (coating > 0) return makeFlow(paintingStatusFromPercent(coating), "Pintura", coating, null, "in_production");
+
+  const coatingCompleted = coating >= 100;
+  const finalInspectionStarted = finalInspection > 0;
+  const finalInspectionCompleted = finalInspection >= 100;
+
+  if (coatingCompleted && finalInspectionCompleted && packageDelivered >= 100) {
+    return makeFlow("Preparado para envio", "Logística", packageDelivered, "completed", "awaiting_shipment");
+  }
+  if (coatingCompleted && finalInspectionCompleted && packageDelivered > 0) {
+    return makeFlow("Preparado para envio", "Logística", packageDelivered, null, "awaiting_shipment");
+  }
+  if (coatingCompleted && finalInspectionCompleted) {
+    return makeFlow("Preparado para envio", "Logística", finalInspection, "waiting", "awaiting_shipment");
+  }
+  if (coatingCompleted && finalInspectionStarted) {
+    return makeFlow("Unitização e Inspeção", "Logística", finalInspection, null, "awaiting_shipment");
+  }
+  if (coatingCompleted) {
+    return makeFlow("Unitização e Inspeção", "Logística", coating, "waiting", "awaiting_shipment");
+  }
+  if (coating > 0) {
+    return makeFlow(paintingStatusFromPercent(coating), "Pintura", coating, null, "in_production");
+  }
   if (th >= 100) return makeFlow("Pintura", "Pintura", 0, "waiting", "in_production");
   if (th > 0) return makeFlow("TH", "Qualidade", th, null, "in_inspection");
   if (nde != null && nde > 0 && nde < 100) return makeFlow("Aguardando END", "Qualidade", nde, null, "in_inspection");

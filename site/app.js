@@ -14,6 +14,7 @@ const state = {
   searchQuery: "",
   demandFilter: "",
   weekFilter: "",
+  statusFilters: [],
   alertFilter: "all",
   alertSectorFilter: "all",
   alertClientQuery: "",
@@ -60,6 +61,9 @@ const searchInputEl = document.getElementById("project-search");
 const clearSearchEl = document.getElementById("clear-search");
 const demandFilterEl = document.getElementById("demand-filter");
 const weekFilterEl = document.getElementById("week-filter");
+const statusFilterToggleEl = document.getElementById("status-filter-toggle");
+const statusFilterMenuEl = document.getElementById("status-filter-menu");
+const statusFilterBoxEl = document.getElementById("status-filter-box");
 const searchCountEl = document.getElementById("search-count");
 const tableShellEl = document.getElementById("table-shell");
 const projectViewTabsEl = document.getElementById("project-view-tabs");
@@ -1472,18 +1476,24 @@ function translateProjectStatus(projectStatus, uiState) {
 }
 
 function hasPreparingShipmentWindow(project) {
+  const projectCoating = Number(project?.stageValues?.['Surface preparation and/or coating'] ?? NaN);
   const projectFinalInspection = Number(project?.stageValues?.['Final Inspection'] ?? NaN);
   const projectPackageDelivered = Number(project?.stageValues?.['Package and Delivered'] ?? project?.stageValues?.['Unitização e envio'] ?? NaN);
-  const projectMatches = Number.isFinite(projectFinalInspection)
+  const projectMatches = Number.isFinite(projectCoating)
+    && projectCoating >= 100
+    && Number.isFinite(projectFinalInspection)
     && projectFinalInspection >= 25
     && projectFinalInspection < 100
     && (!Number.isFinite(projectPackageDelivered) || projectPackageDelivered < 100);
 
   const spools = Array.isArray(project?.spools) ? project.spools : [];
   const spoolMatches = spools.some((spool) => {
+    const coating = Number(spool?.stageValues?.['Surface preparation and/or coating'] ?? NaN);
     const finalInspection = Number(spool?.stageValues?.['Final Inspection'] ?? NaN);
     const packageDelivered = Number(spool?.stageValues?.['Package and Delivered'] ?? spool?.stageValues?.['Unitização e envio'] ?? NaN);
-    return Number.isFinite(finalInspection)
+    return Number.isFinite(coating)
+      && coating >= 100
+      && Number.isFinite(finalInspection)
       && finalInspection >= 25
       && finalInspection < 100
       && (!Number.isFinite(packageDelivered) || packageDelivered < 100);
@@ -1680,6 +1690,102 @@ function enrichProjects(projects) {
       _searchText: buildSearchIndex(searchParts),
     };
   });
+}
+
+const PROJECT_STATUS_FILTER_OPTIONS = ["Aguardando envio", "Em produção", "Em tratativa", "Finalizado", "Não iniciado"];
+
+function normalizeStatusFilterValue(value) {
+  return normalizeText(String(value || '').trim());
+}
+
+function getSelectedStatusFilters() {
+  const valid = new Set(PROJECT_STATUS_FILTER_OPTIONS.map((item) => normalizeStatusFilterValue(item)));
+  return Array.from(new Set((Array.isArray(state.statusFilters) ? state.statusFilters : [])
+    .map((item) => String(item || '').trim())
+    .filter((item) => valid.has(normalizeStatusFilterValue(item)))));
+}
+
+function areAllStatusFiltersSelected() {
+  const selected = getSelectedStatusFilters();
+  return !selected.length || selected.length === PROJECT_STATUS_FILTER_OPTIONS.length;
+}
+
+function isStatusFilterSelected(option) {
+  if (areAllStatusFiltersSelected()) return true;
+  const normalizedOption = normalizeStatusFilterValue(option);
+  return getSelectedStatusFilters().some((item) => normalizeStatusFilterValue(item) === normalizedOption);
+}
+
+function getStatusFilterButtonLabel() {
+  const selected = getSelectedStatusFilters();
+  if (!selected.length || selected.length === PROJECT_STATUS_FILTER_OPTIONS.length) return 'Todos os status';
+  if (selected.length === 1) return selected[0];
+  return `${selected.length} status selecionados`;
+}
+
+function syncStatusFilterButtonLabel() {
+  if (!statusFilterToggleEl) return;
+  statusFilterToggleEl.textContent = getStatusFilterButtonLabel();
+}
+
+function renderStatusFilterMenu() {
+  if (!statusFilterMenuEl) return;
+  const allChecked = areAllStatusFiltersSelected();
+  statusFilterMenuEl.innerHTML = [
+    `<label class="status-filter-option" data-status-filter-all="1"><input type="checkbox" data-status-filter-all="1" ${allChecked ? 'checked' : ''}><span>Todos os status</span></label>`,
+    ...PROJECT_STATUS_FILTER_OPTIONS.map((option) => `<label class="status-filter-option" data-status-filter="${option}"><input type="checkbox" data-status-filter="${option}" ${isStatusFilterSelected(option) ? 'checked' : ''}><span>${option}</span></label>`),
+  ].join('');
+  syncStatusFilterButtonLabel();
+}
+
+function closeStatusFilterMenu() {
+  if (!statusFilterMenuEl || !statusFilterToggleEl) return;
+  statusFilterMenuEl.classList.add('hidden');
+  statusFilterToggleEl.classList.remove('is-open');
+  statusFilterToggleEl.setAttribute('aria-expanded', 'false');
+}
+
+function openStatusFilterMenu() {
+  if (!statusFilterMenuEl || !statusFilterToggleEl) return;
+  renderStatusFilterMenu();
+  statusFilterMenuEl.classList.remove('hidden');
+  statusFilterToggleEl.classList.add('is-open');
+  statusFilterToggleEl.setAttribute('aria-expanded', 'true');
+}
+
+function toggleStatusFilterMenu() {
+  if (!statusFilterMenuEl) return;
+  if (statusFilterMenuEl.classList.contains('hidden')) openStatusFilterMenu();
+  else closeStatusFilterMenu();
+}
+
+function getProjectStatusFilterLabel(project) {
+  const presentationText = normalizeText(getProjectStatusPresentation(project)?.text || '');
+  const projectStatusText = normalizeText(project?.projectStatus || '');
+  const currentStageText = normalizeText(project?.currentStage || '');
+  const uiState = String(project?.uiState || '').trim();
+
+  if (presentationText.includes('tratativa') || projectStatusText.includes('tratativa') || currentStageText.includes('tratativa')) {
+    return 'Em tratativa';
+  }
+  if (uiState === 'completed' || presentationText.includes('finalizado')) {
+    return 'Finalizado';
+  }
+  if (uiState === 'awaiting_shipment' || uiState === 'preparing_shipment' || presentationText.includes('aguardando envio') || presentationText.includes('preparado para envio') || presentationText.includes('preparando para envio')) {
+    return 'Aguardando envio';
+  }
+  if (uiState === 'not_started' || presentationText.includes('nao iniciado') || presentationText.includes('não iniciado') || presentationText.includes('em espera')) {
+    return 'Não iniciado';
+  }
+  return 'Em produção';
+}
+
+function projectMatchesStatusFilter(project) {
+  const selected = getSelectedStatusFilters();
+  if (!selected.length || selected.length === PROJECT_STATUS_FILTER_OPTIONS.length) return true;
+  const label = getProjectStatusFilterLabel(project);
+  const normalizedLabel = normalizeStatusFilterValue(label);
+  return selected.some((item) => normalizeStatusFilterValue(item) === normalizedLabel);
 }
 
 function buildDemandOptions() {
@@ -1922,34 +2028,39 @@ function getProjectSectorForScopedView(project) {
   const hasWeldingProgress = Number.isFinite(weldingProgress);
   const projectInsideWeldingWindow = hasWeldingProgress && weldingProgress >= 25 && weldingProgress < 100;
   const isWeldingCompleted = hasWeldingProgress && weldingProgress >= 100;
+  const coatingProgress = Number(project?.stageValues?.['Surface preparation and/or coating'] ?? NaN);
   const finalInspectionProgress = Number(project?.stageValues?.['Final Inspection'] ?? NaN);
   const packageDeliveredProgress = Number(project?.stageValues?.['Package and Delivered'] ?? project?.stageValues?.['Unitização e envio'] ?? NaN);
+  const hasCoatingProgress = Number.isFinite(coatingProgress);
   const hasFinalInspectionProgress = Number.isFinite(finalInspectionProgress);
   const hasPackageDeliveredProgress = Number.isFinite(packageDeliveredProgress);
-  const projectInsideLogisticsWindow = hasFinalInspectionProgress && finalInspectionProgress >= 100 && hasPackageDeliveredProgress && packageDeliveredProgress >= 25 && packageDeliveredProgress < 100;
-  const isLogisticsCompleted = hasPackageDeliveredProgress && packageDeliveredProgress >= 100;
+  const projectInsideLogisticsWindow = hasCoatingProgress && coatingProgress >= 100 && hasFinalInspectionProgress && finalInspectionProgress >= 100 && hasPackageDeliveredProgress && packageDeliveredProgress >= 25 && packageDeliveredProgress < 100;
+  const isLogisticsCompleted = hasCoatingProgress && coatingProgress >= 100 && hasPackageDeliveredProgress && packageDeliveredProgress >= 100;
   const spools = Array.isArray(project?.spools) ? project.spools : [];
   const spoolWeldingProgressValues = spools
     .map((spool) => Number(spool?.stageValues?.['Full welding execution'] ?? spool?.stageValues?.['SOLDA'] ?? NaN))
     .filter((value) => Number.isFinite(value));
   const spoolLogisticsPairs = spools
     .map((spool) => {
+      const coating = Number(spool?.stageValues?.['Surface preparation and/or coating'] ?? NaN);
       const finalInspection = Number(spool?.stageValues?.['Final Inspection'] ?? NaN);
       const packageDelivered = Number(spool?.stageValues?.['Package and Delivered'] ?? spool?.stageValues?.['Unitização e envio'] ?? NaN);
       return {
+        coating,
         finalInspection,
         packageDelivered,
+        hasCoating: Number.isFinite(coating),
         hasFinalInspection: Number.isFinite(finalInspection),
         hasPackageDelivered: Number.isFinite(packageDelivered),
       };
     })
-    .filter((pair) => pair.hasFinalInspection || pair.hasPackageDelivered);
+    .filter((pair) => pair.hasCoating || pair.hasFinalInspection || pair.hasPackageDelivered);
   const hasSpoolWeldingProgress = spoolWeldingProgressValues.length > 0;
   const hasSpoolInsideWeldingWindow = spoolWeldingProgressValues.some((value) => value >= 25 && value < 100);
   const areAllSpoolsOutsideWeldingWindow = hasSpoolWeldingProgress && !hasSpoolInsideWeldingWindow;
   const isInsideWeldingWindow = hasSpoolInsideWeldingWindow || (!hasSpoolWeldingProgress && projectInsideWeldingWindow);
   const hasSpoolLogisticsProgress = spoolLogisticsPairs.length > 0;
-  const hasSpoolInsideLogisticsWindow = spoolLogisticsPairs.some((pair) => pair.hasFinalInspection && pair.finalInspection >= 100 && pair.hasPackageDelivered && pair.packageDelivered >= 25 && pair.packageDelivered < 100);
+  const hasSpoolInsideLogisticsWindow = spoolLogisticsPairs.some((pair) => pair.hasCoating && pair.coating >= 100 && pair.hasFinalInspection && pair.finalInspection >= 100 && pair.hasPackageDelivered && pair.packageDelivered >= 25 && pair.packageDelivered < 100);
   const areAllSpoolsOutsideLogisticsWindow = hasSpoolLogisticsProgress && !hasSpoolInsideLogisticsWindow;
   const isInsideLogisticsWindow = hasSpoolInsideLogisticsWindow || (!hasSpoolLogisticsProgress && projectInsideLogisticsWindow);
 
@@ -2212,7 +2323,8 @@ function applyFilter() {
         || normalizeText(project.currentStage).includes(demand)
         || normalizeText(translateProjectStatus(project.projectStatus, project.uiState)).includes(demand);
       const matchesWeek = projectMatchesWeekFilter(project, selectedWeek);
-      return matchesQuery && matchesDemand && matchesWeek;
+      const matchesStatus = projectMatchesStatusFilter(project);
+      return matchesQuery && matchesDemand && matchesWeek && matchesStatus;
     })
     .sort(compareProjectsByPlannedFinishDate);
 
@@ -2885,9 +2997,11 @@ function bindEvents() {
     state.searchQuery = "";
     state.demandFilter = "";
     state.weekFilter = "";
+    state.statusFilters = [];
     searchInputEl.value = "";
     if (demandFilterEl) demandFilterEl.value = "";
     if (weekFilterEl) weekFilterEl.value = "";
+    renderStatusFilterMenu();
     applyFilter();
     renderStats();
     renderTable();
@@ -2917,6 +3031,51 @@ function bindEvents() {
       tableShellEl.scrollTop = 0;
     });
   }
+
+  if (statusFilterToggleEl) {
+    renderStatusFilterMenu();
+    statusFilterToggleEl.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleStatusFilterMenu();
+    });
+  }
+
+  if (statusFilterMenuEl) {
+    statusFilterMenuEl.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const allTarget = event.target.closest('[data-status-filter-all]');
+      if (allTarget) {
+        state.statusFilters = [];
+        renderStatusFilterMenu();
+        applyFilter();
+        renderStats();
+        renderTable();
+        renderSelectedProjectCard();
+        tableShellEl.scrollTop = 0;
+        return;
+      }
+      const optionTarget = event.target.closest('[data-status-filter]');
+      if (!optionTarget) return;
+      const value = String(optionTarget.getAttribute('data-status-filter') || '').trim();
+      if (!value) return;
+      const current = new Set(getSelectedStatusFilters());
+      if (current.has(value)) current.delete(value);
+      else current.add(value);
+      const next = Array.from(current);
+      state.statusFilters = next.length === PROJECT_STATUS_FILTER_OPTIONS.length ? [] : next;
+      renderStatusFilterMenu();
+      applyFilter();
+      renderStats();
+      renderTable();
+      renderSelectedProjectCard();
+      tableShellEl.scrollTop = 0;
+    });
+  }
+
+  document.addEventListener('click', (event) => {
+    if (!statusFilterBoxEl || statusFilterMenuEl?.classList.contains('hidden')) return;
+    if (!statusFilterBoxEl.contains(event.target)) closeStatusFilterMenu();
+  });
 
   bodyEl.addEventListener("click", (event) => {
     const row = event.target.closest("tr[data-project-id]");
