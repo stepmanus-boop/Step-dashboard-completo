@@ -1502,7 +1502,39 @@ function hasPreparingShipmentWindow(project) {
   return spoolMatches || projectMatches;
 }
 
+function isPreparedShipmentSpool(spool) {
+  const coating = Number(spool?.stageValues?.['Surface preparation and/or coating'] ?? NaN);
+  const finalInspection = Number(spool?.stageValues?.['Final Inspection'] ?? NaN);
+  const packageDelivered = Number(spool?.stageValues?.['Package and Delivered'] ?? spool?.stageValues?.['Unitização e envio'] ?? NaN);
+  return Number.isFinite(coating)
+    && coating >= 100
+    && Number.isFinite(finalInspection)
+    && finalInspection >= 100
+    && (!Number.isFinite(packageDelivered) || packageDelivered < 100);
+}
+
+function isProjectPreparedForShipment(project) {
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  const openSpools = spools.filter((spool) => spool?.flow?.state !== 'completed' && spool?.flow?.status !== 'Finalizado');
+  if (openSpools.length) {
+    return openSpools.every((spool) => isPreparedShipmentSpool(spool));
+  }
+  const projectCoating = Number(project?.stageValues?.['Surface preparation and/or coating'] ?? NaN);
+  const projectFinalInspection = Number(project?.stageValues?.['Final Inspection'] ?? NaN);
+  const projectPackageDelivered = Number(project?.stageValues?.['Package and Delivered'] ?? project?.stageValues?.['Unitização e envio'] ?? NaN);
+  return Number.isFinite(projectCoating)
+    && projectCoating >= 100
+    && Number.isFinite(projectFinalInspection)
+    && projectFinalInspection >= 100
+    && (!Number.isFinite(projectPackageDelivered) || projectPackageDelivered < 100);
+}
+
 function getProjectStatusPresentation(project) {
+  const preparedForShipment = isProjectPreparedForShipment(project);
+  if (preparedForShipment && project?.uiState !== 'completed') {
+    return { text: 'Preparado para envio', state: 'preparing_shipment' };
+  }
+
   const statusText = project?.statusSummary || project?.currentStatus || project?.currentStage || '';
   if (statusText) {
     const state = project?.finished || project?.uiState === 'completed'
