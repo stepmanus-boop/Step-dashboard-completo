@@ -356,22 +356,45 @@ function deriveOperationalStage(stageValues, fabricationStartDate, coatingPercen
   return makeFlow("AG. Emissão de detalhamento", "Engenharia", 0, "waiting", "not_started");
 }
 
+function normalizeFlowSortText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 function getFlowSortWeight(flow) {
-  const status = String(flow?.status || "");
-  const sector = String(flow?.sector || "");
-  if (status === "Finalizado") return 999;
-  if (sector === "Engenharia") return 10;
-  if (sector === "Suprimento") return 20;
-  if (status === "Corte e Limpeza") return 30;
-  if (status === "Pré - Montagem") return 40;
-  if (status === "Inspeção Dimensional de Ajuste - 3D") return 50;
-  if (status === "Solda") return 60;
-  if (status === "Inspeção Dimensional Final - 3D") return 70;
-  if (status === "Aguardando END") return 75;
-  if (status === "TH") return 80;
-  if (sector === "Pintura") return 90;
-  if (status === "Unitização e Inspeção") return 100;
-  if (status === "Preparado para envio") return 110;
+  const status = normalizeFlowSortText(flow?.status || "");
+  const sector = normalizeFlowSortText(flow?.sector || "");
+
+  if (status === "finalizado") return 999;
+  if (status.includes("ag emissao de detalhamento") || status === "emissao de detalhamento") return 10;
+  if (status.includes("verificando estoque") || status.includes("aguardando material")) return 20;
+  if (status.includes("separacao de material") || status.includes("material separation")) return 30;
+  if (status.includes("corte e limpeza") || status.includes("fabrication start")) return 40;
+  if (status.includes("pre montagem") || status.includes("welding preparation")) return 50;
+  if (status.includes("inspecao dimensional de ajuste") || status.includes("dma 3d")) return 60;
+  if (status === "solda" || status.includes("full welding")) return 70;
+  if (status.includes("inspecao dimensional final") || status.includes("inspection qc")) return 80;
+  if (status.includes("aguardando end")) return 90;
+  if (status === "th") return 100;
+  if (status === "pintura") return 110;
+  if (status.includes("aguardando inicio de pintura")) return 111;
+  if (status === "j f" || status === "jf") return 112;
+  if (status.includes("intermediaria")) return 113;
+  if (status.includes("acabamento")) return 114;
+  if (status === "concluido") return 115;
+  if (status.includes("unitizacao e inspecao") || status.includes("unitizacao")) return 120;
+  if (status.includes("preparado para envio") || status.includes("preparando para envio")) return 130;
+
+  if (sector === "engenharia") return 10;
+  if (sector === "suprimento") return 20;
+  if (sector === "producao") return 40;
+  if (sector === "qualidade") return 80;
+  if (sector === "pintura") return 110;
+  if (sector === "logistica") return 120;
   return 500;
 }
 
