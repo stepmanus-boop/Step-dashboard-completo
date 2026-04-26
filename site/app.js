@@ -2453,6 +2453,9 @@ function renderStats() {
   if (awaitingEl) awaitingEl.textContent = formatNumber(stats.awaitingShipment);
   setTags("stat-awaiting-tags", stats.awaitingShipmentTags);
 
+  const paintingM2El = document.getElementById("stat-painting-m2");
+  if (paintingM2El) paintingM2El.textContent = `${formatNumber(stats.totalPaintingM2, 3)} m²`;
+
   const completedEl = document.getElementById("stat-completed");
   if (completedEl) completedEl.textContent = formatNumber(stats.completed);
   setTags("stat-completed-tags", stats.completedTags);
