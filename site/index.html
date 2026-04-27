@@ -153,6 +153,12 @@
                 <option value="">Todas as demandas</option>
               </select>
             </label>
+            <label class="filter-box" for="project-type-filter">
+              <span class="search-label">Filtrar tipo</span>
+              <select id="project-type-filter">
+                <option value="">Todos os tipos</option>
+              </select>
+            </label>
             <label class="filter-box" for="week-filter">
               <span class="search-label">Filtrar semana</span>
               <select id="week-filter">
@@ -175,6 +181,7 @@
               <thead>
                 <tr>
                   <th>Projeto</th>
+                  <th>Tipo</th>
                   <th>Término planejado</th>
                   <th>Itens</th>
                   <th>Peso soldado (kg)</th>
@@ -195,7 +202,7 @@
               </thead>
               <tbody id="projects-body">
                 <tr>
-                  <td colspan="17" class="loading-cell">Carregando projetos...</td>
+                  <td colspan="18" class="loading-cell">Carregando projetos...</td>
                 </tr>
               </tbody>
             </table>

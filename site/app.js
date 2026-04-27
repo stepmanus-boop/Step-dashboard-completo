@@ -13,6 +13,7 @@ const state = {
   alerts: [],
   searchQuery: "",
   demandFilter: "",
+  projectTypeFilter: "",
   weekFilter: "",
   statusFilters: [],
   alertFilter: "all",
@@ -60,6 +61,7 @@ const footerVersionEl = document.getElementById("footer-version");
 const searchInputEl = document.getElementById("project-search");
 const clearSearchEl = document.getElementById("clear-search");
 const demandFilterEl = document.getElementById("demand-filter");
+const projectTypeFilterEl = document.getElementById("project-type-filter");
 const weekFilterEl = document.getElementById("week-filter");
 const statusFilterToggleEl = document.getElementById("status-filter-toggle");
 const statusFilterMenuEl = document.getElementById("status-filter-menu");
@@ -1715,6 +1717,41 @@ function startClocks() {
   window.setInterval(tick, 1000);
 }
 
+function formatProjectTypeLabel(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "—";
+  const normalized = normalizeText(raw);
+
+  if (normalized.includes("support") || normalized === "sup" || normalized.includes("suporte")) {
+    return "SUP";
+  }
+  if (normalized.includes("frame") || normalized.includes("structure") || normalized.includes("estrutura")) {
+    return "Estrutura";
+  }
+  if (normalized.includes("spool")) {
+    return "Spool";
+  }
+  return raw;
+}
+
+function getProjectTypeLabel(project) {
+  return formatProjectTypeLabel(project?.projectType || project?.type || project?.project_type);
+}
+
+function compareProjectTypeLabels(a, b) {
+  const order = new Map([
+    ["spool", 1],
+    ["estrutura", 2],
+    ["sup", 3],
+  ]);
+  const na = normalizeText(a);
+  const nb = normalizeText(b);
+  const oa = order.get(na) || 99;
+  const ob = order.get(nb) || 99;
+  if (oa !== ob) return oa - ob;
+  return String(a).localeCompare(String(b), "pt-BR", { numeric: true, sensitivity: "base" });
+}
+
 function enrichProjects(projects) {
   return (projects || []).map((project) => {
     const searchParts = [
@@ -1723,6 +1760,8 @@ function enrichProjects(projects) {
       project.projectPrefix,
       project.currentStage,
       project.projectStatus,
+      project.projectType,
+      getProjectTypeLabel(project),
       project.client,
       ...(project.spools || []).flatMap((spool) => [spool.iso, spool.description, spool.drawing]),
     ];
@@ -1859,6 +1898,26 @@ function buildDemandOptions() {
 
   demandFilterEl.value = options.includes(selected) ? selected : "";
   if (!options.includes(selected)) state.demandFilter = "";
+}
+
+function buildProjectTypeOptions() {
+  if (!projectTypeFilterEl) return;
+  const selected = state.projectTypeFilter || "";
+  const options = Array.from(
+    new Set(
+      state.projects
+        .map((project) => getProjectTypeLabel(project))
+        .filter((option) => option && option !== "—")
+    )
+  ).sort(compareProjectTypeLabels);
+
+  projectTypeFilterEl.innerHTML = [
+    '<option value="">Todos os tipos</option>',
+    ...options.map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`),
+  ].join("");
+
+  projectTypeFilterEl.value = options.includes(selected) ? selected : "";
+  if (!options.includes(selected)) state.projectTypeFilter = "";
 }
 
 function buildWeekOptions() {
@@ -2357,6 +2416,7 @@ function renderProjectViewTabs() {
 function applyFilter() {
   const query = normalizeText(state.searchQuery).trim();
   const demand = normalizeText(state.demandFilter).trim();
+  const selectedProjectType = normalizeText(state.projectTypeFilter).trim();
   const selectedWeek = String(state.weekFilter || '').trim();
 
   const sourceProjects = getVisibleProjectsSource();
@@ -2368,9 +2428,10 @@ function applyFilter() {
         || normalizeText(project.currentStageGroup || simplifyCurrentStage(project)).includes(demand)
         || normalizeText(project.currentStage).includes(demand)
         || normalizeText(translateProjectStatus(project.projectStatus, project.uiState)).includes(demand);
+      const matchesProjectType = !selectedProjectType || normalizeText(getProjectTypeLabel(project)) === selectedProjectType;
       const matchesWeek = projectMatchesWeekFilter(project, selectedWeek);
       const matchesStatus = projectMatchesStatusFilter(project);
-      return matchesQuery && matchesDemand && matchesWeek && matchesStatus;
+      return matchesQuery && matchesDemand && matchesProjectType && matchesWeek && matchesStatus;
     })
     .sort(compareProjectsByPlannedFinishDate);
 
@@ -2469,7 +2530,7 @@ function renderStats() {
 
 function renderTable() {
   if (!state.filteredProjects.length) {
-    bodyEl.innerHTML = '<tr><td colspan="17" class="loading-cell">Nenhum projeto encontrado para a busca informada.</td></tr>';
+    bodyEl.innerHTML = '<tr><td colspan="18" class="loading-cell">Nenhum projeto encontrado para a busca informada.</td></tr>';
     searchCountEl.textContent = "0 resultado(s)";
     return;
   }
@@ -2497,8 +2558,9 @@ function renderTable() {
       return `
         <tr class="${rowClass}" data-project-id="${project.rowId}">
           <td>${project.projectDisplay || "—"}</td>
+          <td><span class="type-pill">${getProjectTypeLabel(project)}</span></td>
           <td>${project.plannedFinishDate || "—"}</td>
-          <td>${formatNumber(project.quantitySpools)}</td>
+          <td>${formatNumber(getProjectItemCount(project))}</td>
           <td>${formatNumber(project.weldedWeightKg, 0)}</td>
           <td>${project.weldingWeek || "—"}</td>
           <td>${formatNumber(project.kilos, 2)}</td>
@@ -2547,6 +2609,7 @@ function renderSelectedProjectCard() {
 
       <div class="detail-grid compact-grid">
         <div class="metric-chip"><span>Qtd. itens</span><strong>${formatNumber(getProjectItemCount(project))}</strong></div>
+        <div class="metric-chip"><span>Tipo</span><strong>${getProjectTypeLabel(project)}</strong></div>
         <div class="metric-chip"><span>Cliente</span><strong>${project.client || "—"}</strong></div>
         <div class="metric-chip"><span>Peso total soldado</span><strong>${formatNumber(project.weldedWeightKg, 0)} kg</strong></div>
         <button class="metric-chip metric-chip--button" type="button" id="open-backlog-project">
@@ -2648,6 +2711,7 @@ function renderModal(project) {
   modalContentEl.innerHTML = `
     <section class="modal-summary-grid">
       <article class="metric-chip"><span>Qtd. itens</span><strong>${formatNumber(getProjectItemCount(project))}</strong></article>
+      <article class="metric-chip"><span>Tipo</span><strong>${getProjectTypeLabel(project)}</strong></article>
       <article class="metric-chip"><span>Cliente</span><strong>${project.client || "—"}</strong></article>
       <article class="metric-chip"><span>Peso total soldado</span><strong>${formatNumber(project.weldedWeightKg, 0)} kg</strong></article>
       <article class="metric-chip metric-chip--button" id="modal-open-backlog" role="button" tabindex="0"><span>Backlog KG</span><strong>${formatNumber(getBacklogKg(project), 0)} kg</strong><small>${formatBacklogItemText(project)}</small></article>
@@ -2963,6 +3027,7 @@ async function loadProjects() {
     state.meta = data.meta || null;
     state.alerts = data.alerts || [];
     buildDemandOptions();
+    buildProjectTypeOptions();
     buildWeekOptions();
 
     if (!state.selectedProjectId && state.projects.length) {
@@ -2995,7 +3060,7 @@ async function loadProjects() {
       return;
     }
 
-    bodyEl.innerHTML = `<tr><td colspan="17" class="loading-cell">${fallbackMessage}</td></tr>`;
+    bodyEl.innerHTML = `<tr><td colspan="18" class="loading-cell">${fallbackMessage}</td></tr>`;
     detailCardEl.innerHTML = `<div class="detail-placeholder">${fallbackMessage}</div>`;
   }
 }
@@ -3051,10 +3116,12 @@ function bindEvents() {
   clearSearchEl.addEventListener("click", () => {
     state.searchQuery = "";
     state.demandFilter = "";
+    state.projectTypeFilter = "";
     state.weekFilter = "";
     state.statusFilters = [];
     searchInputEl.value = "";
     if (demandFilterEl) demandFilterEl.value = "";
+    if (projectTypeFilterEl) projectTypeFilterEl.value = "";
     if (weekFilterEl) weekFilterEl.value = "";
     renderStatusFilterMenu();
     applyFilter();
@@ -3068,6 +3135,17 @@ function bindEvents() {
   if (demandFilterEl) {
     demandFilterEl.addEventListener("change", (event) => {
       state.demandFilter = event.target.value;
+      applyFilter();
+      renderStats();
+      renderTable();
+      renderSelectedProjectCard();
+      tableShellEl.scrollTop = 0;
+    });
+  }
+
+  if (projectTypeFilterEl) {
+    projectTypeFilterEl.addEventListener("change", (event) => {
+      state.projectTypeFilter = event.target.value;
       applyFilter();
       renderStats();
       renderTable();
@@ -3854,7 +3932,7 @@ function resetDashboardForLoggedOutState() {
   state.meta = null;
   state.alerts = [];
   state.selectedProjectId = null;
-  if (bodyEl) bodyEl.innerHTML = `<tr><td colspan="17" class="loading-cell">Faça login para visualizar os projetos.</td></tr>`;
+  if (bodyEl) bodyEl.innerHTML = `<tr><td colspan="18" class="loading-cell">Faça login para visualizar os projetos.</td></tr>`;
   if (detailCardEl) detailCardEl.innerHTML = `<div class="detail-placeholder">Painel protegido. Entre com seu usuário e senha para visualizar as informações.</div>`;
   if (searchCountEl) searchCountEl.textContent = '0 resultado(s)';
   if (sheetNameEl) sheetNameEl.textContent = 'Acesso restrito';
