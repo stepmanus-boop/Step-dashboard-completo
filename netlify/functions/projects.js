@@ -42,8 +42,28 @@ const STAGE_ORDER = [
   { key: "Project Finished?", label: "Finalizado", type: "boolean" },
 ];
 
+function normalizeColumnTitle(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "")
+    .toLowerCase();
+}
+
 function getCellValue(row, key) {
-  return row.values[key] || { raw: null, display: null };
+  if (!row?.values) return { raw: null, display: null };
+  if (row.values[key]) return row.values[key];
+
+  const target = normalizeColumnTitle(key);
+  if (!target) return { raw: null, display: null };
+
+  for (const [title, cell] of Object.entries(row.values)) {
+    if (normalizeColumnTitle(title) === target) {
+      return cell || { raw: null, display: null };
+    }
+  }
+
+  return { raw: null, display: null };
 }
 
 function textValue(row, key) {
@@ -925,7 +945,7 @@ function buildProject(summaryRow, childRows) {
   const overallProgress = parsePercent(summaryRow, "% Overall Progress") ?? 0;
   const individualProgress = parsePercent(summaryRow, "% Individual Progress") ?? overallProgress;
   const projectFinishedFlag = isTruthyValue(getCellValue(summaryRow, "Project Finished?").raw);
-  const projectStatus = textValue(summaryRow, "PROJECT STATUS") || textValue(summaryRow, "Overall Project Status") || textValue(summaryRow, "Status");
+  const projectStatus = textValue(summaryRow, "Project Status") || textValue(summaryRow, "PROJECT STATUS") || textValue(summaryRow, "Overall Project Status") || textValue(summaryRow, "Status");
   const coatingPercent = parsePercent(summaryRow, "Surface preparation and/or coating") ?? 0;
   const fabricationStartDate = textValue(summaryRow, "Fabrication Start Date");
   const stageValues = buildStageValues(summaryRow);
