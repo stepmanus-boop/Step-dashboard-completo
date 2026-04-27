@@ -1418,6 +1418,29 @@ function stageUpdatePendingLabel(status) {
   return isReviewStageStatus(status) ? 'Revisão PCP' : 'Pendente';
 }
 
+function getStageTrackingInfo(item) {
+  const progress = Number(item?.progress || 0);
+  const current = Number(item?.trackingProgress);
+  const hasCurrent = Number.isFinite(current);
+  const matched = Boolean(item?.trackingMatched) || (hasCurrent && current >= progress);
+
+  return {
+    current: hasCurrent ? current : null,
+    matched,
+    label: hasCurrent
+      ? (matched ? `Tracking OK ${formatPercent(current)}` : `Aguardando tracking ${formatPercent(current)}/${formatPercent(progress)}`)
+      : 'Tracking não localizado',
+    className: hasCurrent
+      ? (matched ? 'stage-badge--tracking-ok' : 'stage-badge--tracking-waiting')
+      : 'stage-badge--tracking-missing',
+  };
+}
+
+function stageTrackingBadgeHtml(item) {
+  const info = getStageTrackingInfo(item);
+  return `<span class="stage-badge ${info.className}">${escapeHtml(info.label)}</span>`;
+}
+
 function getPendingStageUpdate(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
   return getStageUpdatesForCurrentSector().find((item) =>
     isPendingStageStatus(item.status)
@@ -5092,6 +5115,7 @@ function renderStageSectorWorkspace() {
                         <span class="stage-badge stage-badge--sector">${escapeHtml(sectorLabel(item.sector))}</span>
                         <span class="stage-badge ${isResolvedStageStatus(item.status) ? (isReviewStageStatus(item.status) ? 'stage-badge--review-resolved' : 'stage-badge--resolved') : (isReviewStageStatus(item.status) ? 'stage-badge--review' : 'stage-badge--sent')}">${escapeHtml(isResolvedStageStatus(item.status) ? stageUpdateResolveLabel(item.status) : stageUpdateActionLabel(item.status))}</span>
                         <span class="stage-badge">${escapeHtml(String(item.progress || 0))}%</span>
+                        ${stageTrackingBadgeHtml(item)}
                       </div>
                     </div>
                   </div>
@@ -5155,7 +5179,7 @@ function renderStageValidationWorkspace() {
             <div class="stage-project-head"><strong>${escapeHtml(projectName)}</strong><div class="stage-muted">${items.length} item(ns)</div></div>
             <div class="table-shell">
               <table class="stage-inline-table">
-                <thead><tr><th>Spool</th><th>Setor</th><th>Tipo</th><th>Avanço</th><th>Observação</th><th>Ação</th></tr></thead>
+                <thead><tr><th>Spool</th><th>Setor</th><th>Tipo</th><th>Avanço</th><th>Tracking</th><th>Observação</th><th>Ação</th></tr></thead>
                 <tbody>
                   ${items.map((item) => `
                     <tr>
@@ -5163,6 +5187,7 @@ function renderStageValidationWorkspace() {
                       <td>${escapeHtml(sectorLabel(item.sector))}</td>
                       <td>${escapeHtml(isReviewStageStatus(item.status) ? 'Revisão' : 'Avanço')}</td>
                       <td>${escapeHtml(String(item.progress || 0))}%</td>
+                      <td>${stageTrackingBadgeHtml(item)}</td>
                       <td>${escapeHtml(item.note || '—')}</td>
                       <td><button class="primary-button" type="button" data-stage-conclude="${escapeHtml(item.id)}">${escapeHtml(isReviewStageStatus(item.status) ? 'Tratar revisão' : 'Concluir')}</button></td>
                     </tr>`).join('')}
@@ -5184,6 +5209,7 @@ function renderStageValidationWorkspace() {
                       <span class="stage-badge stage-badge--sector">${escapeHtml(sectorLabel(item.sector))}</span>
                       <span class="stage-badge ${isReviewStageStatus(item.status) ? 'stage-badge--review' : 'stage-badge--pending'}">${escapeHtml(stageUpdatePendingLabel(item.status))}</span>
                       <span class="stage-badge">${escapeHtml(String(item.progress || 0))}%</span>
+                      ${stageTrackingBadgeHtml(item)}
                     </div>
                   </div>
                   <button class="primary-button" type="button" data-stage-conclude="${escapeHtml(item.id)}">${escapeHtml(isReviewStageStatus(item.status) ? 'Tratar revisão' : 'Concluir')}</button>
