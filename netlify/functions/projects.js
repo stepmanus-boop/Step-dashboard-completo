@@ -1062,13 +1062,24 @@ function buildProjects(rows) {
     }
   }
 
+  function getLeafChildRows(parentId) {
+    const directChildren = childrenByParent.get(parentId) || [];
+    const leafRows = [];
+    for (const child of directChildren) {
+      const descendants = getLeafChildRows(child.id);
+      if (descendants.length) leafRows.push(...descendants);
+      else leafRows.push(child);
+    }
+    return leafRows;
+  }
+
   let currentSummary = null;
 
   for (const row of rows) {
     if (isSummaryRow(row)) {
-      const directChildren = childrenByParent.get(row.id) || [];
+      const projectChildren = getLeafChildRows(row.id);
       currentSummary = row;
-      projects.push(buildProject(row, directChildren));
+      projects.push(buildProject(row, projectChildren));
       continue;
     }
 

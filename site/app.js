@@ -2515,6 +2515,58 @@ function getProjectItemCount(project) {
   return declared > 0 ? declared : spoolsCount;
 }
 
+function incrementTrailingNumberLabel(value, index) {
+  const text = String(value || '').trim();
+  const nextNumber = String(index).padStart(2, '0');
+  if (!text) return `Item ${nextNumber}`;
+
+  const patterns = [
+    /(\bSP\s*[- ]*)(\d{1,3})(\s*)$/i,
+    /(\bSPL\s*[- ]*)(\d{1,3})(\s*)$/i,
+    /(\bSPOOL\s*[- ]*)(\d{1,3})(\s*)$/i,
+    /([\s-])(\d{1,3})(\s*)$/,
+  ];
+
+  for (const pattern of patterns) {
+    if (pattern.test(text)) {
+      return text.replace(pattern, (match, prefix, number, suffix = '') => {
+        const width = Math.max(String(number || '').length, 2);
+        return `${prefix}${String(index).padStart(width, '0')}${suffix}`;
+      });
+    }
+  }
+
+  return `${text} - Item ${nextNumber}`;
+}
+
+function createVirtualSpoolFromGroupedRow(spool, index, project) {
+  const base = { ...(spool || {}) };
+  const iso = incrementTrailingNumberLabel(base.iso || base.drawing || project?.projectDisplay || 'Item', index);
+  const drawing = incrementTrailingNumberLabel(base.drawing || base.iso || project?.projectDisplay || 'Item', index);
+  return {
+    ...base,
+    rowId: `${base.rowId || project?.rowId || 'virtual'}::item-${index}`,
+    rowNumber: Number(base.rowNumber || 0) + (index / 1000),
+    iso,
+    drawing,
+    isVirtualQuantityItem: index > 1,
+    observations: index > 1
+      ? (base.observations ? `${base.observations} | ` : '') + 'Item detalhado pela quantidade informada na BSP.'
+      : base.observations,
+  };
+}
+
+function getDisplaySpoolsForProject(project, sourceSpools = null) {
+  const spools = Array.isArray(sourceSpools) ? sourceSpools : (Array.isArray(project?.spools) ? project.spools : []);
+  const declaredCount = Number(project?.quantitySpools || 0);
+
+  if (declaredCount > spools.length && spools.length === 1) {
+    return Array.from({ length: declaredCount }, (_, index) => createVirtualSpoolFromGroupedRow(spools[0], index + 1, project));
+  }
+
+  return spools;
+}
+
 function getPendingSpools(project) {
   return (project?.spools || []).filter((spool) => {
     const total = Number(spool.kilos || 0);
@@ -2651,7 +2703,7 @@ function renderSelectedProjectCard() {
 
   const statusPresentation = getProjectStatusPresentation(project);
   const statusText = statusPresentation.text;
-  const matchedSpools = project.spools?.length || 0;
+  const matchedSpools = getProjectItemCount(project);
 
   detailCardEl.innerHTML = `
     <div class="detail-hero compact">
@@ -2715,7 +2767,8 @@ function renderModal(project) {
     .map((item) => `<div class="milestone-chip"><span>${item.key || item.label}</span><strong>${item.value}</strong></div>`)
     .join("");
 
-  const sourceSpools = state.modalPendingOnly ? getPendingSpools(project) : (project.spools || []);
+  const baseSpools = state.modalPendingOnly ? getPendingSpools(project) : (project.spools || []);
+  const sourceSpools = getDisplaySpoolsForProject(project, baseSpools);
   const sortedSpools = [...sourceSpools].sort((a, b) => {
     const aProgress = Number.isFinite(Number(a?.individualProgress)) ? Number(a.individualProgress) : 999999;
     const bProgress = Number.isFinite(Number(b?.individualProgress)) ? Number(b.individualProgress) : 999999;
@@ -4973,7 +5026,7 @@ function renderStageSectorWorkspace() {
         <section class="admin-card admin-card--wide">
           <div class="admin-card-head"><h4>Lançar avanço da etapa</h4></div>
           ${matchedProjects.length ? `<div class="stage-project-list">${matchedProjects.map((project) => {
-            const spools = Array.isArray(project.spools) ? project.spools : [];
+            const spools = getDisplaySpoolsForProject(project, Array.isArray(project.spools) ? project.spools : []);
             return `
               <article class="stage-project-card">
                 <div class="stage-project-head">
