@@ -1966,6 +1966,20 @@ function getStatsProjectsSource() {
   return source.filter((project) => projectMatchesWeekFilter(project));
 }
 
+function isProjectStatusOnHold(projectStatus) {
+  const normalized = normalizeText(projectStatus || "");
+  const compact = normalized.replace(/[^a-z0-9]+/g, "");
+  return compact === "onhold"
+    || compact === "hold"
+    || compact === "pausado"
+    || compact === "paused"
+    || compact === "emespera"
+    || normalized.includes("hold")
+    || normalized.includes("em espera")
+    || normalized.includes("pausado")
+    || normalized.includes("paused");
+}
+
 function buildClientStats(projects) {
   const stats = {
     totalProjects: projects.length,
@@ -2003,8 +2017,7 @@ function buildClientStats(projects) {
     stats.totalPaintingM2 += project.finished ? 0 : (openPaintingM2 > 0 ? openPaintingM2 : Number(project.m2Painting || 0));
     progressAccumulator += Number(project.overallProgress || 0);
 
-    const normalizedProjectStatus = String(project?.projectStatus || "").trim().toUpperCase().replace(/\s+/g, " ");
-    const isHoldProject = ["ON HOLD", "HOLD", "PAUSED", "EM ESPERA"].includes(normalizedProjectStatus);
+    const isHoldProject = isProjectStatusOnHold(project?.projectStatus);
 
     if (isHoldProject) {
       stats.notStartedHold += 1;

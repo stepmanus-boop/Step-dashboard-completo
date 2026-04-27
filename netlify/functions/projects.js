@@ -1169,6 +1169,25 @@ function getOpenFlowItemsForStats(project) {
   return source.filter((item) => item.flow?.state !== "completed" && item.flow?.status !== "Finalizado");
 }
 
+function isProjectStatusOnHold(projectStatus) {
+  const normalized = String(projectStatus || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ");
+  const compact = normalized.replace(/[^A-Z0-9]+/g, "");
+  return compact === "ONHOLD"
+    || compact === "HOLD"
+    || compact === "PAUSADO"
+    || compact === "PAUSED"
+    || compact === "EMESPERA"
+    || normalized.includes("HOLD")
+    || normalized.includes("EM ESPERA")
+    || normalized.includes("PAUSADO")
+    || normalized.includes("PAUSED");
+}
+
 function buildStats(projects) {
   const stats = {
     totalProjects: projects.length,
@@ -1207,8 +1226,7 @@ function buildStats(projects) {
     stats.totalPaintingM2 += project.finished ? 0 : (openPaintingM2 > 0 ? openPaintingM2 : Number(project.m2Painting || 0));
     progressAccumulator += project.overallProgress || 0;
 
-    const normalizedProjectStatus = String(project?.projectStatus || "").trim().toUpperCase().replace(/\s+/g, " ");
-    const isOnHold = ["ON HOLD", "HOLD", "EM ESPERA", "PAUSED"].includes(normalizedProjectStatus);
+    const isOnHold = isProjectStatusOnHold(project?.projectStatus);
 
     if (isOnHold) {
       stats.notStartedHold += 1;
