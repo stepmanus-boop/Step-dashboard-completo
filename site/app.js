@@ -2006,6 +2006,11 @@ function buildClientStats(projects) {
     const normalizedProjectStatus = String(project?.projectStatus || "").trim().toUpperCase().replace(/\s+/g, " ");
     const isHoldProject = ["ON HOLD", "HOLD", "PAUSED", "EM ESPERA"].includes(normalizedProjectStatus);
 
+    if (isHoldProject) {
+      stats.notStartedHold += 1;
+      stats.notStartedHoldTags += tags;
+    }
+
     if (project.finished || project.uiState === 'completed') {
       stats.completed += 1;
       stats.completedTags += tags;
@@ -2039,10 +2044,6 @@ function buildClientStats(projects) {
     if (preStartTags || (!openItems.length && !project.finished)) {
       stats.notStarted += 1;
       stats.notStartedTags += preStartTags || tags;
-      if (isHoldProject) {
-        stats.notStartedHold += 1;
-        stats.notStartedHoldTags += preStartTags || tags;
-      }
     }
   }
 

@@ -1210,6 +1210,11 @@ function buildStats(projects) {
     const normalizedProjectStatus = String(project?.projectStatus || "").trim().toUpperCase().replace(/\s+/g, " ");
     const isOnHold = ["ON HOLD", "HOLD", "EM ESPERA", "PAUSED"].includes(normalizedProjectStatus);
 
+    if (isOnHold) {
+      stats.notStartedHold += 1;
+      stats.notStartedHoldTags += tags;
+    }
+
     if (project.finished) {
       stats.completed += 1;
       stats.completedTags += tags;
@@ -1231,10 +1236,6 @@ function buildStats(projects) {
     if (preStartTags || (!openItems.length && !project.finished)) {
       stats.notStarted += 1;
       stats.notStartedTags += preStartTags || tags;
-      if (isOnHold) {
-        stats.notStartedHold += 1;
-        stats.notStartedHoldTags += preStartTags || tags;
-      }
     }
   }
 
