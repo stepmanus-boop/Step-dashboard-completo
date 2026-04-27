@@ -474,7 +474,7 @@ function openAttentionPopupTarget(item) {
     return;
   }
   if (kind === 'automatic') {
-    openAlertModal(true);
+    openAlertModal(true, { manual: true });
     return;
   }
   if (kind === 'projectsignals') {
@@ -715,6 +715,36 @@ function buildSearchIndex(parts) {
   });
 
   return normalizeText(expanded.join(" | "));
+}
+
+function matchesFlexibleSearch(values, query) {
+  const rawQuery = String(query || '').trim();
+  const normalizedQuery = normalizeText(rawQuery).trim();
+  const compactQuery = normalizeCompactText(rawQuery).trim();
+  const digitsQuery = rawQuery.replace(/\D+/g, "");
+
+  if (!normalizedQuery && !compactQuery && !digitsQuery) return true;
+
+  const index = buildSearchIndex(values || []);
+  return Boolean(
+    (normalizedQuery && index.includes(normalizedQuery))
+    || (compactQuery && index.includes(compactQuery))
+    || (digitsQuery && index.includes(digitsQuery))
+  );
+}
+
+function refocusStageSearchInput(caretPosition = null) {
+  window.requestAnimationFrame(() => {
+    const input = stageUpdatesModalEl?.querySelector('[data-stage-search="true"]');
+    if (!input) return;
+    input.focus();
+    const position = Number.isFinite(Number(caretPosition))
+      ? Number(caretPosition)
+      : String(input.value || '').length;
+    try {
+      input.setSelectionRange(position, position);
+    } catch {}
+  });
 }
 
 function normalizeLoginValue(value) {
@@ -1335,12 +1365,24 @@ function canValidateStageWorkspace(user = state.user) {
 }
 
 function stageWorkspaceSearchProjects() {
-  const query = normalizeText(state.stageUpdatesSearchQuery || '');
+  const query = String(state.stageUpdatesSearchQuery || '').trim();
   const source = Array.isArray(state.projects) ? state.projects : [];
   if (!query) return source.slice(0, 8);
+
   return source.filter((project) => {
-    return [project.projectNumber, project.projectDisplay, project.client, project.currentStage]
-      .some((value) => normalizeText(value).includes(query));
+    const projectValues = [
+      project.projectNumber,
+      project.projectDisplay,
+      project.projectPrefix,
+      project.client,
+      project.currentStage,
+      project.projectStatus,
+      project.jobProcessStatus,
+      project.projectType,
+      getProjectTypeLabel(project),
+      ...(project.spools || []).flatMap((spool) => [spool.iso, spool.description, spool.drawing]),
+    ];
+    return matchesFlexibleSearch(projectValues, query);
   }).slice(0, 8);
 }
 
@@ -2986,8 +3028,15 @@ function findProjectFromAlertElement(element) {
   return state.projects.find((project) => normalizeText(project.projectNumber) === projectNumber || normalizeText(project.projectDisplay) === projectNumber) || null;
 }
 
-function openAlertModal(force = false) {
+function openAlertModal(force = false, options = {}) {
   if (!alertModalEl) return;
+
+  const manualOpen = Boolean(options.manual);
+
+  // O alerta continua existindo no botão/contador, mas o modal grande não abre sozinho ao carregar/reabrir o link.
+  // Isso evita a tela apagada/bloqueada para novos usuários.
+  if (!manualOpen) return;
+
   if (!force && !shouldOpenAlertPopup()) return;
   renderAlertModal();
   alertModalEl.classList.remove("hidden");
@@ -3054,11 +3103,9 @@ async function loadProjects() {
     renderSelectedProjectCard();
     renderAlertBadge();
     updateMeta();
-    if (shouldOpenAlertPopup()) {
-      openAlertModal(true);
-    } else {
-      renderAlertModal();
-    }
+    // Mantém os alertas carregados e o contador atualizado, mas não bloqueia a tela automaticamente.
+    // O usuário abre os prazos manualmente pelo botão "Alertas de prazo".
+    renderAlertModal();
     if (state.user && sectorAlertsModalEl && !sectorAlertsModalEl.classList.contains("hidden")) {
       renderManualAlerts();
     }
@@ -3344,9 +3391,28 @@ function bindEvents() {
   if (openAlertsButtonEl) {
     openAlertsButtonEl.addEventListener("click", () => {
       renderAlertModal();
-      openAlertModal(true);
+      openAlertModal(true, { manual: true });
     });
   }
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+
+    if (alertModalEl && !alertModalEl.classList.contains("hidden")) {
+      closeAlertModal();
+      return;
+    }
+
+    if (modalEl && !modalEl.classList.contains("hidden")) {
+      closeProjectModal();
+      return;
+    }
+
+    if (loginModalEl && !loginModalEl.classList.contains("hidden")) {
+      closeLoginModal();
+      return;
+    }
+  });
 
 if (loginFormEl) {
   loginFormEl.addEventListener("submit", handleLoginSubmit);
@@ -3559,8 +3625,10 @@ if (stageUpdatesModalEl) {
   stageUpdatesModalEl.addEventListener('input', (event) => {
     const searchEl = event.target.closest('[data-stage-search="true"]');
     if (searchEl) {
+      const caretPosition = searchEl.selectionStart ?? String(searchEl.value || '').length;
       state.stageUpdatesSearchQuery = searchEl.value || '';
       renderStageUpdatesModal();
+      refocusStageSearchInput(caretPosition);
       return;
     }
     const progressEl = event.target.closest('[data-stage-progress="true"]');
@@ -4889,7 +4957,7 @@ function renderStageSectorWorkspace() {
         <div class="stage-toolbar">
           <label class="stack-field">
             <span>Buscar BSP / cliente</span>
-            <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP 25-1246" />
+            <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP 25-732-03 ou BSP2573203" autocomplete="off" inputmode="search" />
           </label>
           <div class="stage-muted">Etapa atual do seu login: <strong>${escapeHtml(stageLabel)}</strong></div>
         </div>
@@ -4987,12 +5055,21 @@ function renderStageSectorWorkspace() {
 
 function renderStageValidationWorkspace() {
   if (!stageUpdatesContentEl) return;
-  const query = normalizeText(state.stageUpdatesSearchQuery || '');
+  const query = String(state.stageUpdatesSearchQuery || '').trim();
   const all = Array.isArray(state.stageUpdates) ? state.stageUpdates : [];
   const filtered = all.filter((item) => {
     if (!query) return true;
-    return [item.projectNumber, item.projectDisplay, item.client, item.spoolIso, item.sector, item.createdByName]
-      .some((value) => normalizeText(value).includes(query));
+    return matchesFlexibleSearch([
+      item.projectNumber,
+      item.projectDisplay,
+      item.client,
+      item.spoolIso,
+      item.spoolDescription,
+      item.sector,
+      sectorLabel(item.sector),
+      item.createdByName,
+      item.createdBy,
+    ], query);
   }).sort((a,b)=> new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   const pending = filtered.filter((item) => isPendingStageStatus(item.status));
   const history = filtered.filter((item) => isResolvedStageStatus(item.status)).slice(0, 50);
@@ -5008,7 +5085,7 @@ function renderStageValidationWorkspace() {
         <div class="stage-toolbar">
           <label class="stack-field">
             <span>Buscar BSP / spool / setor</span>
-            <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP 25-1246" />
+            <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP 25-732-03 ou BSP2573203" autocomplete="off" inputmode="search" />
           </label>
           <div class="stage-row-actions">
             <div class="stage-muted">Pendentes: <strong>${pending.length}</strong> • Histórico: <strong>${history.length}</strong></div>
@@ -5410,6 +5487,11 @@ async function acknowledgeManualAlert(alertId) {
 }
 
 async function init() {
+  if (alertModalEl) {
+    alertModalEl.classList.add("hidden");
+    alertModalEl.setAttribute("aria-hidden", "true");
+  }
+  document.body.classList.remove("modal-open");
   updateConnectionStatus();
   window.addEventListener("online", updateConnectionStatus);
   window.addEventListener("offline", updateConnectionStatus);

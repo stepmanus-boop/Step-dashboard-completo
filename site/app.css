@@ -3071,3 +3071,121 @@ button.alert-badge {
   letter-spacing: 0.04em;
   white-space: nowrap;
 }
+
+
+/* Ajuste responsivo do detalhamento operacional: mantém a tabela de ISOs visível mesmo com zoom maior. */
+#project-modal .modal-dialog {
+  width: min(96vw, 1700px);
+  height: min(94dvh, 980px);
+  max-height: calc(100dvh - 18px);
+}
+
+#project-modal .modal-content {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(150px, 1fr);
+  gap: 12px;
+}
+
+#project-modal .modal-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+#project-modal .modal-table-wrap {
+  min-height: 150px;
+  overflow: auto;
+}
+
+@media (max-height: 820px) {
+  #project-modal .modal-dialog {
+    height: calc(100dvh - 12px);
+  }
+
+  #project-modal .modal-head {
+    padding: 12px 16px 8px;
+  }
+
+  #project-modal .modal-head h3 {
+    font-size: clamp(22px, 2vw, 30px);
+  }
+
+  #project-modal .modal-subtitle {
+    margin-top: 4px;
+    font-size: 12px;
+  }
+
+  #project-modal .modal-content {
+    padding: 10px 14px 12px;
+    gap: 8px;
+    grid-template-rows: auto auto auto minmax(130px, 1fr);
+  }
+
+  #project-modal .modal-summary-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  #project-modal .metric-chip {
+    padding: 7px 9px;
+    gap: 3px;
+    border-radius: 11px;
+  }
+
+  #project-modal .metric-chip span {
+    font-size: 9px;
+    letter-spacing: 0.06em;
+  }
+
+  #project-modal .metric-chip strong {
+    font-size: 14px;
+  }
+
+  #project-modal .metric-chip small {
+    font-size: 10px;
+  }
+
+  #project-modal .modal-milestones {
+    display: none;
+  }
+
+  #project-modal .project-signals-section {
+    padding: 8px 10px;
+  }
+
+  #project-modal .project-signals-list {
+    max-height: 70px;
+    overflow: auto;
+  }
+
+  #project-modal .modal-table thead th {
+    padding: 7px 6px;
+    font-size: 9px;
+  }
+
+  #project-modal .modal-table tbody td {
+    padding: 6px;
+    font-size: 11px;
+  }
+}
+
+@media (max-height: 680px) {
+  #project-modal .modal-summary-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  #project-modal .project-signals-section {
+    display: none;
+  }
+
+  #project-modal .modal-content {
+    grid-template-rows: auto auto minmax(150px, 1fr);
+  }
+}
+
+@media (max-width: 1100px) {
+  #project-modal .modal-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
