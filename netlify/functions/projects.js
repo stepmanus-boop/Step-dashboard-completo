@@ -956,6 +956,11 @@ function buildProject(summaryRow, childRows) {
     return acc;
   }, { total: 0, completed: 0, inProgress: 0, notStarted: 0 });
 
+  const quantitySpoolsRaw = parseNumber(summaryRow, "Quantity Spools");
+  const quantitySpools = Number(quantitySpoolsRaw || 0) > 0
+    ? quantitySpoolsRaw
+    : spools.length;
+
   const operationalSector = flow.sector;
 
   const project = {
@@ -964,7 +969,7 @@ function buildProject(summaryRow, childRows) {
     projectPrefix: parts.prefix,
     projectNumber: parts.number,
     projectDisplay: parts.display || projectText,
-    quantitySpools: parseNumber(summaryRow, "Quantity Spools") ?? spools.length,
+    quantitySpools,
     kilos: parseNumber(summaryRow, "Kilos"),
     weldedWeightKg,
     weldingWeek,

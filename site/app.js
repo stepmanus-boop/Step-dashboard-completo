@@ -2392,6 +2392,12 @@ function getBacklogKg(project) {
   return Math.max(0, total - welded);
 }
 
+function getProjectItemCount(project) {
+  const declared = Number(project?.quantitySpools || 0);
+  const spoolsCount = Array.isArray(project?.spools) ? project.spools.length : 0;
+  return declared > 0 ? declared : spoolsCount;
+}
+
 function getPendingSpools(project) {
   return (project?.spools || []).filter((spool) => {
     const total = Number(spool.kilos || 0);
@@ -2540,7 +2546,7 @@ function renderSelectedProjectCard() {
       </div>
 
       <div class="detail-grid compact-grid">
-        <div class="metric-chip"><span>Qtd. itens</span><strong>${formatNumber(project.quantitySpools)}</strong></div>
+        <div class="metric-chip"><span>Qtd. itens</span><strong>${formatNumber(getProjectItemCount(project))}</strong></div>
         <div class="metric-chip"><span>Cliente</span><strong>${project.client || "—"}</strong></div>
         <div class="metric-chip"><span>Peso total soldado</span><strong>${formatNumber(project.weldedWeightKg, 0)} kg</strong></div>
         <button class="metric-chip metric-chip--button" type="button" id="open-backlog-project">
@@ -2641,7 +2647,7 @@ function renderModal(project) {
 
   modalContentEl.innerHTML = `
     <section class="modal-summary-grid">
-      <article class="metric-chip"><span>Qtd. itens</span><strong>${formatNumber(project.quantitySpools)}</strong></article>
+      <article class="metric-chip"><span>Qtd. itens</span><strong>${formatNumber(getProjectItemCount(project))}</strong></article>
       <article class="metric-chip"><span>Cliente</span><strong>${project.client || "—"}</strong></article>
       <article class="metric-chip"><span>Peso total soldado</span><strong>${formatNumber(project.weldedWeightKg, 0)} kg</strong></article>
       <article class="metric-chip metric-chip--button" id="modal-open-backlog" role="button" tabindex="0"><span>Backlog KG</span><strong>${formatNumber(getBacklogKg(project), 0)} kg</strong><small>${formatBacklogItemText(project)}</small></article>
