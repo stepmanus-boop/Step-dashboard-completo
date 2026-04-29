@@ -460,11 +460,25 @@ async function fixTrackingDatePendencies(ids = []) {
     return { fixed, errors, pending: all };
   }
 
+  const columnsCache = new Map();
+  const getColumnsCached = async (sheetId) => {
+    const key = String(sheetId || '');
+    if (!columnsCache.has(key)) {
+      columnsCache.set(key, await getSheetColumns(sheetId));
+    }
+    return columnsCache.get(key);
+  };
+
   const bySheetAndDateColumn = new Map();
   const bySheetAndProgressColumn = new Map();
+  const bySheetPaintingNextSteps = new Map();
 
   for (const item of selected) {
-    const rowIds = Array.isArray(item.rowIds) && item.rowIds.length ? item.rowIds : [item.rowId];
+    const duplicateRows = Array.isArray(item.duplicateRows) && item.duplicateRows.length
+      ? item.duplicateRows
+      : (Array.isArray(item.rowIds) && item.rowIds.length
+        ? item.rowIds.map((rowId) => ({ rowId }))
+        : [{ rowId: item.rowId }]);
 
     const dateGroupKey = `${item.sheetId}::${normalizeColumnTitle(item.dateColumn)}`;
     if (!bySheetAndDateColumn.has(dateGroupKey)) {
@@ -476,25 +490,39 @@ async function fixTrackingDatePendencies(ids = []) {
       bySheetAndProgressColumn.set(progressGroupKey, { sheetId: item.sheetId, progressColumn: item.progressColumn, rows: [] });
     }
 
-    for (const rowId of rowIds) {
-      if (!Number(rowId || 0)) continue;
-      bySheetAndDateColumn.get(dateGroupKey).rows.push({
-        id: Number(rowId),
+    if (item.progressColumn === 'Surface preparation and/or coating') {
+      const paintingGroupKey = `${item.sheetId}::painting-next`;
+      if (!bySheetPaintingNextSteps.has(paintingGroupKey)) {
+        bySheetPaintingNextSteps.set(paintingGroupKey, { sheetId: item.sheetId, rows: [] });
+      }
+    }
+
+    for (const duplicate of duplicateRows) {
+      const rowId = Number(duplicate?.rowId || duplicate || 0);
+      if (!rowId) continue;
+
+      const commonRow = {
+        id: rowId,
         progress: 100,
         completionDate: item.suggestedDate,
         itemId: item.id,
-      });
-      bySheetAndProgressColumn.get(progressGroupKey).rows.push({
-        id: Number(rowId),
-        progress: 100,
-        itemId: item.id,
-      });
+        finalInspectionProgress: duplicate?.finalInspectionProgress,
+        packageDeliveredProgress: duplicate?.packageDeliveredProgress,
+      };
+
+      bySheetAndDateColumn.get(dateGroupKey).rows.push(commonRow);
+      bySheetAndProgressColumn.get(progressGroupKey).rows.push(commonRow);
+
+      if (item.progressColumn === 'Surface preparation and/or coating') {
+        const paintingGroupKey = `${item.sheetId}::painting-next`;
+        bySheetPaintingNextSteps.get(paintingGroupKey).rows.push(commonRow);
+      }
     }
   }
 
   for (const group of bySheetAndProgressColumn.values()) {
     try {
-      const columns = await getSheetColumns(group.sheetId);
+      const columns = await getColumnsCached(group.sheetId);
       const progressColumn = findColumn(columns, group.progressColumn);
       if (!progressColumn) throw new Error(`Coluna de avanço "${group.progressColumn}" não encontrada.`);
 
@@ -509,7 +537,7 @@ async function fixTrackingDatePendencies(ids = []) {
 
   for (const group of bySheetAndDateColumn.values()) {
     try {
-      const columns = await getSheetColumns(group.sheetId);
+      const columns = await getColumnsCached(group.sheetId);
       const dateColumn = findColumn(columns, group.dateColumn);
       if (!dateColumn) throw new Error(`Coluna de data "${group.dateColumn}" não encontrada.`);
 
@@ -529,7 +557,21 @@ async function fixTrackingDatePendencies(ids = []) {
     }
   }
 
-  return { fixed, errors, pending: all };
+  for (const group of bySheetPaintingNextSteps.values()) {
+    try {
+      const columns = await getColumnsCached(group.sheetId);
+      const uniqueRows = Array.from(new Map(group.rows.map((row) => [String(row.id), row])).values());
+      await updatePaintingCompletionNextSteps(group.sheetId, columns, uniqueRows);
+    } catch (error) {
+      for (const row of group.rows) {
+        errors.push({ id: row.itemId, error: error.message || 'Falha ao alimentar Final Inspection/Package and Delivered.' });
+      }
+    }
+  }
+
+  const fixedIds = new Set(fixed.map((item) => String(item.id)));
+  const pending = all.filter((item) => !fixedIds.has(String(item.id)));
+  return { fixed, errors, pending };
 }
 
 
@@ -940,7 +982,7 @@ exports.handler = async (event) => {
       if (action === 'fix_date_pendencies') {
         const idsToFix = Array.isArray(body.ids) ? body.ids.map((id) => String(id || '').trim()).filter(Boolean) : [];
         const result = await fixTrackingDatePendencies(idsToFix);
-        const remaining = await buildTrackingDatePendencies();
+        const remaining = Array.isArray(result.pending) ? result.pending : [];
         return jsonResponse(result.fixed.length ? 200 : 400, {
           ok: result.fixed.length > 0,
           error: result.fixed.length ? '' : (result.errors[0]?.error || 'Nenhuma pendência de data corrigida.'),
