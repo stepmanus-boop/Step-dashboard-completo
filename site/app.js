@@ -1762,7 +1762,7 @@ function renderTrackingDatePendenciesPanel() {
         pendencies.length ? `
           <div class="table-shell">
             <table class="stage-inline-table tracking-date-table">
-              <thead><tr><th>Sel.</th><th>BSP</th><th>Spool</th><th>Processo</th><th>Data faltante</th><th>Data que será aplicada</th></tr></thead>
+              <thead><tr><th><label class="stage-select-cell stage-select-cell--master" title="Selecionar todas as pendências"><input type="checkbox" data-date-pendency-master="true"></label></th><th>BSP</th><th>Spool</th><th>Processo</th><th>Data faltante</th><th>Data que será aplicada</th></tr></thead>
               <tbody>
                 ${pendencies.map((item) => `
                   <tr>
@@ -4015,6 +4015,22 @@ if (stageUpdatesCloseEl) {
 }
 
 if (stageUpdatesModalEl) {
+  stageUpdatesModalEl.addEventListener('change', (event) => {
+    const dateMaster = event.target.closest('[data-date-pendency-master]');
+    if (dateMaster) {
+      setAllDatePendencySelections(dateMaster.checked);
+      return;
+    }
+
+    const trackingMaster = event.target.closest('[data-stage-tracking-master]');
+    if (trackingMaster) {
+      setAllVisibleStageTrackingSelections(trackingMaster.checked);
+      return;
+    }
+  });
+}
+
+if (stageUpdatesModalEl) {
   stageUpdatesModalEl.addEventListener('click', (event) => {
     if (event.target.matches('[data-close-stage-updates="true"]')) {
       closeStageUpdatesModal();
@@ -5592,7 +5608,7 @@ function renderStageValidationWorkspace() {
             <div class="stage-project-head"><strong>${escapeHtml(projectName)}</strong><div class="stage-muted">${items.length} item(ns)</div></div>
             <div class="table-shell">
               <table class="stage-inline-table">
-                <thead><tr><th>Sel.</th><th>Spool</th><th>Setor</th><th>Tipo</th><th>Avanço</th><th>Tracking</th><th>Observação</th><th>Ação</th></tr></thead>
+                <thead><tr><th><label class="stage-select-cell stage-select-cell--master" title="Selecionar todos os atualizáveis deste lote"><input type="checkbox" data-stage-tracking-master="true"></label></th><th>Spool</th><th>Setor</th><th>Tipo</th><th>Avanço</th><th>Tracking</th><th>Observação</th><th>Ação</th></tr></thead>
                 <tbody>
                   ${items.map((item) => `
                     <tr>

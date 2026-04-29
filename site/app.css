@@ -3255,3 +3255,13 @@ button.alert-badge {
 .tracking-date-table th {
   vertical-align: middle;
 }
+
+
+.stage-select-cell--master {
+  min-width: 28px;
+}
+
+.stage-select-cell--master input {
+  width: 20px;
+  height: 20px;
+}
