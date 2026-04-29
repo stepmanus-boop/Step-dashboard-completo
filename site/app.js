@@ -1458,6 +1458,13 @@ function stageTrackingUpdateButtonHtml(item) {
   return `<button class="ghost-button ghost-button--compact" type="button" data-stage-update-tracking="${escapeHtml(item.id)}">Atualizar Tracking</button>`;
 }
 
+function stageTrackingSelectionHtml(item) {
+  const disabled = !canUpdateTrackingFromStage(item);
+  return `<label class="stage-select-cell" title="${disabled ? 'Este item não precisa ou não pode atualizar o Tracking' : 'Selecionar para atualização em lote'}">
+    <input type="checkbox" data-stage-tracking-select="${escapeHtml(item.id)}" value="${escapeHtml(item.id)}" ${disabled ? 'disabled' : ''}>
+  </label>`;
+}
+
 async function updateStageTrackingFromButton(button) {
   const id = String(button?.dataset?.stageUpdateTracking || '').trim();
   if (!id) return;
@@ -1491,6 +1498,74 @@ async function updateStageTrackingFromButton(button) {
     button.disabled = false;
     button.textContent = previousText || 'Atualizar Tracking';
     window.alert(error.message || 'Falha ao atualizar Tracking.');
+  }
+}
+
+function getSelectedStageTrackingIds() {
+  return Array.from(stageUpdatesModalEl?.querySelectorAll('[data-stage-tracking-select]:checked') || [])
+    .map((input) => String(input.value || input.dataset.stageTrackingSelect || '').trim())
+    .filter(Boolean);
+}
+
+function setAllVisibleStageTrackingSelections(checked) {
+  const boxes = Array.from(stageUpdatesModalEl?.querySelectorAll('[data-stage-tracking-select]:not(:disabled)') || []);
+  boxes.forEach((box) => {
+    box.checked = Boolean(checked);
+  });
+}
+
+function getVisibleStageTrackingSelectionCount() {
+  return Array.from(stageUpdatesModalEl?.querySelectorAll('[data-stage-tracking-select]:not(:disabled)') || []).length;
+}
+
+async function updateSelectedStageTracking(button) {
+  const ids = getSelectedStageTrackingIds();
+  if (!ids.length) {
+    window.alert('Selecione ao menos um apontamento para atualizar o Tracking.');
+    return;
+  }
+
+  button.disabled = true;
+  const previousText = button.textContent;
+  button.textContent = `Atualizando ${ids.length}...`;
+
+  try {
+    const response = await fetch('/api/stage-updates', {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'update_tracking', ids }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) {
+      const detail = Array.isArray(data?.errors) && data.errors.length
+        ? `\n\n${data.errors.slice(0, 5).map((item) => `• ${item.error}`).join('\n')}`
+        : '';
+      throw new Error((data?.error || 'Falha ao atualizar Tracking em lote.') + detail);
+    }
+
+    if (Array.isArray(data.updates) && data.updates.length) {
+      const updatedMap = new Map(data.updates.map((item) => [String(item.id), item]));
+      state.stageUpdates = (Array.isArray(state.stageUpdates) ? state.stageUpdates : []).map((item) => {
+        const next = updatedMap.get(String(item.id));
+        return next ? { ...item, ...next } : item;
+      });
+    }
+
+    const errors = Array.isArray(data.errors) ? data.errors : [];
+    renderStageUpdatesModal();
+    loadProjects().catch(() => {});
+    loadStageUpdates().then(() => {
+      if (stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) renderStageUpdatesModal();
+    }).catch(() => {});
+
+    if (errors.length) {
+      window.alert(`Tracking atualizado parcialmente.\nAtualizados: ${Array.isArray(data.updates) ? data.updates.length : 0}\nFalhas: ${errors.length}\n\n${errors.slice(0, 6).map((item) => `• ${item.error}`).join('\n')}`);
+    }
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = previousText || 'Atualizar selecionados';
+    window.alert(error.message || 'Falha ao atualizar Tracking em lote.');
   }
 }
 
@@ -3732,6 +3807,20 @@ if (stageUpdatesModalEl) {
       closeStageUpdatesModal();
       return;
     }
+    const trackingSelectedButton = event.target.closest('[data-stage-update-tracking-selected]');
+    if (trackingSelectedButton) {
+      updateSelectedStageTracking(trackingSelectedButton);
+      return;
+    }
+
+    const selectAllTrackingButton = event.target.closest('[data-stage-select-all-tracking]');
+    if (selectAllTrackingButton) {
+      const selectableCount = getVisibleStageTrackingSelectionCount();
+      const selectedCount = getSelectedStageTrackingIds().length;
+      setAllVisibleStageTrackingSelections(selectedCount < selectableCount);
+      return;
+    }
+
     const trackingButton = event.target.closest('[data-stage-update-tracking]');
     if (trackingButton) {
       updateStageTrackingFromButton(trackingButton);
@@ -5222,6 +5311,7 @@ function renderStageValidationWorkspace() {
     ], query);
   }).sort((a,b)=> new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   const pending = filtered.filter((item) => isPendingStageStatus(item.status));
+  const trackingUpdatable = pending.filter((item) => canUpdateTrackingFromStage(item));
   const history = filtered.filter((item) => isResolvedStageStatus(item.status)).slice(0, 50);
   const groupedPending = pending.reduce((acc, item) => {
     const key = String(item.projectDisplay || item.projectNumber || 'Projeto');
@@ -5238,7 +5328,9 @@ function renderStageValidationWorkspace() {
             <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP 25-732-03 ou BSP2573203" autocomplete="off" inputmode="search" />
           </label>
           <div class="stage-row-actions">
-            <div class="stage-muted">Pendentes: <strong>${pending.length}</strong> • Histórico: <strong>${history.length}</strong></div>
+            <div class="stage-muted">Pendentes: <strong>${pending.length}</strong> • Atualizáveis no Tracking: <strong>${trackingUpdatable.length}</strong> • Histórico: <strong>${history.length}</strong></div>
+            <button class="ghost-button" type="button" data-stage-select-all-tracking="true" ${trackingUpdatable.length ? '' : 'disabled'}>Selecionar atualizáveis</button>
+            <button class="ghost-button" type="button" data-stage-update-tracking-selected="true" ${trackingUpdatable.length ? '' : 'disabled'}>Atualizar Tracking selecionados</button>
             <button class="ghost-button" type="button" data-stage-toggle-batch="true">${state.stageBatchValidationMode ? 'Voltar à lista' : 'Tela em lote'}</button>
             <button class="primary-button" type="button" data-stage-conclude-bulk="true" ${pending.length ? '' : 'disabled'}>Concluir lote</button>
           </div>
@@ -5252,10 +5344,11 @@ function renderStageValidationWorkspace() {
             <div class="stage-project-head"><strong>${escapeHtml(projectName)}</strong><div class="stage-muted">${items.length} item(ns)</div></div>
             <div class="table-shell">
               <table class="stage-inline-table">
-                <thead><tr><th>Spool</th><th>Setor</th><th>Tipo</th><th>Avanço</th><th>Tracking</th><th>Observação</th><th>Ação</th></tr></thead>
+                <thead><tr><th>Sel.</th><th>Spool</th><th>Setor</th><th>Tipo</th><th>Avanço</th><th>Tracking</th><th>Observação</th><th>Ação</th></tr></thead>
                 <tbody>
                   ${items.map((item) => `
                     <tr>
+                      <td>${stageTrackingSelectionHtml(item)}</td>
                       <td>${escapeHtml(item.spoolIso || '—')}</td>
                       <td>${escapeHtml(sectorLabel(item.sector))}</td>
                       <td>${escapeHtml(isReviewStageStatus(item.status) ? 'Revisão' : 'Avanço')}</td>
@@ -5276,6 +5369,7 @@ function renderStageValidationWorkspace() {
             ${pending.length ? pending.map((item) => `
               <article class="stage-update-card">
                 <div class="stage-update-head">
+                  ${stageTrackingSelectionHtml(item)}
                   <div>
                     <strong>${escapeHtml(item.projectDisplay || item.projectNumber || 'Projeto')} • ${escapeHtml(item.spoolIso || 'Spool')}</strong>
                     <div class="stage-update-meta">

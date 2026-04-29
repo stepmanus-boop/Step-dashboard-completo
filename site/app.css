@@ -3213,3 +3213,28 @@ button.alert-badge {
 .stage-row-actions [data-stage-update-tracking] {
   border-color: rgba(84, 181, 255, 0.34);
 }
+
+
+.stage-select-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+}
+
+.stage-select-cell input {
+  width: 18px;
+  height: 18px;
+  accent-color: #54b5ff;
+  cursor: pointer;
+}
+
+.stage-select-cell input:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.stage-update-head > .stage-select-cell {
+  align-self: flex-start;
+  margin-top: 3px;
+}

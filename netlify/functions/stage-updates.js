@@ -434,38 +434,73 @@ exports.handler = async (event) => {
       const body = JSON.parse(event.body || '{}');
 
       if (String(body.action || '').trim().toLowerCase() === 'update_tracking') {
-        const id = String(body.id || '').trim();
-        if (!id) return jsonResponse(400, { ok: false, error: 'Informe o apontamento para atualizar o Tracking.' });
+        const requestedIds = Array.isArray(body.ids)
+          ? body.ids.map((item) => String(item || '').trim()).filter(Boolean)
+          : [String(body.id || '').trim()].filter(Boolean);
+
+        const idsToUpdate = Array.from(new Set(requestedIds));
+        if (!idsToUpdate.length) {
+          return jsonResponse(400, { ok: false, error: 'Selecione ao menos um apontamento para atualizar o Tracking.' });
+        }
 
         const updates = await listUpdates();
-        const index = updates.findIndex((item) => String(item.id) === id);
-        if (index < 0) return jsonResponse(404, { ok: false, error: 'Apontamento não encontrado.' });
+        const updated = [];
+        const errors = [];
+        const results = [];
 
-        const current = updates[index];
-        if (!PENDING_STATUSES.includes(String(current.status || 'pending').trim().toLowerCase())) {
-          return jsonResponse(400, { ok: false, error: 'Somente apontamentos pendentes podem atualizar o Tracking.' });
+        for (const id of idsToUpdate) {
+          const index = updates.findIndex((item) => String(item.id) === id);
+          if (index < 0) {
+            errors.push({ id, error: 'Apontamento não encontrado.' });
+            continue;
+          }
+
+          const current = updates[index];
+          const currentStatus = String(current.status || 'pending').trim().toLowerCase();
+
+          if (!PENDING_STATUSES.includes(currentStatus)) {
+            errors.push({ id, error: 'Somente apontamentos pendentes podem atualizar o Tracking.' });
+            continue;
+          }
+
+          if (currentStatus === 'pending_review') {
+            errors.push({ id, error: 'Apontamento de revisão não atualiza percentual do Tracking.' });
+            continue;
+          }
+
+          try {
+            const result = await updateTrackingCellForStageUpdate(current, session);
+            const updatedRecord = {
+              ...current,
+              ...result.update,
+            };
+
+            if (!isSupabaseConfigured()) {
+              updates[index] = updatedRecord;
+            }
+
+            updated.push(updatedRecord);
+            results.push({
+              id,
+              applied: result.applied,
+              alreadyUpdated: result.alreadyUpdated,
+              columnTitle: result.columnTitle,
+            });
+          } catch (error) {
+            errors.push({ id, error: error.message || 'Falha ao atualizar Tracking.' });
+          }
         }
-        if (String(current.status || '').trim().toLowerCase() === 'pending_review') {
-          return jsonResponse(400, { ok: false, error: 'Apontamento de revisão não atualiza percentual do Tracking.' });
-        }
 
-        const result = await updateTrackingCellForStageUpdate(current, session);
-        const updatedRecord = {
-          ...current,
-          ...result.update,
-        };
-
-        if (!isSupabaseConfigured()) {
-          updates[index] = updatedRecord;
+        if (!isSupabaseConfigured() && updated.length) {
           await saveUpdates(updates);
         }
 
-        return jsonResponse(200, {
-          ok: true,
-          update: updatedRecord,
-          applied: result.applied,
-          alreadyUpdated: result.alreadyUpdated,
-          columnTitle: result.columnTitle,
+        return jsonResponse(updated.length ? 200 : 400, {
+          ok: updated.length > 0,
+          update: updated[0] || null,
+          updates: updated,
+          results,
+          errors,
           storage: isSupabaseConfigured() ? 'supabase' : 'json',
         });
       }
