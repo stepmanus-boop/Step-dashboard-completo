@@ -260,6 +260,63 @@ function normalizeSpoolIdentity(value) {
     .toLowerCase();
 }
 
+function normalizeTrackingReference(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '')
+    .toLowerCase();
+}
+
+function trackingReferenceKeys(value) {
+  const key = normalizeTrackingReference(value);
+  if (!key) return [];
+  const withoutBsp = key.replace(/^bsp/, '');
+  return Array.from(new Set([key, withoutBsp].filter(Boolean)));
+}
+
+function collectTrackingScopeFromUpdates(updates) {
+  const projectKeys = new Set();
+  const spoolKeys = new Set();
+
+  for (const item of Array.isArray(updates) ? updates : []) {
+    for (const key of [
+      ...trackingReferenceKeys(item?.projectDisplay),
+      ...trackingReferenceKeys(item?.projectNumber),
+    ]) {
+      projectKeys.add(key);
+    }
+
+    for (const key of trackingReferenceKeys(item?.spoolIso || item?.spoolDescription)) {
+      spoolKeys.add(key);
+    }
+  }
+
+  return { projectKeys, spoolKeys };
+}
+
+function projectMatchesTrackingScope(project, scope) {
+  if (!scope || (!scope.projectKeys?.size && !scope.spoolKeys?.size)) return false;
+
+  const projectValues = [
+    project?.projectDisplay,
+    project?.projectNumber,
+    project?.project,
+    project?.clientWoNumber,
+    project?.projectName,
+  ];
+
+  return projectValues.some((value) =>
+    trackingReferenceKeys(value).some((key) => scope.projectKeys.has(key))
+  );
+}
+
+function spoolMatchesTrackingScope(spool, scope) {
+  if (!scope || !scope.spoolKeys?.size) return false;
+  return trackingReferenceKeys(spool?.iso || spool?.drawing || spool?.description || spool?.spoolIso)
+    .some((key) => scope.spoolKeys.has(key));
+}
+
 function getSpoolIdentity(spool) {
   return normalizeSpoolIdentity(spool?.iso || spool?.drawing || spool?.spoolIso || spool?.description || '');
 }
@@ -344,11 +401,18 @@ async function buildTrackingDatePendencies() {
   const projects = Array.isArray(payload?.projects) ? payload.projects : [];
   const sheetId = payload?.meta?.sheetId || '';
   const today = new Date().toISOString().slice(0, 10);
+  const scope = collectTrackingScopeFromUpdates(updates);
   const pendencies = [];
 
+  if (!scope.projectKeys.size && !scope.spoolKeys.size) {
+    return [];
+  }
+
   for (const project of projects) {
+    const projectInScope = projectMatchesTrackingScope(project, scope);
     const spools = Array.isArray(project?.spools) ? project.spools : [];
     for (const spool of spools) {
+      if (!projectInScope && !spoolMatchesTrackingScope(spool, scope)) continue;
       const rowId = Number(spool?.rowId || 0);
       if (!rowId) continue;
       const stageValues = spool?.stageValues || {};
