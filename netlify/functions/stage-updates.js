@@ -169,6 +169,32 @@ async function persistResolvedTrackingRecord(id, updatedRecord) {
   return saved ? { ...updatedRecord, ...saved } : updatedRecord;
 }
 
+function getTrackingOverrideFromBody(body, id) {
+  const targetId = String(id || '').trim();
+  const items = Array.isArray(body?.items) ? body.items : [];
+  const found = items.find((item) => String(item?.id || '').trim() === targetId);
+
+  if (found) {
+    return {
+      ...found,
+      rowId: found.rowId || found.trackingRowId || '',
+      rowIds: Array.isArray(found.rowIds) ? found.rowIds : [],
+      rows: Array.isArray(found.rows) ? found.rows : [],
+      sheetId: found.sheetId || found.trackingSheetId || '',
+      columnTitle: found.columnTitle || found.trackingUpdateColumn || '',
+    };
+  }
+
+  return {
+    id: targetId,
+    rowId: body?.rowId || body?.trackingRowId || '',
+    rowIds: Array.isArray(body?.rowIds) ? body.rowIds : [],
+    rows: Array.isArray(body?.rows) ? body.rows : [],
+    sheetId: body?.sheetId || body?.trackingSheetId || '',
+    columnTitle: body?.columnTitle || body?.trackingUpdateColumn || '',
+  };
+}
+
 async function updatePaintingCompletionNextSteps(sheetId, columns, rows) {
   const sourceRows = Array.isArray(rows) ? rows : [];
   const paintingRows = sourceRows.filter((row) => Number(row?.id || 0) && Number(row?.progress || 0) >= 100);
