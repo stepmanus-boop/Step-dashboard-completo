@@ -1749,7 +1749,7 @@ function renderTrackingDatePendenciesPanel() {
       <div class="admin-card-head">
         <div>
           <h4>Pendências de datas do histórico no Tracking</h4>
-          <p>Lista somente etapas que já foram apontadas e concluídas no histórico do sistema, mas estão com 100% sem a data correspondente no Tracking.</p>
+          <p>Lista somente apontamentos validados no histórico do sistema com avanço 100%, mas que estão sem a data correspondente no Tracking.</p>
         </div>
         <div class="stage-row-actions">
           <button class="ghost-button" type="button" data-stage-load-date-pendencies="true">${state.trackingDatePendenciesLoading ? 'Verificando...' : 'Atualizar verificação'}</button>
@@ -2773,7 +2773,7 @@ function updatePrimaryUserActionUi() {
     openStageUpdatesEl.classList.toggle('hidden', !canOpen);
     openStageUpdatesEl.textContent = canValidateStageWorkspace() ? 'Validação PCP' : 'Apontamentos';
     openStageUpdatesEl.title = canValidateStageWorkspace()
-      ? 'Validar apontamentos enviados pelos setores e consultar o histórico'
+      ? 'Abrir Validação PCP em uma aba separada'
       : 'Informar o avanço da sua etapa por spool';
   }
 }
@@ -3984,29 +3984,56 @@ if (openProjectSignalsEl) {
   });
 }
 
+function isStageWorkspaceStandaloneRequest() {
+  const params = new URLSearchParams(window.location.search || '');
+  return params.get('stageWorkspace') === '1' || window.location.hash === '#stage-validation';
+}
+
+function getStageWorkspaceStandaloneUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.set('stageWorkspace', '1');
+  url.hash = 'stage-validation';
+  return url.toString();
+}
+
+async function openStageUpdatesWorkspace({ loading = true } = {}) {
+  if (!state.user) {
+    openLoginModal();
+    return;
+  }
+
+  state.stageUpdatesSearchQuery = '';
+  syncStageDraftsForCurrentSector();
+
+  openStageUpdatesModal({ loading });
+
+  try {
+    await loadStageUpdates();
+    if (stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
+      renderStageUpdatesModal();
+    }
+  } catch (error) {
+    if (stageUpdatesContentEl && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
+      stageUpdatesContentEl.innerHTML = `<div class="empty-state">${escapeHtml(error?.message || 'Falha ao carregar apontamentos setoriais.')}</div>`;
+    }
+  }
+}
+
+
 if (openStageUpdatesEl) {
   openStageUpdatesEl.addEventListener('click', () => {
     if (!state.user) {
       openLoginModal();
       return;
     }
-    state.stageUpdatesSearchQuery = '';
-    syncStageDraftsForCurrentSector();
 
-    // Abre a tela imediatamente. O carregamento/filtragem acontece depois para não parecer travado.
-    openStageUpdatesModal({ loading: true });
+    // Para PCP/Admin, abre a Validação em uma aba separada para não misturar com a tela principal.
+    if (canValidateStageWorkspace() && !isStageWorkspaceStandaloneRequest()) {
+      const opened = window.open(getStageWorkspaceStandaloneUrl(), '_blank', 'noopener,noreferrer');
+      if (opened) return;
+    }
 
-    loadStageUpdates()
-      .then(() => {
-        if (stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
-          renderStageUpdatesModal();
-        }
-      })
-      .catch((error) => {
-        if (stageUpdatesContentEl && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
-          stageUpdatesContentEl.innerHTML = `<div class="empty-state">${escapeHtml(error?.message || 'Falha ao carregar apontamentos setoriais.')}</div>`;
-        }
-      });
+    openStageUpdatesWorkspace({ loading: true });
   });
 }
 
@@ -6033,6 +6060,9 @@ async function init() {
     await loadStageUpdates();
     if (state.user?.role === "admin") {
       await loadAdminData();
+    }
+    if (isStageWorkspaceStandaloneRequest() && canOpenStageWorkspace()) {
+      await openStageUpdatesWorkspace({ loading: true });
     }
     startPolling();
   }

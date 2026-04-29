@@ -477,8 +477,10 @@ async function buildTrackingDatePendencies() {
   const pendencyMap = new Map();
 
   const historyUpdates = (Array.isArray(updates) ? updates : [])
-    .filter((item) => String(item?.status || '').trim().toLowerCase().startsWith('resolved'))
-    .filter((item) => Number(item?.progress || 0) >= 100)
+    // Pendência de data só nasce de apontamento real validado no app com avanço 100%.
+    // Não varre etapas do Tracking que ficaram 100% por outras fontes.
+    .filter((item) => String(item?.status || '').trim().toLowerCase() === 'resolved_advance')
+    .filter((item) => Number(item?.progress || 0) === 100)
     .filter((item) => !String(item?.status || '').trim().toLowerCase().includes('review'));
 
   for (const update of historyUpdates) {
