@@ -163,19 +163,43 @@ function getTrackingOverrideFromBody(body, id) {
   return allItems.find((item) => String(item?.id || '').trim() === String(id || '').trim()) || {};
 }
 
-function makeUpdatedTrackingRecord(current, session, columnTitle) {
+function makeUpdatedTrackingRecord(current, session, columnTitle, resolvedProgress = null, options = {}) {
   const now = new Date().toISOString();
+  const finalProgress = Number(resolvedProgress == null ? current.progress || 0 : resolvedProgress);
+  const actor = session.username || '';
+  const actorName = session.name || session.username || 'PCP';
   return {
     ...current,
+    status: 'resolved_advance',
+    resolvedBy: actor,
+    resolvedByName: actorName,
+    resolvedAt: now,
+    resolutionNote: options.higherCurrentProgress
+      ? `Concluído automaticamente: o Tracking já estava em ${Math.round(Number(finalProgress || 0))}%, superior ao apontamento de ${Number(current.progress || 0)}%.`
+      : 'Concluído automaticamente após conferência/atualização do Tracking pelo PCP.',
     trackingCheckedAt: now,
-    trackingProgress: Number(current.progress || 0),
+    trackingProgress: Number.isFinite(finalProgress) ? finalProgress : Number(current.progress || 0),
     trackingMatched: true,
     trackingStatus: 'matched',
-    trackingUpdatedBy: session.username || '',
-    trackingUpdatedByName: session.name || session.username || 'PCP',
-    trackingUpdatedAt: now,
+    trackingUpdatedBy: options.skipUpdatedBy ? (current.trackingUpdatedBy || '') : actor,
+    trackingUpdatedByName: options.skipUpdatedBy ? (current.trackingUpdatedByName || '') : actorName,
+    trackingUpdatedAt: options.skipUpdatedBy ? (current.trackingUpdatedAt || '') : now,
     trackingUpdatedColumn: columnTitle,
   };
+}
+
+async function persistResolvedTrackingRecord(id, updatedRecord) {
+  if (!isSupabaseConfigured()) return updatedRecord;
+
+  const saved = await updateStageUpdate(id, {
+    status: updatedRecord.status || 'resolved_advance',
+    resolvedBy: updatedRecord.resolvedBy || '',
+    resolvedByName: updatedRecord.resolvedByName || '',
+    resolvedAt: updatedRecord.resolvedAt || new Date().toISOString(),
+    resolutionNote: updatedRecord.resolutionNote || '',
+  });
+
+  return saved ? { ...updatedRecord, ...saved } : updatedRecord;
 }
 
 async function updateTrackingCellForStageUpdate(update, session) {
@@ -196,16 +220,27 @@ async function updateTrackingCellForStageUpdate(update, session) {
   const progress = Number(update.progress || 0);
   const currentProgress = getTrackingProgressForSector(spool, update.sector);
   if (currentProgress != null && currentProgress >= progress) {
+    const higherCurrentProgress = Number(currentProgress) > progress;
     return {
-      update: applyTrackingVerification({
-        ...update,
-        trackingUpdatedBy: session.username || '',
-        trackingUpdatedByName: session.name || session.username || 'PCP',
-        trackingUpdatedAt: new Date().toISOString(),
-        trackingUpdatedColumn: columnTitle,
-      }, project, spool),
+      update: makeUpdatedTrackingRecord(
+        applyTrackingVerification({
+          ...update,
+          trackingUpdatedBy: higherCurrentProgress ? (update.trackingUpdatedBy || '') : (session.username || ''),
+          trackingUpdatedByName: higherCurrentProgress ? (update.trackingUpdatedByName || '') : (session.name || session.username || 'PCP'),
+          trackingUpdatedAt: higherCurrentProgress ? (update.trackingUpdatedAt || '') : new Date().toISOString(),
+          trackingUpdatedColumn: columnTitle,
+        }, project, spool, payload),
+        session,
+        columnTitle,
+        currentProgress,
+        { skipUpdatedBy: higherCurrentProgress, higherCurrentProgress }
+      ),
       applied: false,
       alreadyUpdated: true,
+      higherCurrentProgress,
+      message: higherCurrentProgress
+        ? `Não atualizado: o Tracking já está em ${Math.round(currentProgress)}%, superior ao apontamento de ${progress}%.`
+        : 'Tracking já estava no mesmo avanço.',
       columnTitle,
       currentProgress,
     };
@@ -237,7 +272,7 @@ async function updateTrackingCellForStageUpdate(update, session) {
 
   const now = new Date().toISOString();
   return {
-    update: {
+    update: makeUpdatedTrackingRecord({
       ...update,
       trackingCheckedAt: now,
       trackingProgress: progress,
@@ -247,7 +282,7 @@ async function updateTrackingCellForStageUpdate(update, session) {
       trackingUpdatedByName: session.name || session.username || 'PCP',
       trackingUpdatedAt: now,
       trackingUpdatedColumn: columnTitle,
-    },
+    }, session, columnTitle, progress),
     applied: true,
     alreadyUpdated: false,
     columnTitle,
@@ -564,6 +599,30 @@ exports.handler = async (event) => {
           const rowId = Number(override.rowId || override.trackingRowId || current.trackingRowId || 0);
           const columnTitle = String(override.columnTitle || override.trackingUpdateColumn || current.trackingUpdateColumn || getTrackingUpdateColumnForSector(current.sector) || '').trim();
           const progress = Number(current.progress || 0);
+          const currentTrackingProgress = Number(current.trackingProgress);
+
+          if (Number.isFinite(currentTrackingProgress) && currentTrackingProgress >= progress) {
+            const higherCurrentProgress = currentTrackingProgress > progress;
+            let updatedRecord = makeUpdatedTrackingRecord(current, session, columnTitle, currentTrackingProgress, { skipUpdatedBy: higherCurrentProgress, higherCurrentProgress });
+            updatedRecord = await persistResolvedTrackingRecord(id, updatedRecord);
+            if (!isSupabaseConfigured()) {
+              updates[index] = updatedRecord;
+            }
+            updated.push(updatedRecord);
+            results.push({
+              id,
+              applied: false,
+              alreadyUpdated: true,
+              higherCurrentProgress,
+              progress,
+              currentProgress: currentTrackingProgress,
+              columnTitle,
+              message: higherCurrentProgress
+                ? `Não atualizado: o Tracking já está em ${Math.round(currentTrackingProgress)}%, superior ao apontamento de ${progress}%.`
+                : 'Tracking já estava no mesmo avanço.',
+            });
+            continue;
+          }
 
           if (sheetId && rowId && columnTitle && [25, 50, 75, 100].includes(progress)) {
             const groupKey = `${sheetId}::${normalizeColumnTitle(columnTitle)}`;
@@ -577,10 +636,11 @@ exports.handler = async (event) => {
 
           try {
             const result = await updateTrackingCellForStageUpdate(current, session);
-            const updatedRecord = {
+            let updatedRecord = {
               ...current,
               ...result.update,
             };
+            updatedRecord = await persistResolvedTrackingRecord(id, updatedRecord);
 
             if (!isSupabaseConfigured()) {
               updates[index] = updatedRecord;
@@ -591,7 +651,11 @@ exports.handler = async (event) => {
               id,
               applied: result.applied,
               alreadyUpdated: result.alreadyUpdated,
+              higherCurrentProgress: Boolean(result.higherCurrentProgress),
+              progress: Number(current.progress || 0),
+              currentProgress: result.currentProgress,
               columnTitle: result.columnTitle,
+              message: result.message || '',
             });
           } catch (error) {
             errors.push({ id, error: error.message || 'Falha ao atualizar Tracking.' });
@@ -606,24 +670,47 @@ exports.handler = async (event) => {
               throw new Error(`Coluna "${group.columnTitle}" não encontrada no Tracking.`);
             }
 
-            await updateSmartsheetRowsWithPercent(group.sheetId, column, group.rows.map((row) => ({
-              id: row.id,
-              progress: row.progress,
-            })));
+            const maxByRowId = new Map();
+            for (const row of group.rows) {
+              const key = String(row.id);
+              const existing = maxByRowId.get(key);
+              if (!existing || Number(row.progress || 0) > Number(existing.progress || 0)) {
+                maxByRowId.set(key, { id: row.id, progress: row.progress });
+              }
+            }
+
+            const rowsToWrite = Array.from(maxByRowId.values());
+            await updateSmartsheetRowsWithPercent(group.sheetId, column, rowsToWrite);
 
             for (const row of group.rows) {
               const pending = pendingSaveIndexes.get(row.updateId);
               if (!pending) continue;
-              const updatedRecord = makeUpdatedTrackingRecord(pending.current, session, group.columnTitle);
+
+              const writtenProgress = Number(maxByRowId.get(String(row.id))?.progress || row.progress || 0);
+              const higherCurrentProgress = writtenProgress > Number(row.progress || 0);
+              let updatedRecord = makeUpdatedTrackingRecord(
+                pending.current,
+                session,
+                group.columnTitle,
+                writtenProgress,
+                { higherCurrentProgress }
+              );
+              updatedRecord = await persistResolvedTrackingRecord(row.updateId, updatedRecord);
               if (!isSupabaseConfigured()) {
                 updates[pending.index] = updatedRecord;
               }
               updated.push(updatedRecord);
               results.push({
                 id: row.updateId,
-                applied: true,
-                alreadyUpdated: false,
+                applied: !higherCurrentProgress,
+                alreadyUpdated: higherCurrentProgress,
+                higherCurrentProgress,
+                progress: Number(row.progress || 0),
+                currentProgress: writtenProgress,
                 columnTitle: group.columnTitle,
+                message: higherCurrentProgress
+                  ? `Não atualizado individualmente: havia apontamento superior de ${writtenProgress}% para a mesma spool; foi mantido o maior avanço.`
+                  : '',
               });
             }
           } catch (error) {

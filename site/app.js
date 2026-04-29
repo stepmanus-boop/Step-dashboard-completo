@@ -1493,6 +1493,11 @@ async function updateStageTrackingFromButton(button) {
       );
     }
 
+    const superior = Array.isArray(data.results) ? data.results.find((item) => item.higherCurrentProgress) : null;
+    if (superior?.message) {
+      window.alert(superior.message);
+    }
+
     renderStageUpdatesModal();
     loadProjects().catch(() => {});
     loadStageUpdates().then(() => {
@@ -1584,8 +1589,18 @@ async function updateSelectedStageTracking(button) {
       if (stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) renderStageUpdatesModal();
     }).catch(() => {});
 
-    if (errors.length) {
-      window.alert(`Tracking atualizado parcialmente.\nAtualizados: ${Array.isArray(data.updates) ? data.updates.length : 0}\nFalhas: ${errors.length}\n\n${errors.slice(0, 6).map((item) => `• ${item.error}`).join('\n')}`);
+    const superiorResults = Array.isArray(data.results)
+      ? data.results.filter((item) => item.higherCurrentProgress && item.message)
+      : [];
+
+    if (errors.length || superiorResults.length) {
+      const superiorText = superiorResults.length
+        ? `\n\nAvanços superiores preservados:\n${superiorResults.slice(0, 6).map((item) => `• ${item.message}`).join('\n')}`
+        : '';
+      const errorText = errors.length
+        ? `\n\nFalhas:\n${errors.slice(0, 6).map((item) => `• ${item.error}`).join('\n')}`
+        : '';
+      window.alert(`Atualização do Tracking concluída.\nAtualizados/OK: ${Array.isArray(data.updates) ? data.updates.length : 0}${superiorText}${errorText}`);
     }
   } catch (error) {
     button.disabled = false;
@@ -3872,7 +3887,13 @@ if (stageUpdatesModalEl) {
       return;
     }
     if (event.target.closest('[data-stage-conclude-bulk="true"]')) {
-      const ids = (Array.isArray(state.stageUpdates) ? state.stageUpdates : []).filter((item) => isPendingStageStatus(item.status)).map((item) => item.id);
+      const ids = (Array.isArray(state.stageUpdates) ? state.stageUpdates : [])
+        .filter((item) => isPendingStageStatus(item.status) && !isReviewStageStatus(item.status) && getStageTrackingInfo(item).matched)
+        .map((item) => item.id);
+      if (!ids.length) {
+        window.alert('Nenhum apontamento com Tracking OK para concluir em lote.');
+        return;
+      }
       concludeStageUpdatesBulk(ids);
       return;
     }
@@ -5337,6 +5358,7 @@ function renderStageValidationWorkspace() {
   }).sort((a,b)=> new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   const pending = filtered.filter((item) => isPendingStageStatus(item.status));
   const trackingUpdatable = pending.filter((item) => canUpdateTrackingFromStage(item));
+  const readyToConclude = pending.filter((item) => !isReviewStageStatus(item.status) && getStageTrackingInfo(item).matched);
   const history = filtered.filter((item) => isResolvedStageStatus(item.status)).slice(0, 50);
   const groupedPending = pending.reduce((acc, item) => {
     const key = String(item.projectDisplay || item.projectNumber || 'Projeto');
@@ -5353,11 +5375,11 @@ function renderStageValidationWorkspace() {
             <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP 25-732-03 ou BSP2573203" autocomplete="off" inputmode="search" />
           </label>
           <div class="stage-row-actions">
-            <div class="stage-muted">Pendentes: <strong>${pending.length}</strong> • Atualizáveis no Tracking: <strong>${trackingUpdatable.length}</strong> • Histórico: <strong>${history.length}</strong></div>
+            <div class="stage-muted">Pendentes: <strong>${pending.length}</strong> • Tracking OK: <strong>${readyToConclude.length}</strong> • Atualizáveis no Tracking: <strong>${trackingUpdatable.length}</strong> • Histórico: <strong>${history.length}</strong></div>
             <button class="ghost-button" type="button" data-stage-select-all-tracking="true" ${trackingUpdatable.length ? '' : 'disabled'}>Selecionar atualizáveis</button>
             <button class="ghost-button" type="button" data-stage-update-tracking-selected="true" ${trackingUpdatable.length ? '' : 'disabled'}>Atualizar Tracking selecionados</button>
             <button class="ghost-button" type="button" data-stage-toggle-batch="true">${state.stageBatchValidationMode ? 'Voltar à lista' : 'Tela em lote'}</button>
-            <button class="primary-button" type="button" data-stage-conclude-bulk="true" ${pending.length ? '' : 'disabled'}>Concluir lote</button>
+            <button class="primary-button" type="button" data-stage-conclude-bulk="true" ${readyToConclude.length ? '' : 'disabled'}>Concluir lote OK</button>
           </div>
         </div>
       </section>
