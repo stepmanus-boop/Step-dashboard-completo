@@ -3760,6 +3760,11 @@ if (stageUpdatesModalEl) {
       sendStageTrackingUpdate((state.stageDatePendencies || []).map((item) => item.id), { dateOnly: true, forceRewrite: true });
       return;
     }
+    const deleteButton = event.target.closest('[data-stage-delete]');
+    if (deleteButton) {
+      deleteStageUpdatePending(deleteButton.dataset.stageDelete);
+      return;
+    }
     const concludeButton = event.target.closest('[data-stage-conclude]');
     if (concludeButton) {
       concludeStageUpdate(concludeButton.dataset.stageConclude);
@@ -5369,6 +5374,9 @@ function renderStageValidationPendingTable(pending = []) {
             const concludeButton = canConcludeOk
               ? `<button class="ghost-button" type="button" data-stage-conclude="${escapeHtml(id)}">${escapeHtml(isReviewStageStatus(item.status) ? 'Concluir revisão' : 'Concluir OK')}</button>`
               : '';
+            const deleteButton = isPendingStageStatus(item.status)
+              ? `<button class="ghost-button stage-danger-button" type="button" data-stage-delete="${escapeHtml(id)}">Remover pendência</button>`
+              : '';
             return `
               <tr data-stage-row-id="${escapeHtml(id)}" class="${info.matched ? 'stage-row--ok' : ''}">
                 <td class="stage-check-cell"><input type="checkbox" data-stage-item-check="${escapeHtml(id)}" ${selected.has(id) ? 'checked' : ''} ${selectableItem ? '' : 'disabled'} aria-label="Selecionar apontamento" /></td>
@@ -5378,7 +5386,7 @@ function renderStageValidationPendingTable(pending = []) {
                 <td>${stageTrackingBadgeHtml(item)}</td>
                 <td>${escapeHtml(item.createdByName || item.createdBy || 'Usuário')}<br><span class="stage-muted">${escapeHtml(formatStageDate(item.createdAt))}</span></td>
                 <td>${escapeHtml(item.note || '—')}</td>
-                <td><div class="stage-row-actions stage-row-actions--stack">${updateButton}${rewriteButton}${concludeButton || `<span class="stage-muted">Atualize o Tracking primeiro</span>`}</div></td>
+                <td><div class="stage-row-actions stage-row-actions--stack">${updateButton}${rewriteButton}${concludeButton || `<span class="stage-muted">Atualize o Tracking primeiro</span>`}${deleteButton}</div></td>
               </tr>`;
           }).join('')}
         </tbody>
@@ -5717,6 +5725,39 @@ function getVisiblePendingValidationIds(onlySelected = false) {
   const pending = getFilteredStageUpdatesForValidation().filter((item) => isPendingStageStatus(item.status));
   if (onlySelected && (state.stageSelectedIds || []).length) return getSelectedVisibleStageIds(pending);
   return pending.map((item) => String(item.id || '')).filter(Boolean);
+}
+
+
+async function deleteStageUpdatePending(id) {
+  const cleanId = String(id || '').trim();
+  if (!cleanId || state.stageTrackingSubmitting) return;
+  const item = (Array.isArray(state.stageUpdates) ? state.stageUpdates : []).find((entry) => String(entry.id || '') === cleanId);
+  const label = item ? `${item.projectDisplay || item.projectNumber || 'BSP'} • ${item.spoolIso || 'Spool'}` : 'este apontamento';
+  const confirmed = window.confirm(`Remover ${label} da fila de Validação PCP?
+
+Use esta opção somente para apontamento lançado por engano ou spool inexistente no Tracking.`);
+  if (!confirmed) return;
+  state.stageTrackingSubmitting = true;
+  renderStageUpdatesModal();
+  try {
+    const response = await fetch('/api/stage-updates', {
+      method: 'DELETE',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [cleanId] }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao remover apontamento.');
+    state.stageUpdates = (Array.isArray(state.stageUpdates) ? state.stageUpdates : []).filter((entry) => String(entry.id || '') !== cleanId);
+    setStageSelection((state.stageSelectedIds || []).filter((entryId) => String(entryId) !== cleanId));
+    await loadStageUpdates();
+    renderStageUpdatesModal();
+  } catch (error) {
+    window.alert(error.message || 'Falha ao remover apontamento.');
+  } finally {
+    state.stageTrackingSubmitting = false;
+    renderStageUpdatesModal();
+  }
 }
 
 async function concludeStageUpdatesBulkOk() {

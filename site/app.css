@@ -3294,3 +3294,14 @@ button.alert-badge {
   background: rgba(239, 68, 68, .12);
   color: #991b1b;
 }
+
+
+.stage-danger-button {
+  border-color: rgba(248, 113, 113, 0.45) !important;
+  color: #fecaca !important;
+  background: rgba(127, 29, 29, 0.22) !important;
+}
+.stage-danger-button:hover {
+  border-color: rgba(248, 113, 113, 0.75) !important;
+  background: rgba(127, 29, 29, 0.38) !important;
+}

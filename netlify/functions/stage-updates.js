@@ -1,6 +1,6 @@
 const { jsonResponse, requireSession, normalizeSectorValue } = require('./_auth');
 const { readJson, writeJson } = require('./_githubStore');
-const { isSupabaseConfigured, listStageUpdates, createStageUpdate, updateStageUpdate } = require('./_supabase');
+const { isSupabaseConfigured, listStageUpdates, createStageUpdate, updateStageUpdate, deleteStageUpdates } = require('./_supabase');
 const { findProjectAndSpool, loadProjectPayload } = require('./_projectLookup');
 const { applyStageUpdatesToTracking, listHistoryDatePendencies } = require('./_smartsheetTracking');
 
@@ -323,6 +323,37 @@ async function updateTrackingAndResolve(body, session) {
   });
 }
 
+
+async function deleteStageUpdateRecords(body, session) {
+  if (!canValidate(session)) {
+    return jsonResponse(403, { ok: false, error: 'Apenas PCP ou administrador pode remover apontamentos.' });
+  }
+  const ids = Array.isArray(body.ids)
+    ? body.ids.map((id) => String(id || '').trim()).filter(Boolean)
+    : [String(body.id || '').trim()].filter(Boolean);
+  if (!ids.length) return jsonResponse(400, { ok: false, error: 'Informe os apontamentos para remover.' });
+
+  const updates = await listUpdates();
+  const selected = getUpdatesByIds(updates, ids).filter((item) => isPendingStatus(item.status));
+  if (!selected.length) return jsonResponse(404, { ok: false, error: 'Nenhum apontamento pendente encontrado para remover.' });
+  const selectedIds = selected.map((item) => String(item.id));
+
+  if (isSupabaseConfigured()) {
+    await deleteStageUpdates(selectedIds);
+  } else {
+    const selectedSet = new Set(selectedIds);
+    const remaining = updates.filter((item) => !selectedSet.has(String(item.id || '')));
+    await saveUpdates(remaining);
+  }
+
+  return jsonResponse(200, {
+    ok: true,
+    removed: selected,
+    removedCount: selected.length,
+    storage: isSupabaseConfigured() ? 'supabase' : 'json',
+  });
+}
+
 async function concludeTrackingOkOnly(body, session) {
   if (!canValidate(session)) {
     return jsonResponse(403, { ok: false, error: 'Apenas PCP ou administrador pode concluir apontamentos.' });
@@ -457,6 +488,11 @@ exports.handler = async (event) => {
       if (action === 'update-tracking') return updateTrackingAndResolve(body, session);
       if (action === 'fix-history-dates') return updateTrackingAndResolve({ ...body, dateOnly: true, forceRewrite: true }, session);
       return jsonResponse(400, { ok: false, error: 'Ação de atualização não reconhecida.' });
+    }
+
+    if (event.httpMethod === 'DELETE') {
+      const body = JSON.parse(event.body || '{}');
+      return deleteStageUpdateRecords(body, session);
     }
 
     if (event.httpMethod === 'PATCH') {

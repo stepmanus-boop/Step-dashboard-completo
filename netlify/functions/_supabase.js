@@ -363,6 +363,21 @@ async function createStageUpdate(input) {
   return mapStageUpdate(Array.isArray(rows) ? rows[0] : null);
 }
 
+
+async function deleteStageUpdates(updateIds = []) {
+  const ids = Array.from(new Set((Array.isArray(updateIds) ? updateIds : [updateIds])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean)));
+  for (const id of ids) {
+    const q = encodeURIComponent(id);
+    await supabaseFetch(`/rest/v1/stage_updates?id=eq.${q}`, {
+      method: 'DELETE',
+      headers: getSupabaseHeaders(),
+    });
+  }
+  return ids.length;
+}
+
 async function updateStageUpdate(updateId, updates) {
   const q = encodeURIComponent(String(updateId || '').trim());
   const payload = {};
@@ -411,4 +426,5 @@ module.exports = {
   listStageUpdates,
   createStageUpdate,
   updateStageUpdate,
+  deleteStageUpdates,
 };
