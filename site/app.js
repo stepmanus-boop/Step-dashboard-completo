@@ -1682,7 +1682,7 @@ async function loadTrackingDatePendencies(button = null) {
     state.trackingDatePendenciesLoading = false;
     if (button) {
       button.disabled = false;
-      button.textContent = previousText || 'Pendências de datas dos alertas';
+      button.textContent = previousText || 'Pendências de datas do histórico';
     }
     renderStageUpdatesModal();
   }
@@ -1727,7 +1727,7 @@ async function fixTrackingDatePendencies(button, mode = 'selected') {
     state.trackingDatePendencies = Array.isArray(data.pendencies) ? data.pendencies : [];
     state.trackingDatePendenciesLoaded = true;
     loadProjects().catch(() => {});
-    window.alert(`Pendências de datas dos alertas corrigidas: ${data.fixedCount || 0}`);
+    window.alert(`Pendências de datas do histórico corrigidas: ${data.fixedCount || 0}`);
   } catch (error) {
     window.alert(error.message || 'Falha ao corrigir pendências de datas.');
   } finally {
@@ -1748,8 +1748,8 @@ function renderTrackingDatePendenciesPanel() {
     <section class="admin-card admin-card--wide tracking-date-panel">
       <div class="admin-card-head">
         <div>
-          <h4>Pendências de datas dos alertas no Tracking</h4>
-          <p>Lista somente as BSPs/spools que possuem apontamentos/alertas no sistema e estão com avanço 100% sem a data correspondente.</p>
+          <h4>Pendências de datas do histórico no Tracking</h4>
+          <p>Lista somente etapas que já foram apontadas e concluídas no histórico do sistema, mas estão com 100% sem a data correspondente no Tracking.</p>
         </div>
         <div class="stage-row-actions">
           <button class="ghost-button" type="button" data-stage-load-date-pendencies="true">${state.trackingDatePendenciesLoading ? 'Verificando...' : 'Atualizar verificação'}</button>
@@ -1775,7 +1775,7 @@ function renderTrackingDatePendenciesPanel() {
                   </tr>`).join('')}
               </tbody>
             </table>
-          </div>` : `<div class="empty-state">${loaded ? 'Nenhuma pendência de data encontrada.' : 'Clique em “Pendências de datas dos alertas” para verificar o Tracking.'}</div>`
+          </div>` : `<div class="empty-state">${loaded ? 'Nenhuma pendência de data encontrada.' : 'Clique em “Pendências de datas do histórico” para verificar o Tracking.'}</div>`
       )}
     </section>`;
 }
@@ -5575,7 +5575,7 @@ function renderStageValidationWorkspace() {
           </label>
           <div class="stage-row-actions">
             <div class="stage-muted">Pendentes: <strong>${pending.length}</strong> • Tracking OK: <strong>${readyToConclude.length}</strong> • Atualizar/Regravar: <strong>${trackingUpdatable.length}</strong> • Histórico: <strong>${history.length}</strong></div>
-            <button class="ghost-button" type="button" data-stage-load-date-pendencies="true">Pendências de datas dos alertas${state.trackingDatePendenciesLoaded ? ` (${state.trackingDatePendencies.length})` : ''}</button>
+            <button class="ghost-button" type="button" data-stage-load-date-pendencies="true">Pendências de datas do histórico${state.trackingDatePendenciesLoaded ? ` (${state.trackingDatePendencies.length})` : ''}</button>
             <button class="ghost-button" type="button" data-stage-select-all-tracking="true" ${trackingUpdatable.length ? '' : 'disabled'}>Selecionar atualizáveis/OK</button>
             <button class="ghost-button" type="button" data-stage-update-tracking-selected="true" ${trackingUpdatable.length ? '' : 'disabled'}>Atualizar/Regravar selecionados</button>
             <button class="ghost-button" type="button" data-stage-toggle-batch="true">${state.stageBatchValidationMode ? 'Voltar à lista' : 'Tela em lote'}</button>

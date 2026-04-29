@@ -400,49 +400,73 @@ async function buildTrackingDatePendencies() {
   const updates = await listUpdates();
   const projects = Array.isArray(payload?.projects) ? payload.projects : [];
   const sheetId = payload?.meta?.sheetId || '';
-  const today = new Date().toISOString().slice(0, 10);
-  const scope = collectTrackingScopeFromUpdates(updates);
-  const pendencies = [];
+  const pendencyMap = new Map();
 
-  if (!scope.projectKeys.size && !scope.spoolKeys.size) {
-    return [];
-  }
+  const historyUpdates = (Array.isArray(updates) ? updates : [])
+    .filter((item) => String(item?.status || '').trim().toLowerCase().startsWith('resolved'))
+    .filter((item) => Number(item?.progress || 0) >= 100)
+    .filter((item) => !String(item?.status || '').trim().toLowerCase().includes('review'));
 
-  for (const project of projects) {
-    const projectInScope = projectMatchesTrackingScope(project, scope);
-    const spools = Array.isArray(project?.spools) ? project.spools : [];
-    for (const spool of spools) {
-      if (!projectInScope && !spoolMatchesTrackingScope(spool, scope)) continue;
-      const rowId = Number(spool?.rowId || 0);
-      if (!rowId) continue;
-      const stageValues = spool?.stageValues || {};
+  for (const update of historyUpdates) {
+    const progressColumn = getTrackingUpdateColumnForSector(update?.sector);
+    if (!progressColumn) continue;
 
-      for (const rule of TRACKING_DATE_PENDENCY_RULES) {
-        const progress = parseTrackingPercent(stageValues[rule.progressColumn]);
-        if (progress == null || progress < 100) continue;
-        if (hasTrackingDateValue(spool, rule.dateColumn)) continue;
+    const dateColumn = getTrackingDateColumnForProgressColumn(progressColumn);
+    if (!dateColumn) continue;
 
-        const duplicateRows = getDuplicateTrackingRows(project, spool, rule.progressColumn);
-        pendencies.push({
-          id: buildDatePendencyId(rowId, rule.progressColumn, rule.dateColumn),
-          sheetId,
-          rowId,
-          rowIds: duplicateRows.map((row) => row.rowId),
-          duplicateRows,
-          projectDisplay: project?.projectDisplay || project?.projectNumber || '',
-          client: project?.client || '',
-          spoolIso: spool?.iso || spool?.drawing || '',
-          progressColumn: rule.progressColumn,
-          dateColumn: rule.dateColumn,
-          progress: Number(progress.toFixed(2)),
-          label: rule.label,
-          suggestedDate: findBestCompletionDateForPendency(updates, spool?.iso || spool?.drawing || '', rule.progressColumn, today),
-        });
+    let project = findProjectInPayload(projects, update?.projectRowId);
+    let spool = project ? findSpoolInProject(project, update?.spoolIso) : null;
+
+    if (!project || !spool) {
+      for (const candidateProject of projects) {
+        const candidateSpool = findSpoolInProject(candidateProject, update?.spoolIso);
+        if (candidateSpool) {
+          project = candidateProject;
+          spool = candidateSpool;
+          break;
+        }
       }
+    }
+
+    if (!project || !spool) continue;
+
+    const duplicateRows = getDuplicateTrackingRows(project, spool, progressColumn);
+    if (!duplicateRows.length) continue;
+
+    for (const duplicateRow of duplicateRows) {
+      const rowId = Number(duplicateRow?.rowId || 0);
+      if (!rowId) continue;
+
+      const duplicateSpool = (Array.isArray(project?.spools) ? project.spools : [])
+        .find((item) => Number(item?.rowId || 0) === rowId) || spool;
+      const stageValues = duplicateSpool?.stageValues || {};
+      const progress = parseTrackingPercent(stageValues[progressColumn]);
+
+      if (progress == null || progress < 100) continue;
+      if (hasTrackingDateValue(duplicateSpool, dateColumn)) continue;
+
+      const key = buildDatePendencyId(rowId, progressColumn, dateColumn);
+      if (pendencyMap.has(key)) continue;
+
+      pendencyMap.set(key, {
+        id: key,
+        sheetId,
+        rowId,
+        rowIds: duplicateRows.map((row) => row.rowId),
+        duplicateRows,
+        projectDisplay: project?.projectDisplay || project?.projectNumber || update?.projectDisplay || update?.projectNumber || '',
+        client: project?.client || update?.client || '',
+        spoolIso: duplicateSpool?.iso || duplicateSpool?.drawing || update?.spoolIso || '',
+        progressColumn,
+        dateColumn,
+        progress: Number(progress.toFixed(2)),
+        label: `${progressColumn} 100% sem data`,
+        suggestedDate: normalizeDateForSmartsheet(update?.completionDate || update?.resolvedAt || update?.createdAt || new Date().toISOString().slice(0, 10)),
+      });
     }
   }
 
-  return pendencies.sort((a, b) =>
+  return Array.from(pendencyMap.values()).sort((a, b) =>
     String(a.projectDisplay).localeCompare(String(b.projectDisplay), 'pt-BR', { numeric: true, sensitivity: 'base' })
     || String(a.spoolIso).localeCompare(String(b.spoolIso), 'pt-BR', { numeric: true, sensitivity: 'base' })
     || String(a.progressColumn).localeCompare(String(b.progressColumn), 'pt-BR', { numeric: true, sensitivity: 'base' })
