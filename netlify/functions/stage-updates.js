@@ -78,6 +78,43 @@ function findColumn(columns, columnTitle) {
   return (Array.isArray(columns) ? columns : []).find((column) => normalizeColumnTitle(column?.title) === target) || null;
 }
 
+function findColumnByCandidates(columns, candidates = []) {
+  for (const title of candidates) {
+    const column = findColumn(columns, title);
+    if (column) return column;
+  }
+
+  const normalizedCandidates = candidates.map(normalizeColumnTitle).filter(Boolean);
+  return (Array.isArray(columns) ? columns : []).find((column) => {
+    const normalized = normalizeColumnTitle(column?.title);
+    return normalizedCandidates.some((candidate) => normalized.includes(candidate) || candidate.includes(normalized));
+  }) || null;
+}
+
+async function updateSmartsheetRowsWithProgressCells(sheetId, rows) {
+  const cleanRows = (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      id: Number(row?.id || 0),
+      cells: (Array.isArray(row?.cells) ? row.cells : [])
+        .filter((cell) => Number(cell?.columnId || 0))
+        .map((cell) => ({
+          columnId: Number(cell.columnId),
+          value: getSmartsheetPercentCellValue(null, cell.progress),
+          strict: false,
+        })),
+    }))
+    .filter((row) => row.id && row.cells.length);
+
+  if (!cleanRows.length) return { ok: true, count: 0 };
+
+  await smartsheetFetch(`/sheets/${sheetId}/rows`, {
+    method: 'PUT',
+    body: JSON.stringify(cleanRows),
+  });
+
+  return { ok: true, count: cleanRows.length };
+}
+
 function getSmartsheetPercentCellValue(column, progress) {
   const value = Number(progress || 0);
   return value / 100;
@@ -200,37 +237,48 @@ async function updatePaintingCompletionNextSteps(sheetId, columns, rows) {
   const paintingRows = sourceRows.filter((row) => Number(row?.id || 0) && Number(row?.progress || 0) >= 100);
   if (!paintingRows.length) return { ok: true, finalInspection: 0, packageDelivered: 0 };
 
-  const finalColumn = findColumn(columns, 'Final Inspection');
-  const packageColumn = findColumn(columns, 'Package and Delivered');
-  const result = { ok: true, finalInspection: 0, packageDelivered: 0 };
+  const finalColumn = findColumnByCandidates(columns, [
+    'Final Inspection',
+    'Final Inspection ',
+    'Final Inspec',
+  ]);
 
-  if (finalColumn) {
-    const finalRows = paintingRows
-      .filter((row) => {
-        const current = Number(row.finalInspectionProgress);
-        return !Number.isFinite(current) || current < 25;
-      })
-      .map((row) => ({ id: row.id, progress: 25 }));
-    if (finalRows.length) {
-      await updateSmartsheetRowsWithPercent(sheetId, finalColumn, finalRows);
-      result.finalInspection = finalRows.length;
+  const packageColumn = findColumnByCandidates(columns, [
+    'Package and Delivered',
+    'Package Delivered',
+    'Package & Delivered',
+    'Package',
+  ]);
+
+  const rowsToUpdate = [];
+  let finalInspection = 0;
+  let packageDelivered = 0;
+
+  for (const row of paintingRows) {
+    const cells = [];
+
+    const currentFinal = Number(row.finalInspectionProgress);
+    if (finalColumn && (!Number.isFinite(currentFinal) || currentFinal < 25)) {
+      cells.push({ columnId: finalColumn.id, progress: 25 });
+      finalInspection += 1;
+    }
+
+    const currentPackage = Number(row.packageDeliveredProgress);
+    if (packageColumn && (!Number.isFinite(currentPackage) || currentPackage < 25)) {
+      cells.push({ columnId: packageColumn.id, progress: 25 });
+      packageDelivered += 1;
+    }
+
+    if (cells.length) {
+      rowsToUpdate.push({ id: row.id, cells });
     }
   }
 
-  if (packageColumn) {
-    const packageRows = paintingRows
-      .filter((row) => {
-        const current = Number(row.packageDeliveredProgress);
-        return !Number.isFinite(current) || current < 25;
-      })
-      .map((row) => ({ id: row.id, progress: 25 }));
-    if (packageRows.length) {
-      await updateSmartsheetRowsWithPercent(sheetId, packageColumn, packageRows);
-      result.packageDelivered = packageRows.length;
-    }
+  if (rowsToUpdate.length) {
+    await updateSmartsheetRowsWithProgressCells(sheetId, rowsToUpdate);
   }
 
-  return result;
+  return { ok: true, finalInspection, packageDelivered };
 }
 
 const TRACKING_DATE_COLUMN_BY_PROGRESS_COLUMN = {
