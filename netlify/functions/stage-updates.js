@@ -73,13 +73,30 @@ function getTrackingUpdateColumnForSector(sector) {
   return TRACKING_UPDATE_COLUMN_BY_SECTOR[normalizeSectorValue(sector)] || '';
 }
 
-function findColumnId(columns, columnTitle) {
+function findColumn(columns, columnTitle) {
   const target = normalizeColumnTitle(columnTitle);
-  const found = (Array.isArray(columns) ? columns : []).find((column) => normalizeColumnTitle(column?.title) === target);
-  return found?.id || null;
+  return (Array.isArray(columns) ? columns : []).find((column) => normalizeColumnTitle(column?.title) === target) || null;
 }
 
-async function updateSmartsheetCellWithPercent(sheetId, rowId, columnId, progress) {
+function findColumnId(columns, columnTitle) {
+  return findColumn(columns, columnTitle)?.id || null;
+}
+
+function getSmartsheetPercentCellValue(column, progress) {
+  const value = Number(progress || 0);
+  const columnType = String(column?.type || '').toUpperCase();
+  const format = String(column?.format || '').toUpperCase();
+
+  // No Smartsheet, coluna formatada como percentual exibe 50%, mas a API deve gravar 0.5.
+  if (columnType.includes('PERCENT') || format.includes('PERCENT') || format.includes('%')) {
+    return value / 100;
+  }
+
+  // Fallback para coluna texto: mantém visual percentual.
+  return `${value}%`;
+}
+
+async function updateSmartsheetCellWithPercent(sheetId, rowId, column, progress) {
   const value = Number(progress || 0);
 
   if (![25, 50, 75, 100].includes(value)) {
@@ -88,7 +105,12 @@ async function updateSmartsheetCellWithPercent(sheetId, rowId, columnId, progres
     throw err;
   }
 
-  const percentValue = `${value}%`;
+  const columnId = Number(column?.id || 0);
+  if (!columnId) {
+    const err = new Error('Coluna do Tracking não localizada.');
+    err.statusCode = 404;
+    throw err;
+  }
 
   await smartsheetFetch(`/sheets/${sheetId}/rows`, {
     method: 'PUT',
@@ -97,8 +119,8 @@ async function updateSmartsheetCellWithPercent(sheetId, rowId, columnId, progres
         id: Number(rowId),
         cells: [
           {
-            columnId: Number(columnId),
-            value: percentValue,
+            columnId,
+            value: getSmartsheetPercentCellValue(column, value),
             strict: false,
           },
         ],
@@ -106,7 +128,54 @@ async function updateSmartsheetCellWithPercent(sheetId, rowId, columnId, progres
     ]),
   });
 
-  return { ok: true, value: percentValue };
+  return { ok: true, value };
+}
+
+async function updateSmartsheetRowsWithPercent(sheetId, column, rows) {
+  const columnId = Number(column?.id || 0);
+  const cleanRows = (Array.isArray(rows) ? rows : [])
+    .filter((row) => Number(row?.id || 0) && columnId);
+
+  if (!cleanRows.length) return { ok: true, count: 0 };
+
+  await smartsheetFetch(`/sheets/${sheetId}/rows`, {
+    method: 'PUT',
+    body: JSON.stringify(cleanRows.map((row) => {
+      const progress = Number(row.progress || 0);
+      return {
+        id: Number(row.id),
+        cells: [
+          {
+            columnId,
+            value: getSmartsheetPercentCellValue(column, progress),
+            strict: false,
+          },
+        ],
+      };
+    })),
+  });
+
+  return { ok: true, count: cleanRows.length };
+}
+
+function getTrackingOverrideFromBody(body, id) {
+  const allItems = Array.isArray(body?.items) ? body.items : [];
+  return allItems.find((item) => String(item?.id || '').trim() === String(id || '').trim()) || {};
+}
+
+function makeUpdatedTrackingRecord(current, session, columnTitle) {
+  const now = new Date().toISOString();
+  return {
+    ...current,
+    trackingCheckedAt: now,
+    trackingProgress: Number(current.progress || 0),
+    trackingMatched: true,
+    trackingStatus: 'matched',
+    trackingUpdatedBy: session.username || '',
+    trackingUpdatedByName: session.name || session.username || 'PCP',
+    trackingUpdatedAt: now,
+    trackingUpdatedColumn: columnTitle,
+  };
 }
 
 async function updateTrackingCellForStageUpdate(update, session) {
@@ -157,14 +226,14 @@ async function updateTrackingCellForStageUpdate(update, session) {
   }
 
   const columns = await getSheetColumns(sheetId);
-  const columnId = findColumnId(columns, columnTitle);
-  if (!columnId) {
+  const column = findColumn(columns, columnTitle);
+  if (!column) {
     const err = new Error(`Coluna "${columnTitle}" não encontrada no Tracking.`);
     err.statusCode = 404;
     throw err;
   }
 
-  await updateSmartsheetCellWithPercent(sheetId, rowId, columnId, progress);
+  await updateSmartsheetCellWithPercent(sheetId, rowId, column, progress);
 
   const now = new Date().toISOString();
   return {
@@ -236,10 +305,11 @@ function findSpoolInProject(project, spoolIso) {
   return spools.find((item) => String(item?.iso || '').trim().toLowerCase() === normalizedSpoolIso) || null;
 }
 
-function applyTrackingVerification(update, project, spool) {
+function applyTrackingVerification(update, project, spool, payload = null) {
   const progress = Number(update?.progress || 0);
   const trackingProgress = getTrackingProgressForSector(spool, update?.sector);
   const trackingMatched = trackingProgress != null && trackingProgress >= progress;
+  const trackingUpdateColumn = getTrackingUpdateColumnForSector(update?.sector);
 
   return {
     ...update,
@@ -249,6 +319,9 @@ function applyTrackingVerification(update, project, spool) {
     trackingStatus: trackingProgress == null
       ? 'not_found'
       : (trackingMatched ? 'matched' : 'waiting'),
+    trackingSheetId: payload?.meta?.sheetId || update?.trackingSheetId || '',
+    trackingRowId: spool?.rowId || update?.trackingRowId || '',
+    trackingUpdateColumn,
   };
 }
 
@@ -276,7 +349,7 @@ async function enrichUpdatesWithTracking(updates) {
         trackingStatus: 'not_found',
       };
     }
-    return applyTrackingVerification(item, project, spool);
+    return applyTrackingVerification(item, project, spool, payload);
   });
 }
 
@@ -463,6 +536,8 @@ exports.handler = async (event) => {
         const updated = [];
         const errors = [];
         const results = [];
+        const fastGroups = new Map();
+        const pendingSaveIndexes = new Map();
 
         for (const id of idsToUpdate) {
           const index = updates.findIndex((item) => String(item.id) === id);
@@ -481,6 +556,22 @@ exports.handler = async (event) => {
 
           if (currentStatus === 'pending_review') {
             errors.push({ id, error: 'Apontamento de revisão não atualiza percentual do Tracking.' });
+            continue;
+          }
+
+          const override = getTrackingOverrideFromBody(body, id);
+          const sheetId = String(override.sheetId || override.trackingSheetId || current.trackingSheetId || '').trim();
+          const rowId = Number(override.rowId || override.trackingRowId || current.trackingRowId || 0);
+          const columnTitle = String(override.columnTitle || override.trackingUpdateColumn || current.trackingUpdateColumn || getTrackingUpdateColumnForSector(current.sector) || '').trim();
+          const progress = Number(current.progress || 0);
+
+          if (sheetId && rowId && columnTitle && [25, 50, 75, 100].includes(progress)) {
+            const groupKey = `${sheetId}::${normalizeColumnTitle(columnTitle)}`;
+            if (!fastGroups.has(groupKey)) {
+              fastGroups.set(groupKey, { sheetId, columnTitle, rows: [] });
+            }
+            fastGroups.get(groupKey).rows.push({ id: rowId, progress, updateId: id, index });
+            pendingSaveIndexes.set(id, { index, current, columnTitle });
             continue;
           }
 
@@ -504,6 +595,41 @@ exports.handler = async (event) => {
             });
           } catch (error) {
             errors.push({ id, error: error.message || 'Falha ao atualizar Tracking.' });
+          }
+        }
+
+        for (const group of fastGroups.values()) {
+          try {
+            const columns = await getSheetColumns(group.sheetId);
+            const column = findColumn(columns, group.columnTitle);
+            if (!column) {
+              throw new Error(`Coluna "${group.columnTitle}" não encontrada no Tracking.`);
+            }
+
+            await updateSmartsheetRowsWithPercent(group.sheetId, column, group.rows.map((row) => ({
+              id: row.id,
+              progress: row.progress,
+            })));
+
+            for (const row of group.rows) {
+              const pending = pendingSaveIndexes.get(row.updateId);
+              if (!pending) continue;
+              const updatedRecord = makeUpdatedTrackingRecord(pending.current, session, group.columnTitle);
+              if (!isSupabaseConfigured()) {
+                updates[pending.index] = updatedRecord;
+              }
+              updated.push(updatedRecord);
+              results.push({
+                id: row.updateId,
+                applied: true,
+                alreadyUpdated: false,
+                columnTitle: group.columnTitle,
+              });
+            }
+          } catch (error) {
+            for (const row of group.rows) {
+              errors.push({ id: row.updateId, error: error.message || 'Falha ao atualizar Tracking.' });
+            }
           }
         }
 

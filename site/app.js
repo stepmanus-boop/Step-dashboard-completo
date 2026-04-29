@@ -1478,7 +1478,7 @@ async function updateStageTrackingFromButton(button) {
       method: 'PATCH',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, action: 'update_tracking' }),
+      body: JSON.stringify({ id, action: 'update_tracking', items: [buildTrackingUpdatePayloadItem(id)] }),
     });
     const responseText = await response.text();
     let data = null;
@@ -1511,6 +1511,22 @@ function getSelectedStageTrackingIds() {
     .filter(Boolean);
 }
 
+function getStageUpdateById(id) {
+  return (Array.isArray(state.stageUpdates) ? state.stageUpdates : [])
+    .find((item) => String(item.id) === String(id)) || null;
+}
+
+function buildTrackingUpdatePayloadItem(id) {
+  const item = getStageUpdateById(id);
+  if (!item) return { id };
+  return {
+    id,
+    sheetId: item.trackingSheetId || '',
+    rowId: item.trackingRowId || '',
+    columnTitle: item.trackingUpdateColumn || '',
+  };
+}
+
 function setAllVisibleStageTrackingSelections(checked) {
   const boxes = Array.from(stageUpdatesModalEl?.querySelectorAll('[data-stage-tracking-select]:not(:disabled)') || []);
   boxes.forEach((box) => {
@@ -1538,7 +1554,7 @@ async function updateSelectedStageTracking(button) {
       method: 'PATCH',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'update_tracking', ids }),
+      body: JSON.stringify({ action: 'update_tracking', ids, items: ids.map(buildTrackingUpdatePayloadItem) }),
     });
     const responseText = await response.text();
     let data = null;
