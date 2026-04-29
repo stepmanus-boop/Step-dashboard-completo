@@ -1480,8 +1480,12 @@ async function updateStageTrackingFromButton(button) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, action: 'update_tracking' }),
     });
-    const data = await response.json().catch(() => null);
-    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao atualizar Tracking.');
+    const responseText = await response.text();
+    let data = null;
+    try {
+      data = responseText ? JSON.parse(responseText) : null;
+    } catch {}
+    if (!response.ok || !data?.ok) throw new Error(data?.error || responseText || 'Falha ao atualizar Tracking.');
 
     if (data.update) {
       state.stageUpdates = (Array.isArray(state.stageUpdates) ? state.stageUpdates : []).map((item) =>
@@ -1536,11 +1540,16 @@ async function updateSelectedStageTracking(button) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'update_tracking', ids }),
     });
-    const data = await response.json().catch(() => null);
+    const responseText = await response.text();
+    let data = null;
+    try {
+      data = responseText ? JSON.parse(responseText) : null;
+    } catch {}
+
     if (!response.ok || !data?.ok) {
       const detail = Array.isArray(data?.errors) && data.errors.length
-        ? `\n\n${data.errors.slice(0, 5).map((item) => `• ${item.error}`).join('\n')}`
-        : '';
+        ? `\n\n${data.errors.slice(0, 8).map((item) => `• ${item.spoolIso ? `${item.spoolIso}: ` : ''}${item.error}`).join('\n')}`
+        : (responseText && !data ? `\n\n${responseText.slice(0, 800)}` : '');
       throw new Error((data?.error || 'Falha ao atualizar Tracking em lote.') + detail);
     }
 

@@ -79,6 +79,36 @@ function findColumnId(columns, columnTitle) {
   return found?.id || null;
 }
 
+async function updateSmartsheetCellWithPercent(sheetId, rowId, columnId, progress) {
+  const value = Number(progress || 0);
+
+  if (![25, 50, 75, 100].includes(value)) {
+    const err = new Error('Valor de avanço inválido. Use apenas 25%, 50%, 75% ou 100%.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const percentValue = `${value}%`;
+
+  await smartsheetFetch(`/sheets/${sheetId}/rows`, {
+    method: 'PUT',
+    body: JSON.stringify([
+      {
+        id: Number(rowId),
+        cells: [
+          {
+            columnId: Number(columnId),
+            value: percentValue,
+            strict: false,
+          },
+        ],
+      },
+    ]),
+  });
+
+  return { ok: true, value: percentValue };
+}
+
 async function updateTrackingCellForStageUpdate(update, session) {
   const { project, spool, payload } = await findProjectAndSpool(update.projectRowId, update.spoolIso);
   if (!project || !spool) {
@@ -134,21 +164,7 @@ async function updateTrackingCellForStageUpdate(update, session) {
     throw err;
   }
 
-  await smartsheetFetch(`/sheets/${sheetId}/rows`, {
-    method: 'PUT',
-    body: JSON.stringify([
-      {
-        id: rowId,
-        cells: [
-          {
-            columnId: Number(columnId),
-            value: progress / 100,
-            strict: false,
-          },
-        ],
-      },
-    ]),
-  });
+  await updateSmartsheetCellWithPercent(sheetId, rowId, columnId, progress);
 
   const now = new Date().toISOString();
   return {
@@ -497,6 +513,7 @@ exports.handler = async (event) => {
 
         return jsonResponse(updated.length ? 200 : 400, {
           ok: updated.length > 0,
+          error: updated.length ? '' : (errors[0]?.error || 'Falha ao atualizar Tracking em lote.'),
           update: updated[0] || null,
           updates: updated,
           results,
