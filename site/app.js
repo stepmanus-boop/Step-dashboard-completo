@@ -38,6 +38,10 @@ const state = {
   selectedProjectForSignal: null,
   sectorAlertsMode: 'default',
   stageUpdates: [],
+  trackingDatePendencies: [],
+  trackingDatePendenciesLoaded: false,
+  trackingDatePendenciesLoading: false,
+  showTrackingDatePendencies: false,
   stageUpdatesSearchQuery: '',
   stageSubmittingKeys: {},
   stageDrafts: {},
@@ -1539,10 +1543,17 @@ function getStageUpdateById(id) {
 function buildTrackingUpdatePayloadItem(id) {
   const item = getStageUpdateById(id);
   if (!item) return { id };
+  const duplicateRows = Array.isArray(item.trackingDuplicateRows) ? item.trackingDuplicateRows : [];
+  const rowIds = Array.isArray(item.trackingRowIds) && item.trackingRowIds.length
+    ? item.trackingRowIds
+    : duplicateRows.map((row) => row.rowId).filter(Boolean);
+
   return {
     id,
     sheetId: item.trackingSheetId || '',
     rowId: item.trackingRowId || '',
+    rowIds,
+    rows: duplicateRows,
     columnTitle: item.trackingUpdateColumn || '',
   };
 }
@@ -1623,6 +1634,153 @@ async function updateSelectedStageTracking(button) {
     window.alert(error.message || 'Falha ao atualizar Tracking em lote.');
   }
 }
+
+function getSelectedTrackingDatePendencyIds() {
+  return Array.from(stageUpdatesModalEl?.querySelectorAll('[data-date-pendency-select]:checked') || [])
+    .map((input) => String(input.value || input.dataset.datePendencySelect || '').trim())
+    .filter(Boolean);
+}
+
+function setAllDatePendencySelections(checked) {
+  const boxes = Array.from(stageUpdatesModalEl?.querySelectorAll('[data-date-pendency-select]:not(:disabled)') || []);
+  boxes.forEach((box) => {
+    box.checked = Boolean(checked);
+  });
+}
+
+async function loadTrackingDatePendencies(button = null) {
+  const previousText = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Verificando...';
+  }
+
+  state.trackingDatePendenciesLoading = true;
+  state.showTrackingDatePendencies = true;
+  renderStageUpdatesModal();
+
+  try {
+    const response = await fetch('/api/stage-updates', {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'list_date_pendencies' }),
+    });
+    const responseText = await response.text();
+    let data = null;
+    try {
+      data = responseText ? JSON.parse(responseText) : null;
+    } catch {}
+
+    if (!response.ok || !data?.ok) throw new Error(data?.error || responseText || 'Falha ao verificar pendências de datas.');
+
+    state.trackingDatePendencies = Array.isArray(data.pendencies) ? data.pendencies : [];
+    state.trackingDatePendenciesLoaded = true;
+  } catch (error) {
+    window.alert(error.message || 'Falha ao verificar pendências de datas.');
+  } finally {
+    state.trackingDatePendenciesLoading = false;
+    if (button) {
+      button.disabled = false;
+      button.textContent = previousText || 'Pendências de datas';
+    }
+    renderStageUpdatesModal();
+  }
+}
+
+async function fixTrackingDatePendencies(button, mode = 'selected') {
+  const ids = mode === 'all'
+    ? (Array.isArray(state.trackingDatePendencies) ? state.trackingDatePendencies.map((item) => item.id) : [])
+    : getSelectedTrackingDatePendencyIds();
+
+  if (!ids.length) {
+    window.alert('Selecione ao menos uma pendência de data para corrigir.');
+    return;
+  }
+
+  const previousText = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = `Corrigindo ${ids.length}...`;
+  }
+
+  try {
+    const response = await fetch('/api/stage-updates', {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'fix_date_pendencies', ids }),
+    });
+    const responseText = await response.text();
+    let data = null;
+    try {
+      data = responseText ? JSON.parse(responseText) : null;
+    } catch {}
+
+    if (!response.ok || !data?.ok) {
+      const detail = Array.isArray(data?.errors) && data.errors.length
+        ? `\n\n${data.errors.slice(0, 8).map((item) => `• ${item.spoolIso ? `${item.spoolIso}: ` : ''}${item.error}`).join('\n')}`
+        : (responseText && !data ? `\n\n${responseText.slice(0, 800)}` : '');
+      throw new Error((data?.error || 'Falha ao corrigir pendências de datas.') + detail);
+    }
+
+    state.trackingDatePendencies = Array.isArray(data.pendencies) ? data.pendencies : [];
+    state.trackingDatePendenciesLoaded = true;
+    loadProjects().catch(() => {});
+    window.alert(`Pendências de datas corrigidas: ${data.fixedCount || 0}`);
+  } catch (error) {
+    window.alert(error.message || 'Falha ao corrigir pendências de datas.');
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = previousText || 'Corrigir selecionadas';
+    }
+    renderStageUpdatesModal();
+  }
+}
+
+function renderTrackingDatePendenciesPanel() {
+  if (!state.showTrackingDatePendencies) return '';
+  const pendencies = Array.isArray(state.trackingDatePendencies) ? state.trackingDatePendencies : [];
+  const loaded = state.trackingDatePendenciesLoaded;
+
+  return `
+    <section class="admin-card admin-card--wide tracking-date-panel">
+      <div class="admin-card-head">
+        <div>
+          <h4>Pendências de datas no Tracking</h4>
+          <p>Lista todos os itens com avanço 100% e sem a data correspondente preenchida.</p>
+        </div>
+        <div class="stage-row-actions">
+          <button class="ghost-button" type="button" data-stage-load-date-pendencies="true">${state.trackingDatePendenciesLoading ? 'Verificando...' : 'Atualizar verificação'}</button>
+          <button class="ghost-button" type="button" data-date-pendency-select-all="true" ${pendencies.length ? '' : 'disabled'}>Selecionar todas</button>
+          <button class="primary-button" type="button" data-date-pendency-fix-selected="true" ${pendencies.length ? '' : 'disabled'}>Corrigir selecionadas</button>
+          <button class="primary-button" type="button" data-date-pendency-fix-all="true" ${pendencies.length ? '' : 'disabled'}>Corrigir em massa</button>
+        </div>
+      </div>
+      ${state.trackingDatePendenciesLoading ? `<div class="empty-state">Verificando Tracking...</div>` : (
+        pendencies.length ? `
+          <div class="table-shell">
+            <table class="stage-inline-table tracking-date-table">
+              <thead><tr><th>Sel.</th><th>BSP</th><th>Spool</th><th>Processo</th><th>Data faltante</th><th>Data que será aplicada</th></tr></thead>
+              <tbody>
+                ${pendencies.map((item) => `
+                  <tr>
+                    <td><label class="stage-select-cell"><input type="checkbox" data-date-pendency-select="${escapeHtml(item.id)}" value="${escapeHtml(item.id)}"></label></td>
+                    <td>${escapeHtml(item.projectDisplay || '—')}</td>
+                    <td>${escapeHtml(item.spoolIso || '—')}</td>
+                    <td><span class="stage-badge stage-badge--tracking-date-missing">${escapeHtml(item.progressColumn || '—')}</span></td>
+                    <td>${escapeHtml(item.dateColumn || '—')}</td>
+                    <td>${escapeHtml(item.suggestedDate || '—')}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>` : `<div class="empty-state">${loaded ? 'Nenhuma pendência de data encontrada.' : 'Clique em “Pendências de datas” para verificar o Tracking.'}</div>`
+      )}
+    </section>`;
+}
+
+
 
 function getPendingStageUpdate(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
   return getStageUpdatesForCurrentSector().find((item) =>
@@ -3862,6 +4020,32 @@ if (stageUpdatesModalEl) {
       closeStageUpdatesModal();
       return;
     }
+    const loadDatePendenciesButton = event.target.closest('[data-stage-load-date-pendencies]');
+    if (loadDatePendenciesButton) {
+      loadTrackingDatePendencies(loadDatePendenciesButton);
+      return;
+    }
+
+    const selectAllDatePendenciesButton = event.target.closest('[data-date-pendency-select-all]');
+    if (selectAllDatePendenciesButton) {
+      const total = Array.from(stageUpdatesModalEl?.querySelectorAll('[data-date-pendency-select]:not(:disabled)') || []).length;
+      const selected = getSelectedTrackingDatePendencyIds().length;
+      setAllDatePendencySelections(selected < total);
+      return;
+    }
+
+    const fixSelectedDatePendenciesButton = event.target.closest('[data-date-pendency-fix-selected]');
+    if (fixSelectedDatePendenciesButton) {
+      fixTrackingDatePendencies(fixSelectedDatePendenciesButton, 'selected');
+      return;
+    }
+
+    const fixAllDatePendenciesButton = event.target.closest('[data-date-pendency-fix-all]');
+    if (fixAllDatePendenciesButton) {
+      fixTrackingDatePendencies(fixAllDatePendenciesButton, 'all');
+      return;
+    }
+
     const trackingSelectedButton = event.target.closest('[data-stage-update-tracking-selected]');
     if (trackingSelectedButton) {
       updateSelectedStageTracking(trackingSelectedButton);
@@ -5391,6 +5575,7 @@ function renderStageValidationWorkspace() {
           </label>
           <div class="stage-row-actions">
             <div class="stage-muted">Pendentes: <strong>${pending.length}</strong> • Tracking OK: <strong>${readyToConclude.length}</strong> • Atualizar/Regravar: <strong>${trackingUpdatable.length}</strong> • Histórico: <strong>${history.length}</strong></div>
+            <button class="ghost-button" type="button" data-stage-load-date-pendencies="true">Pendências de datas${state.trackingDatePendenciesLoaded ? ` (${state.trackingDatePendencies.length})` : ''}</button>
             <button class="ghost-button" type="button" data-stage-select-all-tracking="true" ${trackingUpdatable.length ? '' : 'disabled'}>Selecionar atualizáveis/OK</button>
             <button class="ghost-button" type="button" data-stage-update-tracking-selected="true" ${trackingUpdatable.length ? '' : 'disabled'}>Atualizar/Regravar selecionados</button>
             <button class="ghost-button" type="button" data-stage-toggle-batch="true">${state.stageBatchValidationMode ? 'Voltar à lista' : 'Tela em lote'}</button>
@@ -5398,6 +5583,7 @@ function renderStageValidationWorkspace() {
           </div>
         </div>
       </section>
+      ${renderTrackingDatePendenciesPanel()}
       ${state.stageBatchValidationMode ? `
       <section class="admin-card admin-card--wide">
         <div class="admin-card-head"><h4>Validação em lote do PCP</h4></div>

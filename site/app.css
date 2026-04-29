@@ -3245,3 +3245,13 @@ button.alert-badge {
   color: #fdba74;
   border: 1px solid rgba(249, 115, 22, 0.34);
 }
+
+
+.tracking-date-panel {
+  border-color: rgba(249, 115, 22, 0.22);
+}
+
+.tracking-date-table td,
+.tracking-date-table th {
+  vertical-align: middle;
+}

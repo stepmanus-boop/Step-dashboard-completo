@@ -29,6 +29,8 @@ const TRACKING_DATE_COLUMN_BY_PROGRESS_COLUMN = {
   'Non Destructive Examination (QC)': 'Inspection Finish Date (QC)',
   'Spool Assemble and tack weld': 'Boilermaker Finish Date',
   'HDG / FBE.  (PAINT)': 'HDG / FBE DATE RETORNO (PAINT)',
+  'Final Inspection': 'Project Finish Date',
+  'Package and Delivered': 'Project Finish Date',
 };
 
 function getTrackingDateColumnForProgressColumn(columnTitle) {
@@ -63,302 +65,217 @@ function hasTrackingDateValue(spool, dateColumnTitle) {
   return Boolean(text && text !== 'N/A' && text !== 'Não' && text !== '-');
 }
 
-const TRACKING_FIELDS_BY_SECTOR = {
-  pintura: ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)'],
-  inspecao: ['Final Inspection', 'Hydro Test Pressure (QC)', 'Non Destructive Examination (QC)', 'Final Dimensional Inpection/3D (QC)', 'Initial Dimensional Inspection/3D'],
-  pendente_envio: ['Package and Delivered', 'Final Inspection'],
-  producao: ['Spool Assemble and tack weld', 'Welding Preparation'],
-  calderaria: ['Spool Assemble and tack weld', 'Welding Preparation', 'Material Separation', 'Material Release to Fabrication'],
-  solda: ['Full welding execution'],
-};
-
-function normalizeColumnTitle(value) {
+function normalizeSpoolIdentity(value) {
   return String(value || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9]+/g, '')
+    .replace(/\s+/g, '')
+    .replace(/[–—]/g, '-')
     .toLowerCase();
 }
 
-async function smartsheetFetch(path, options = {}) {
-  if (!SMARTSHEET_TOKEN) {
-    const err = new Error('SMARTSHEET_TOKEN não configurado.');
-    err.statusCode = 500;
-    throw err;
-  }
+function getSpoolIdentity(spool) {
+  return normalizeSpoolIdentity(spool?.iso || spool?.drawing || spool?.spoolIso || spool?.description || '');
+}
 
-  const response = await fetch(`${SMARTSHEET_API_BASE}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${SMARTSHEET_TOKEN}`,
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
+function getDuplicateTrackingRows(project, spool, columnTitle = '') {
+  const baseKey = getSpoolIdentity(spool);
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  const duplicates = spools.filter((item) => {
+    const key = getSpoolIdentity(item);
+    return key && baseKey && key === baseKey && Number(item?.rowId || 0);
   });
 
-  if (!response.ok) {
-    const message = await response.text().catch(() => '');
-    const err = new Error(`Smartsheet ${response.status}: ${message || 'Falha ao atualizar tracking.'}`);
-    err.statusCode = response.status;
-    throw err;
-  }
+  const source = duplicates.length ? duplicates : (Number(spool?.rowId || 0) ? [spool] : []);
 
-  return response.json().catch(() => ({}));
-}
-
-async function getSheetColumns(sheetId) {
-  const sheet = await smartsheetFetch(`/sheets/${sheetId}?pageSize=1`);
-  return Array.isArray(sheet?.columns) ? sheet.columns : [];
-}
-
-function getTrackingUpdateColumnForSector(sector) {
-  return TRACKING_UPDATE_COLUMN_BY_SECTOR[normalizeSectorValue(sector)] || '';
-}
-
-function findColumn(columns, columnTitle) {
-  const target = normalizeColumnTitle(columnTitle);
-  return (Array.isArray(columns) ? columns : []).find((column) => normalizeColumnTitle(column?.title) === target) || null;
-}
-
-function findColumnId(columns, columnTitle) {
-  return findColumn(columns, columnTitle)?.id || null;
-}
-
-function getSmartsheetPercentCellValue(column, progress) {
-  const value = Number(progress || 0);
-
-  // As colunas de avanço alimentam fórmulas (% Individual / % Overall).
-  // Para o Smartsheet reconhecer como percentual real, a API deve gravar decimal:
-  // 25% = 0.25, 50% = 0.5, 75% = 0.75, 100% = 1.
-  // Gravar texto "100%" pode aparecer visualmente, mas quebra fórmula e cor.
-  return value / 100;
-}
-
-async function updateSmartsheetCellWithPercent(sheetId, rowId, column, progress) {
-  const value = Number(progress || 0);
-
-  if (![25, 50, 75, 100].includes(value)) {
-    const err = new Error('Valor de avanço inválido. Use apenas 25%, 50%, 75% ou 100%.');
-    err.statusCode = 400;
-    throw err;
-  }
-
-  const columnId = Number(column?.id || 0);
-  if (!columnId) {
-    const err = new Error('Coluna do Tracking não localizada.');
-    err.statusCode = 404;
-    throw err;
-  }
-
-  await smartsheetFetch(`/sheets/${sheetId}/rows`, {
-    method: 'PUT',
-    body: JSON.stringify([
-      {
-        id: Number(rowId),
-        cells: [
-          {
-            columnId,
-            value: getSmartsheetPercentCellValue(column, value),
-            strict: false,
-          },
-        ],
-      },
-    ]),
-  });
-
-  return { ok: true, value };
-}
-
-async function updateSmartsheetRowsWithPercent(sheetId, column, rows) {
-  const columnId = Number(column?.id || 0);
-  const cleanRows = (Array.isArray(rows) ? rows : [])
-    .filter((row) => Number(row?.id || 0) && columnId);
-
-  if (!cleanRows.length) return { ok: true, count: 0 };
-
-  await smartsheetFetch(`/sheets/${sheetId}/rows`, {
-    method: 'PUT',
-    body: JSON.stringify(cleanRows.map((row) => {
-      const progress = Number(row.progress || 0);
-      return {
-        id: Number(row.id),
-        cells: [
-          {
-            columnId,
-            value: getSmartsheetPercentCellValue(column, progress),
-            strict: false,
-          },
-        ],
-      };
-    })),
-  });
-
-  return { ok: true, count: cleanRows.length };
-}
-
-async function updateSmartsheetRowsWithDate(sheetId, dateColumn, rows) {
-  const dateColumnId = Number(dateColumn?.id || 0);
-  const cleanRows = (Array.isArray(rows) ? rows : [])
-    .filter((row) => Number(row?.id || 0) && dateColumnId && Number(row.progress || 0) >= 100);
-
-  if (!cleanRows.length) return { ok: true, count: 0 };
-
-  await smartsheetFetch(`/sheets/${sheetId}/rows`, {
-    method: 'PUT',
-    body: JSON.stringify(cleanRows.map((row) => ({
-      id: Number(row.id),
-      cells: [
-        {
-          columnId: dateColumnId,
-          value: normalizeDateForSmartsheet(row.completionDate),
-          strict: false,
-        },
-      ],
-    }))),
-  });
-
-  return { ok: true, count: cleanRows.length };
-}
-
-function getTrackingOverrideFromBody(body, id) {
-  const allItems = Array.isArray(body?.items) ? body.items : [];
-  return allItems.find((item) => String(item?.id || '').trim() === String(id || '').trim()) || {};
-}
-
-function makeUpdatedTrackingRecord(current, session, columnTitle, resolvedProgress = null, options = {}) {
-  const now = new Date().toISOString();
-  const finalProgress = Number(resolvedProgress == null ? current.progress || 0 : resolvedProgress);
-  const actor = session.username || '';
-  const actorName = session.name || session.username || 'PCP';
-  return {
-    ...current,
-    status: 'resolved_advance',
-    resolvedBy: actor,
-    resolvedByName: actorName,
-    resolvedAt: now,
-    resolutionNote: options.higherCurrentProgress
-      ? `Concluído automaticamente: o Tracking já estava em ${Math.round(Number(finalProgress || 0))}%, superior ao apontamento de ${Number(current.progress || 0)}%.`
-      : 'Concluído automaticamente após conferência/atualização do Tracking pelo PCP.',
-    trackingCheckedAt: now,
-    trackingProgress: Number.isFinite(finalProgress) ? finalProgress : Number(current.progress || 0),
-    trackingMatched: true,
-    trackingStatus: 'matched',
-    trackingUpdatedBy: options.skipUpdatedBy ? (current.trackingUpdatedBy || '') : actor,
-    trackingUpdatedByName: options.skipUpdatedBy ? (current.trackingUpdatedByName || '') : actorName,
-    trackingUpdatedAt: options.skipUpdatedBy ? (current.trackingUpdatedAt || '') : now,
-    trackingUpdatedColumn: columnTitle,
-  };
-}
-
-async function persistResolvedTrackingRecord(id, updatedRecord) {
-  if (!isSupabaseConfigured()) return updatedRecord;
-
-  const saved = await updateStageUpdate(id, {
-    status: updatedRecord.status || 'resolved_advance',
-    resolvedBy: updatedRecord.resolvedBy || '',
-    resolvedByName: updatedRecord.resolvedByName || '',
-    resolvedAt: updatedRecord.resolvedAt || new Date().toISOString(),
-    resolutionNote: updatedRecord.resolutionNote || '',
-  });
-
-  return saved ? { ...updatedRecord, ...saved } : updatedRecord;
-}
-
-async function updateTrackingCellForStageUpdate(update, session) {
-  const { project, spool, payload } = await findProjectAndSpool(update.projectRowId, update.spoolIso);
-  if (!project || !spool) {
-    const err = new Error('BSP ou spool não localizado no Tracking.');
-    err.statusCode = 404;
-    throw err;
-  }
-
-  const columnTitle = getTrackingUpdateColumnForSector(update.sector);
-  if (!columnTitle) {
-    const err = new Error(`Não existe coluna configurada para atualizar o setor ${update.sector || 'informado'}.`);
-    err.statusCode = 400;
-    throw err;
-  }
-
-  const progress = Number(update.progress || 0);
-  const currentProgress = getTrackingProgressForSector(spool, update.sector);
-  if (currentProgress != null && Number(currentProgress) > progress) {
+  return source.map((item) => {
+    const stageValues = item?.stageValues || {};
+    const currentProgress = columnTitle
+      ? parseTrackingPercent(stageValues[columnTitle])
+      : null;
     return {
-      update: makeUpdatedTrackingRecord(
-        applyTrackingVerification({
-          ...update,
-          trackingUpdatedBy: update.trackingUpdatedBy || '',
-          trackingUpdatedByName: update.trackingUpdatedByName || '',
-          trackingUpdatedAt: update.trackingUpdatedAt || '',
-          trackingUpdatedColumn: columnTitle,
-        }, project, spool, payload),
-        session,
-        columnTitle,
-        currentProgress,
-        { skipUpdatedBy: true, higherCurrentProgress: true }
-      ),
-      applied: false,
-      alreadyUpdated: true,
-      higherCurrentProgress: true,
-      message: `Não atualizado: o Tracking já está em ${Math.round(currentProgress)}%, superior ao apontamento de ${progress}%.`,
-      columnTitle,
-      currentProgress,
+      rowId: Number(item?.rowId || 0),
+      spoolIso: item?.iso || item?.drawing || '',
+      currentProgress: currentProgress == null ? null : Number(currentProgress),
     };
-  }
+  }).filter((item, index, arr) =>
+    item.rowId && arr.findIndex((other) => Number(other.rowId) === Number(item.rowId)) === index
+  );
+}
 
-  const sheetId = payload?.meta?.sheetId;
-  if (!sheetId) {
-    const err = new Error('Sheet ID do Tracking não localizado.');
-    err.statusCode = 500;
-    throw err;
-  }
+function getMaxTrackingProgress(rows = []) {
+  const values = (Array.isArray(rows) ? rows : [])
+    .map((item) => Number(item?.currentProgress))
+    .filter((value) => Number.isFinite(value));
+  return values.length ? Math.max(...values) : null;
+}
 
-  const rowId = Number(spool.rowId || 0);
-  if (!rowId) {
-    const err = new Error('Linha da spool no Tracking não localizada.');
-    err.statusCode = 404;
-    throw err;
-  }
+const TRACKING_DATE_PENDENCY_RULES = [
+  { progressColumn: 'Surface preparation and/or coating', dateColumn: 'Coating Finish Date', label: 'Pintura 100% sem data' },
+  { progressColumn: 'Full welding execution', dateColumn: 'Welding Finish Date', label: 'Solda 100% sem data' },
+  { progressColumn: 'Spool Assemble and tack weld', dateColumn: 'Boilermaker Finish Date', label: 'Pré-montagem 100% sem data' },
+  { progressColumn: 'Hydro Test Pressure (QC)', dateColumn: 'TH Finish Date', label: 'TH 100% sem data' },
+  { progressColumn: 'Final Dimensional Inpection/3D (QC)', dateColumn: 'Inspection Finish Date (QC)', label: 'Inspeção final 100% sem data' },
+  { progressColumn: 'Non Destructive Examination (QC)', dateColumn: 'Inspection Finish Date (QC)', label: 'END 100% sem data' },
+  { progressColumn: 'HDG / FBE.  (PAINT)', dateColumn: 'HDG / FBE DATE RETORNO (PAINT)', label: 'HDG/FBE 100% sem data de retorno' },
+  { progressColumn: 'Final Inspection', dateColumn: 'Project Finish Date', label: 'Final Inspection 100% sem Project Finish Date' },
+  { progressColumn: 'Package and Delivered', dateColumn: 'Project Finish Date', label: 'Package 100% sem Project Finish Date' },
+];
 
-  const columns = await getSheetColumns(sheetId);
-  const column = findColumn(columns, columnTitle);
-  if (!column) {
-    const err = new Error(`Coluna "${columnTitle}" não encontrada no Tracking.`);
-    err.statusCode = 404;
-    throw err;
-  }
+function buildDatePendencyId(rowId, progressColumn, dateColumn) {
+  return `${rowId}::${normalizeColumnTitle(progressColumn)}::${normalizeColumnTitle(dateColumn)}`;
+}
 
-  await updateSmartsheetCellWithPercent(sheetId, rowId, column, progress);
+function getDatePendencySector(progressColumn) {
+  const key = normalizeColumnTitle(progressColumn);
+  if (key.includes('surface') || key.includes('coating') || key.includes('hdgfbe')) return 'pintura';
+  if (key.includes('fullwelding')) return 'solda';
+  if (key.includes('spoolassemble')) return 'calderaria';
+  if (key.includes('hydro') || key.includes('inspection') || key.includes('nondestructive')) return 'inspecao';
+  if (key.includes('package') || key.includes('finalinspection')) return 'pendente_envio';
+  return '';
+}
 
-  const dateColumnTitle = getTrackingDateColumnForProgressColumn(columnTitle);
-  if (progress >= 100 && dateColumnTitle) {
-    const dateColumn = findColumn(columns, dateColumnTitle);
-    if (dateColumn) {
-      await updateSmartsheetRowsWithDate(sheetId, dateColumn, [{
-        id: rowId,
-        progress,
-        completionDate: update.completionDate,
-      }]);
+function findBestCompletionDateForPendency(updates, spoolIso, progressColumn, fallbackDate = '') {
+  const sector = getDatePendencySector(progressColumn);
+  const candidates = (Array.isArray(updates) ? updates : [])
+    .filter((item) => String(item?.spoolIso || '').trim().toLowerCase() === String(spoolIso || '').trim().toLowerCase())
+    .filter((item) => !sector || normalizeSectorValue(item?.sector) === sector)
+    .filter((item) => Number(item?.progress || 0) >= 100)
+    .sort((a, b) => new Date(b.resolvedAt || b.createdAt || 0) - new Date(a.resolvedAt || a.createdAt || 0));
+
+  const candidate = candidates[0];
+  return normalizeDateForSmartsheet(candidate?.completionDate || candidate?.resolvedAt || candidate?.createdAt || fallbackDate);
+}
+
+async function buildTrackingDatePendencies() {
+  const payload = await loadProjectPayload();
+  const updates = await listUpdates();
+  const projects = Array.isArray(payload?.projects) ? payload.projects : [];
+  const sheetId = payload?.meta?.sheetId || '';
+  const today = new Date().toISOString().slice(0, 10);
+  const pendencies = [];
+
+  for (const project of projects) {
+    const spools = Array.isArray(project?.spools) ? project.spools : [];
+    for (const spool of spools) {
+      const rowId = Number(spool?.rowId || 0);
+      if (!rowId) continue;
+      const stageValues = spool?.stageValues || {};
+
+      for (const rule of TRACKING_DATE_PENDENCY_RULES) {
+        const progress = parseTrackingPercent(stageValues[rule.progressColumn]);
+        if (progress == null || progress < 100) continue;
+        if (hasTrackingDateValue(spool, rule.dateColumn)) continue;
+
+        const duplicateRows = getDuplicateTrackingRows(project, spool, rule.progressColumn);
+        pendencies.push({
+          id: buildDatePendencyId(rowId, rule.progressColumn, rule.dateColumn),
+          sheetId,
+          rowId,
+          rowIds: duplicateRows.map((row) => row.rowId),
+          duplicateRows,
+          projectDisplay: project?.projectDisplay || project?.projectNumber || '',
+          client: project?.client || '',
+          spoolIso: spool?.iso || spool?.drawing || '',
+          progressColumn: rule.progressColumn,
+          dateColumn: rule.dateColumn,
+          progress: Number(progress.toFixed(2)),
+          label: rule.label,
+          suggestedDate: findBestCompletionDateForPendency(updates, spool?.iso || spool?.drawing || '', rule.progressColumn, today),
+        });
+      }
     }
   }
 
-  const now = new Date().toISOString();
-  return {
-    update: makeUpdatedTrackingRecord({
-      ...update,
-      trackingCheckedAt: now,
-      trackingProgress: progress,
-      trackingMatched: true,
-      trackingStatus: 'matched',
-      trackingUpdatedBy: session.username || '',
-      trackingUpdatedByName: session.name || session.username || 'PCP',
-      trackingUpdatedAt: now,
-      trackingUpdatedColumn: columnTitle,
-    }, session, columnTitle, progress),
-    applied: true,
-    alreadyUpdated: false,
-    columnTitle,
-    currentProgress: progress,
-  };
+  return pendencies.sort((a, b) =>
+    String(a.projectDisplay).localeCompare(String(b.projectDisplay), 'pt-BR', { numeric: true, sensitivity: 'base' })
+    || String(a.spoolIso).localeCompare(String(b.spoolIso), 'pt-BR', { numeric: true, sensitivity: 'base' })
+    || String(a.progressColumn).localeCompare(String(b.progressColumn), 'pt-BR', { numeric: true, sensitivity: 'base' })
+  );
+}
+
+async function fixTrackingDatePendencies(ids = []) {
+  const all = await buildTrackingDatePendencies();
+  const selectedSet = new Set((Array.isArray(ids) ? ids : []).map((id) => String(id || '').trim()).filter(Boolean));
+  const selected = selectedSet.size ? all.filter((item) => selectedSet.has(String(item.id))) : all;
+  const errors = [];
+  const fixed = [];
+
+  if (!selected.length) {
+    return { fixed, errors, pending: all };
+  }
+
+  const bySheetAndDateColumn = new Map();
+  const bySheetAndProgressColumn = new Map();
+
+  for (const item of selected) {
+    const rowIds = Array.isArray(item.rowIds) && item.rowIds.length ? item.rowIds : [item.rowId];
+
+    const dateGroupKey = `${item.sheetId}::${normalizeColumnTitle(item.dateColumn)}`;
+    if (!bySheetAndDateColumn.has(dateGroupKey)) {
+      bySheetAndDateColumn.set(dateGroupKey, { sheetId: item.sheetId, dateColumn: item.dateColumn, rows: [] });
+    }
+
+    const progressGroupKey = `${item.sheetId}::${normalizeColumnTitle(item.progressColumn)}`;
+    if (!bySheetAndProgressColumn.has(progressGroupKey)) {
+      bySheetAndProgressColumn.set(progressGroupKey, { sheetId: item.sheetId, progressColumn: item.progressColumn, rows: [] });
+    }
+
+    for (const rowId of rowIds) {
+      if (!Number(rowId || 0)) continue;
+      bySheetAndDateColumn.get(dateGroupKey).rows.push({
+        id: Number(rowId),
+        progress: 100,
+        completionDate: item.suggestedDate,
+        itemId: item.id,
+      });
+      bySheetAndProgressColumn.get(progressGroupKey).rows.push({
+        id: Number(rowId),
+        progress: 100,
+        itemId: item.id,
+      });
+    }
+  }
+
+  for (const group of bySheetAndProgressColumn.values()) {
+    try {
+      const columns = await getSheetColumns(group.sheetId);
+      const progressColumn = findColumn(columns, group.progressColumn);
+      if (!progressColumn) throw new Error(`Coluna de avanço "${group.progressColumn}" não encontrada.`);
+
+      const uniqueRows = Array.from(new Map(group.rows.map((row) => [String(row.id), row])).values());
+      await updateSmartsheetRowsWithPercent(group.sheetId, progressColumn, uniqueRows);
+    } catch (error) {
+      for (const row of group.rows) {
+        errors.push({ id: row.itemId, error: error.message || 'Falha ao corrigir avanço.' });
+      }
+    }
+  }
+
+  for (const group of bySheetAndDateColumn.values()) {
+    try {
+      const columns = await getSheetColumns(group.sheetId);
+      const dateColumn = findColumn(columns, group.dateColumn);
+      if (!dateColumn) throw new Error(`Coluna de data "${group.dateColumn}" não encontrada.`);
+
+      const uniqueRows = Array.from(new Map(group.rows.map((row) => [String(row.id), row])).values());
+      await updateSmartsheetRowsWithDate(group.sheetId, dateColumn, uniqueRows);
+
+      const fixedIds = new Set(group.rows.map((row) => String(row.itemId)));
+      for (const item of selected) {
+        if (fixedIds.has(String(item.id)) && !fixed.some((fixedItem) => String(fixedItem.id) === String(item.id))) {
+          fixed.push(item);
+        }
+      }
+    } catch (error) {
+      for (const row of group.rows) {
+        errors.push({ id: row.itemId, error: error.message || 'Falha ao corrigir data.' });
+      }
+    }
+  }
+
+  return { fixed, errors, pending: all };
 }
 
 function parseTrackingPercent(value) {
@@ -417,11 +334,15 @@ function applyTrackingVerification(update, project, spool, payload = null) {
   const trackingMatched = trackingProgress != null && trackingProgress >= progress;
   const trackingUpdateColumn = getTrackingUpdateColumnForSector(update?.sector);
   const trackingDateColumn = getTrackingDateColumnForProgressColumn(trackingUpdateColumn);
+  const duplicateRows = getDuplicateTrackingRows(project, spool, trackingUpdateColumn);
   const trackingMissingDate = Boolean(
     trackingMatched
     && Number(trackingProgress || 0) >= 100
     && trackingDateColumn
-    && !hasTrackingDateValue(spool, trackingDateColumn)
+    && duplicateRows.some((row) => {
+      const duplicate = (Array.isArray(project?.spools) ? project.spools : []).find((item) => Number(item?.rowId || 0) === Number(row.rowId));
+      return duplicate && !hasTrackingDateValue(duplicate, trackingDateColumn);
+    })
   );
 
   return {
@@ -436,6 +357,8 @@ function applyTrackingVerification(update, project, spool, payload = null) {
     trackingDateColumn,
     trackingSheetId: payload?.meta?.sheetId || update?.trackingSheetId || '',
     trackingRowId: spool?.rowId || update?.trackingRowId || '',
+    trackingRowIds: duplicateRows.map((row) => row.rowId),
+    trackingDuplicateRows: duplicateRows,
     trackingUpdateColumn,
   };
 }
@@ -636,8 +559,33 @@ exports.handler = async (event) => {
         return jsonResponse(403, { ok: false, error: 'Apenas PCP ou administrador pode concluir apontamentos.' });
       }
       const body = JSON.parse(event.body || '{}');
+      const action = String(body.action || '').trim().toLowerCase();
 
-      if (String(body.action || '').trim().toLowerCase() === 'update_tracking') {
+      if (action === 'list_date_pendencies') {
+        const pendencies = await buildTrackingDatePendencies();
+        return jsonResponse(200, {
+          ok: true,
+          pendencies,
+          count: pendencies.length,
+        });
+      }
+
+      if (action === 'fix_date_pendencies') {
+        const idsToFix = Array.isArray(body.ids) ? body.ids.map((id) => String(id || '').trim()).filter(Boolean) : [];
+        const result = await fixTrackingDatePendencies(idsToFix);
+        const remaining = await buildTrackingDatePendencies();
+        return jsonResponse(result.fixed.length ? 200 : 400, {
+          ok: result.fixed.length > 0,
+          error: result.fixed.length ? '' : (result.errors[0]?.error || 'Nenhuma pendência de data corrigida.'),
+          fixed: result.fixed,
+          fixedCount: result.fixed.length,
+          errors: result.errors,
+          pendencies: remaining,
+          count: remaining.length,
+        });
+      }
+
+      if (action === 'update_tracking') {
         const requestedIds = Array.isArray(body.ids)
           ? body.ids.map((item) => String(item || '').trim()).filter(Boolean)
           : [String(body.id || '').trim()].filter(Boolean);
@@ -676,13 +624,25 @@ exports.handler = async (event) => {
 
           const override = getTrackingOverrideFromBody(body, id);
           const sheetId = String(override.sheetId || override.trackingSheetId || current.trackingSheetId || '').trim();
-          const rowId = Number(override.rowId || override.trackingRowId || current.trackingRowId || 0);
           const columnTitle = String(override.columnTitle || override.trackingUpdateColumn || current.trackingUpdateColumn || getTrackingUpdateColumnForSector(current.sector) || '').trim();
           const progress = Number(current.progress || 0);
-          const currentTrackingProgress = Number(current.trackingProgress);
+          const overrideRows = Array.isArray(override.rows)
+            ? override.rows.map((row) => ({
+                rowId: Number(row?.rowId || row?.id || 0),
+                currentProgress: Number(row?.currentProgress),
+              })).filter((row) => row.rowId)
+            : [];
+          const overrideRowIds = Array.isArray(override.rowIds)
+            ? override.rowIds.map((rowId) => Number(rowId || 0)).filter(Boolean)
+            : [];
+          const rowId = Number(override.rowId || override.trackingRowId || current.trackingRowId || 0);
+          const targetRows = overrideRows.length
+            ? overrideRows
+            : (overrideRowIds.length ? overrideRowIds.map((id) => ({ rowId: id, currentProgress: Number(current.trackingProgress) })) : (rowId ? [{ rowId, currentProgress: Number(current.trackingProgress) }] : []));
 
-          if (Number.isFinite(currentTrackingProgress) && currentTrackingProgress > progress) {
-            let updatedRecord = makeUpdatedTrackingRecord(current, session, columnTitle, currentTrackingProgress, { skipUpdatedBy: true, higherCurrentProgress: true });
+          const maxCurrentProgress = getMaxTrackingProgress(targetRows);
+          if (maxCurrentProgress != null && maxCurrentProgress > progress) {
+            let updatedRecord = makeUpdatedTrackingRecord(current, session, columnTitle, maxCurrentProgress, { skipUpdatedBy: true, higherCurrentProgress: true });
             updatedRecord = await persistResolvedTrackingRecord(id, updatedRecord);
             if (!isSupabaseConfigured()) {
               updates[index] = updatedRecord;
@@ -694,19 +654,21 @@ exports.handler = async (event) => {
               alreadyUpdated: true,
               higherCurrentProgress: true,
               progress,
-              currentProgress: currentTrackingProgress,
+              currentProgress: maxCurrentProgress,
               columnTitle,
-              message: `Não atualizado: o Tracking já está em ${Math.round(currentTrackingProgress)}%, superior ao apontamento de ${progress}%.`,
+              message: `Não atualizado: o Tracking já está em ${Math.round(maxCurrentProgress)}%, superior ao apontamento de ${progress}%.`,
             });
             continue;
           }
 
-          if (sheetId && rowId && columnTitle && [25, 50, 75, 100].includes(progress)) {
+          if (sheetId && targetRows.length && columnTitle && [25, 50, 75, 100].includes(progress)) {
             const groupKey = `${sheetId}::${normalizeColumnTitle(columnTitle)}`;
             if (!fastGroups.has(groupKey)) {
               fastGroups.set(groupKey, { sheetId, columnTitle, rows: [] });
             }
-            fastGroups.get(groupKey).rows.push({ id: rowId, progress, updateId: id, index, completionDate: current.completionDate });
+            for (const targetRow of targetRows) {
+              fastGroups.get(groupKey).rows.push({ id: targetRow.rowId, progress, updateId: id, index, completionDate: current.completionDate });
+            }
             pendingSaveIndexes.set(id, { index, current, columnTitle });
             continue;
           }
