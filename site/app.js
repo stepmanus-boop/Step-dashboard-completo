@@ -1423,15 +1423,20 @@ function getStageTrackingInfo(item) {
   const current = Number(item?.trackingProgress);
   const hasCurrent = Number.isFinite(current);
   const matched = Boolean(item?.trackingMatched) || (hasCurrent && current >= progress);
+  const missingDate = Boolean(item?.trackingMissingDate);
 
   return {
     current: hasCurrent ? current : null,
     matched,
+    missingDate,
+    dateColumn: item?.trackingDateColumn || '',
     label: hasCurrent
-      ? (matched ? `Tracking OK ${formatPercent(current)}` : `Aguardando tracking ${formatPercent(current)}/${formatPercent(progress)}`)
+      ? (matched
+        ? (missingDate ? `Tracking OK ${formatPercent(current)} • sem data` : `Tracking OK ${formatPercent(current)}`)
+        : `Aguardando tracking ${formatPercent(current)}/${formatPercent(progress)}`)
       : 'Tracking não localizado',
     className: hasCurrent
-      ? (matched ? 'stage-badge--tracking-ok' : 'stage-badge--tracking-waiting')
+      ? (missingDate ? 'stage-badge--tracking-date-missing' : (matched ? 'stage-badge--tracking-ok' : 'stage-badge--tracking-waiting'))
       : 'stage-badge--tracking-missing',
   };
 }
@@ -1441,26 +1446,36 @@ function stageTrackingBadgeHtml(item) {
   return `<span class="stage-badge ${info.className}">${escapeHtml(info.label)}</span>`;
 }
 
+function hasSuperiorTrackingProgress(item) {
+  const info = getStageTrackingInfo(item);
+  const current = Number(info.current);
+  const requested = Number(item?.progress || 0);
+  return Number.isFinite(current) && current > requested;
+}
+
 function canUpdateTrackingFromStage(item) {
   if (!canValidateStageWorkspace()) return false;
   if (!isPendingStageStatus(item?.status)) return false;
   if (isReviewStageStatus(item?.status)) return false;
-  const info = getStageTrackingInfo(item);
-  return !info.matched;
+  return !hasSuperiorTrackingProgress(item);
 }
 
 function stageTrackingUpdateButtonHtml(item) {
   const info = getStageTrackingInfo(item);
-  if (info.matched) {
-    return `<button class="ghost-button ghost-button--compact" type="button" disabled>Tracking OK</button>`;
+  if (hasSuperiorTrackingProgress(item)) {
+    return `<button class="ghost-button ghost-button--compact" type="button" disabled>Tracking superior</button>`;
   }
   if (!canUpdateTrackingFromStage(item)) return '';
-  return `<button class="ghost-button ghost-button--compact" type="button" data-stage-update-tracking="${escapeHtml(item.id)}">Atualizar Tracking</button>`;
+  const label = info.missingDate ? 'Regravar + Data' : (info.matched ? 'Regravar Tracking' : 'Atualizar Tracking');
+  return `<button class="ghost-button ghost-button--compact" type="button" data-stage-update-tracking="${escapeHtml(item.id)}">${label}</button>`;
 }
 
 function stageTrackingSelectionHtml(item) {
   const disabled = !canUpdateTrackingFromStage(item);
-  return `<label class="stage-select-cell" title="${disabled ? 'Este item não precisa ou não pode atualizar o Tracking' : 'Selecionar para atualização em lote'}">
+  const title = hasSuperiorTrackingProgress(item)
+    ? 'Bloqueado: o Tracking já está com avanço superior'
+    : (disabled ? 'Este item não pode atualizar o Tracking' : 'Selecionar para atualizar/regravar no Tracking');
+  return `<label class="stage-select-cell" title="${escapeHtml(title)}">
     <input type="checkbox" data-stage-tracking-select="${escapeHtml(item.id)}" value="${escapeHtml(item.id)}" ${disabled ? 'disabled' : ''}>
   </label>`;
 }
@@ -5375,9 +5390,9 @@ function renderStageValidationWorkspace() {
             <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP 25-732-03 ou BSP2573203" autocomplete="off" inputmode="search" />
           </label>
           <div class="stage-row-actions">
-            <div class="stage-muted">Pendentes: <strong>${pending.length}</strong> • Tracking OK: <strong>${readyToConclude.length}</strong> • Atualizáveis no Tracking: <strong>${trackingUpdatable.length}</strong> • Histórico: <strong>${history.length}</strong></div>
-            <button class="ghost-button" type="button" data-stage-select-all-tracking="true" ${trackingUpdatable.length ? '' : 'disabled'}>Selecionar atualizáveis</button>
-            <button class="ghost-button" type="button" data-stage-update-tracking-selected="true" ${trackingUpdatable.length ? '' : 'disabled'}>Atualizar Tracking selecionados</button>
+            <div class="stage-muted">Pendentes: <strong>${pending.length}</strong> • Tracking OK: <strong>${readyToConclude.length}</strong> • Atualizar/Regravar: <strong>${trackingUpdatable.length}</strong> • Histórico: <strong>${history.length}</strong></div>
+            <button class="ghost-button" type="button" data-stage-select-all-tracking="true" ${trackingUpdatable.length ? '' : 'disabled'}>Selecionar atualizáveis/OK</button>
+            <button class="ghost-button" type="button" data-stage-update-tracking-selected="true" ${trackingUpdatable.length ? '' : 'disabled'}>Atualizar/Regravar selecionados</button>
             <button class="ghost-button" type="button" data-stage-toggle-batch="true">${state.stageBatchValidationMode ? 'Voltar à lista' : 'Tela em lote'}</button>
             <button class="primary-button" type="button" data-stage-conclude-bulk="true" ${readyToConclude.length ? '' : 'disabled'}>Concluir lote OK</button>
           </div>

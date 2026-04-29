@@ -3238,3 +3238,10 @@ button.alert-badge {
   align-self: flex-start;
   margin-top: 3px;
 }
+
+
+.stage-badge--tracking-date-missing {
+  background: rgba(249, 115, 22, 0.18);
+  color: #fdba74;
+  border: 1px solid rgba(249, 115, 22, 0.34);
+}

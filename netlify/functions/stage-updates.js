@@ -21,6 +21,48 @@ const TRACKING_UPDATE_COLUMN_BY_SECTOR = {
   pendente_envio: 'Package and Delivered',
 };
 
+const TRACKING_DATE_COLUMN_BY_PROGRESS_COLUMN = {
+  'Surface preparation and/or coating': 'Coating Finish Date',
+  'Full welding execution': 'Welding Finish Date',
+  'Hydro Test Pressure (QC)': 'TH Finish Date',
+  'Final Dimensional Inpection/3D (QC)': 'Inspection Finish Date (QC)',
+  'Non Destructive Examination (QC)': 'Inspection Finish Date (QC)',
+  'Spool Assemble and tack weld': 'Boilermaker Finish Date',
+  'HDG / FBE.  (PAINT)': 'HDG / FBE DATE RETORNO (PAINT)',
+};
+
+function getTrackingDateColumnForProgressColumn(columnTitle) {
+  return TRACKING_DATE_COLUMN_BY_PROGRESS_COLUMN[String(columnTitle || '').trim()] || '';
+}
+
+function normalizeDateForSmartsheet(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return new Date().toISOString().slice(0, 10);
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+  const br = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (br) {
+    const day = br[1].padStart(2, '0');
+    const month = br[2].padStart(2, '0');
+    const year = br[3].length === 2 ? `20${br[3]}` : br[3];
+    return `${year}-${month}-${day}`;
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+
+  return new Date().toISOString().slice(0, 10);
+}
+
+function hasTrackingDateValue(spool, dateColumnTitle) {
+  if (!dateColumnTitle) return true;
+  const value = spool?.stageValues?.[dateColumnTitle];
+  if (value == null) return false;
+  const text = String(value).trim();
+  return Boolean(text && text !== 'N/A' && text !== 'Não' && text !== '-');
+}
+
 const TRACKING_FIELDS_BY_SECTOR = {
   pintura: ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)'],
   inspecao: ['Final Inspection', 'Hydro Test Pressure (QC)', 'Non Destructive Examination (QC)', 'Final Dimensional Inpection/3D (QC)', 'Initial Dimensional Inspection/3D'],
@@ -84,16 +126,12 @@ function findColumnId(columns, columnTitle) {
 
 function getSmartsheetPercentCellValue(column, progress) {
   const value = Number(progress || 0);
-  const columnType = String(column?.type || '').toUpperCase();
-  const format = String(column?.format || '').toUpperCase();
 
-  // No Smartsheet, coluna formatada como percentual exibe 50%, mas a API deve gravar 0.5.
-  if (columnType.includes('PERCENT') || format.includes('PERCENT') || format.includes('%')) {
-    return value / 100;
-  }
-
-  // Fallback para coluna texto: mantém visual percentual.
-  return `${value}%`;
+  // As colunas de avanço alimentam fórmulas (% Individual / % Overall).
+  // Para o Smartsheet reconhecer como percentual real, a API deve gravar decimal:
+  // 25% = 0.25, 50% = 0.5, 75% = 0.75, 100% = 1.
+  // Gravar texto "100%" pode aparecer visualmente, mas quebra fórmula e cor.
+  return value / 100;
 }
 
 async function updateSmartsheetCellWithPercent(sheetId, rowId, column, progress) {
@@ -153,6 +191,30 @@ async function updateSmartsheetRowsWithPercent(sheetId, column, rows) {
         ],
       };
     })),
+  });
+
+  return { ok: true, count: cleanRows.length };
+}
+
+async function updateSmartsheetRowsWithDate(sheetId, dateColumn, rows) {
+  const dateColumnId = Number(dateColumn?.id || 0);
+  const cleanRows = (Array.isArray(rows) ? rows : [])
+    .filter((row) => Number(row?.id || 0) && dateColumnId && Number(row.progress || 0) >= 100);
+
+  if (!cleanRows.length) return { ok: true, count: 0 };
+
+  await smartsheetFetch(`/sheets/${sheetId}/rows`, {
+    method: 'PUT',
+    body: JSON.stringify(cleanRows.map((row) => ({
+      id: Number(row.id),
+      cells: [
+        {
+          columnId: dateColumnId,
+          value: normalizeDateForSmartsheet(row.completionDate),
+          strict: false,
+        },
+      ],
+    }))),
   });
 
   return { ok: true, count: cleanRows.length };
@@ -219,28 +281,25 @@ async function updateTrackingCellForStageUpdate(update, session) {
 
   const progress = Number(update.progress || 0);
   const currentProgress = getTrackingProgressForSector(spool, update.sector);
-  if (currentProgress != null && currentProgress >= progress) {
-    const higherCurrentProgress = Number(currentProgress) > progress;
+  if (currentProgress != null && Number(currentProgress) > progress) {
     return {
       update: makeUpdatedTrackingRecord(
         applyTrackingVerification({
           ...update,
-          trackingUpdatedBy: higherCurrentProgress ? (update.trackingUpdatedBy || '') : (session.username || ''),
-          trackingUpdatedByName: higherCurrentProgress ? (update.trackingUpdatedByName || '') : (session.name || session.username || 'PCP'),
-          trackingUpdatedAt: higherCurrentProgress ? (update.trackingUpdatedAt || '') : new Date().toISOString(),
+          trackingUpdatedBy: update.trackingUpdatedBy || '',
+          trackingUpdatedByName: update.trackingUpdatedByName || '',
+          trackingUpdatedAt: update.trackingUpdatedAt || '',
           trackingUpdatedColumn: columnTitle,
         }, project, spool, payload),
         session,
         columnTitle,
         currentProgress,
-        { skipUpdatedBy: higherCurrentProgress, higherCurrentProgress }
+        { skipUpdatedBy: true, higherCurrentProgress: true }
       ),
       applied: false,
       alreadyUpdated: true,
-      higherCurrentProgress,
-      message: higherCurrentProgress
-        ? `Não atualizado: o Tracking já está em ${Math.round(currentProgress)}%, superior ao apontamento de ${progress}%.`
-        : 'Tracking já estava no mesmo avanço.',
+      higherCurrentProgress: true,
+      message: `Não atualizado: o Tracking já está em ${Math.round(currentProgress)}%, superior ao apontamento de ${progress}%.`,
       columnTitle,
       currentProgress,
     };
@@ -269,6 +328,18 @@ async function updateTrackingCellForStageUpdate(update, session) {
   }
 
   await updateSmartsheetCellWithPercent(sheetId, rowId, column, progress);
+
+  const dateColumnTitle = getTrackingDateColumnForProgressColumn(columnTitle);
+  if (progress >= 100 && dateColumnTitle) {
+    const dateColumn = findColumn(columns, dateColumnTitle);
+    if (dateColumn) {
+      await updateSmartsheetRowsWithDate(sheetId, dateColumn, [{
+        id: rowId,
+        progress,
+        completionDate: update.completionDate,
+      }]);
+    }
+  }
 
   const now = new Date().toISOString();
   return {
@@ -345,6 +416,13 @@ function applyTrackingVerification(update, project, spool, payload = null) {
   const trackingProgress = getTrackingProgressForSector(spool, update?.sector);
   const trackingMatched = trackingProgress != null && trackingProgress >= progress;
   const trackingUpdateColumn = getTrackingUpdateColumnForSector(update?.sector);
+  const trackingDateColumn = getTrackingDateColumnForProgressColumn(trackingUpdateColumn);
+  const trackingMissingDate = Boolean(
+    trackingMatched
+    && Number(trackingProgress || 0) >= 100
+    && trackingDateColumn
+    && !hasTrackingDateValue(spool, trackingDateColumn)
+  );
 
   return {
     ...update,
@@ -354,6 +432,8 @@ function applyTrackingVerification(update, project, spool, payload = null) {
     trackingStatus: trackingProgress == null
       ? 'not_found'
       : (trackingMatched ? 'matched' : 'waiting'),
+    trackingMissingDate,
+    trackingDateColumn,
     trackingSheetId: payload?.meta?.sheetId || update?.trackingSheetId || '',
     trackingRowId: spool?.rowId || update?.trackingRowId || '',
     trackingUpdateColumn,
@@ -601,9 +681,8 @@ exports.handler = async (event) => {
           const progress = Number(current.progress || 0);
           const currentTrackingProgress = Number(current.trackingProgress);
 
-          if (Number.isFinite(currentTrackingProgress) && currentTrackingProgress >= progress) {
-            const higherCurrentProgress = currentTrackingProgress > progress;
-            let updatedRecord = makeUpdatedTrackingRecord(current, session, columnTitle, currentTrackingProgress, { skipUpdatedBy: higherCurrentProgress, higherCurrentProgress });
+          if (Number.isFinite(currentTrackingProgress) && currentTrackingProgress > progress) {
+            let updatedRecord = makeUpdatedTrackingRecord(current, session, columnTitle, currentTrackingProgress, { skipUpdatedBy: true, higherCurrentProgress: true });
             updatedRecord = await persistResolvedTrackingRecord(id, updatedRecord);
             if (!isSupabaseConfigured()) {
               updates[index] = updatedRecord;
@@ -613,13 +692,11 @@ exports.handler = async (event) => {
               id,
               applied: false,
               alreadyUpdated: true,
-              higherCurrentProgress,
+              higherCurrentProgress: true,
               progress,
               currentProgress: currentTrackingProgress,
               columnTitle,
-              message: higherCurrentProgress
-                ? `Não atualizado: o Tracking já está em ${Math.round(currentTrackingProgress)}%, superior ao apontamento de ${progress}%.`
-                : 'Tracking já estava no mesmo avanço.',
+              message: `Não atualizado: o Tracking já está em ${Math.round(currentTrackingProgress)}%, superior ao apontamento de ${progress}%.`,
             });
             continue;
           }
@@ -629,7 +706,7 @@ exports.handler = async (event) => {
             if (!fastGroups.has(groupKey)) {
               fastGroups.set(groupKey, { sheetId, columnTitle, rows: [] });
             }
-            fastGroups.get(groupKey).rows.push({ id: rowId, progress, updateId: id, index });
+            fastGroups.get(groupKey).rows.push({ id: rowId, progress, updateId: id, index, completionDate: current.completionDate });
             pendingSaveIndexes.set(id, { index, current, columnTitle });
             continue;
           }
@@ -681,6 +758,14 @@ exports.handler = async (event) => {
 
             const rowsToWrite = Array.from(maxByRowId.values());
             await updateSmartsheetRowsWithPercent(group.sheetId, column, rowsToWrite);
+
+            const dateColumnTitle = getTrackingDateColumnForProgressColumn(group.columnTitle);
+            if (dateColumnTitle) {
+              const dateColumn = findColumn(columns, dateColumnTitle);
+              if (dateColumn) {
+                await updateSmartsheetRowsWithDate(group.sheetId, dateColumn, rowsToWrite);
+              }
+            }
 
             for (const row of group.rows) {
               const pending = pendingSaveIndexes.get(row.updateId);
