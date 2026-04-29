@@ -5636,15 +5636,46 @@ async function sendStageTrackingUpdate(ids = [], options = {}) {
     });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao atualizar o Tracking.');
-    const results = data?.tracking?.results || [];
-    const messages = results.slice(0, 4).map(stageTrackingMessageFromResult).filter(Boolean);
-    if (Array.isArray(data?.errors) && data.errors.length) messages.push(`Pendências não processadas: ${data.errors.length}`);
-    if (messages.length) window.alert(messages.join('\n'));
-    setStageSelection([]);
+
+    const results = Array.isArray(data?.tracking?.results) ? data.tracking.results : [];
+    const successResults = results.filter((item) => item?.success);
+    const successIds = new Set(successResults.map((item) => String(item?.id || '')).filter(Boolean));
+    const errorCount = Array.isArray(data?.errors) ? data.errors.length : 0;
+
     if (options.dateOnly) {
-      setStageDateSelection([]);
+      // Remove da tela imediatamente o que já foi corrigido com sucesso, antes de exibir qualquer aviso.
+      state.stageDatePendencies = (Array.isArray(state.stageDatePendencies) ? state.stageDatePendencies : [])
+        .filter((item) => !successIds.has(String(item?.id || '')));
+      setStageDateSelection((state.stageDateSelectedIds || []).filter((id) => !successIds.has(String(id || ''))));
+      renderStageUpdatesModal();
+
+      const messages = [];
+      if (successResults.length) {
+        messages.push(`${successResults.length} pendência(s) de data corrigida(s) no Tracking.`);
+      }
+      if (errorCount) {
+        messages.push(`Pendências não processadas: ${errorCount}.`);
+      }
+      if (messages.length) window.alert(messages.join('\n'));
+
       await loadStageHistoryDatePendencies();
+    } else {
+      setStageSelection((state.stageSelectedIds || []).filter((id) => !successIds.has(String(id || ''))));
+      renderStageUpdatesModal();
+
+      const messages = [];
+      if (successResults.length === 1) {
+        messages.push(stageTrackingMessageFromResult(successResults[0]));
+      } else if (successResults.length > 1) {
+        const totalRows = successResults.reduce((sum, item) => sum + Number(item?.rowCount || 0), 0);
+        messages.push(`Tracking atualizado em ${successResults.length} apontamento(s).${totalRows ? ` ${totalRows} linha(s) localizada(s).` : ''}`);
+      }
+      if (errorCount) {
+        messages.push(`Pendências não processadas: ${errorCount}.`);
+      }
+      if (messages.length) window.alert(messages.join('\n'));
     }
+
     await loadStageUpdates();
     renderStageUpdatesModal();
   } catch (error) {
@@ -5654,6 +5685,7 @@ async function sendStageTrackingUpdate(ids = [], options = {}) {
     renderStageUpdatesModal();
   }
 }
+
 
 function getVisiblePendingValidationIds(onlySelected = false) {
   const pending = getFilteredStageUpdatesForValidation().filter((item) => isPendingStageStatus(item.status));
