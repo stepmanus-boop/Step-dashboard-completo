@@ -1441,6 +1441,59 @@ function stageTrackingBadgeHtml(item) {
   return `<span class="stage-badge ${info.className}">${escapeHtml(info.label)}</span>`;
 }
 
+function canUpdateTrackingFromStage(item) {
+  if (!canValidateStageWorkspace()) return false;
+  if (!isPendingStageStatus(item?.status)) return false;
+  if (isReviewStageStatus(item?.status)) return false;
+  const info = getStageTrackingInfo(item);
+  return !info.matched;
+}
+
+function stageTrackingUpdateButtonHtml(item) {
+  const info = getStageTrackingInfo(item);
+  if (info.matched) {
+    return `<button class="ghost-button ghost-button--compact" type="button" disabled>Tracking OK</button>`;
+  }
+  if (!canUpdateTrackingFromStage(item)) return '';
+  return `<button class="ghost-button ghost-button--compact" type="button" data-stage-update-tracking="${escapeHtml(item.id)}">Atualizar Tracking</button>`;
+}
+
+async function updateStageTrackingFromButton(button) {
+  const id = String(button?.dataset?.stageUpdateTracking || '').trim();
+  if (!id) return;
+
+  button.disabled = true;
+  const previousText = button.textContent;
+  button.textContent = 'Atualizando...';
+
+  try {
+    const response = await fetch('/api/stage-updates', {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, action: 'update_tracking' }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao atualizar Tracking.');
+
+    if (data.update) {
+      state.stageUpdates = (Array.isArray(state.stageUpdates) ? state.stageUpdates : []).map((item) =>
+        String(item.id) === String(id) ? { ...item, ...data.update } : item
+      );
+    }
+
+    renderStageUpdatesModal();
+    loadProjects().catch(() => {});
+    loadStageUpdates().then(() => {
+      if (stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) renderStageUpdatesModal();
+    }).catch(() => {});
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = previousText || 'Atualizar Tracking';
+    window.alert(error.message || 'Falha ao atualizar Tracking.');
+  }
+}
+
 function getPendingStageUpdate(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
   return getStageUpdatesForCurrentSector().find((item) =>
     isPendingStageStatus(item.status)
@@ -3644,15 +3697,28 @@ if (openProjectSignalsEl) {
 }
 
 if (openStageUpdatesEl) {
-  openStageUpdatesEl.addEventListener('click', async () => {
+  openStageUpdatesEl.addEventListener('click', () => {
     if (!state.user) {
       openLoginModal();
       return;
     }
     state.stageUpdatesSearchQuery = '';
     syncStageDraftsForCurrentSector();
-    await loadStageUpdates();
-    openStageUpdatesModal();
+
+    // Abre a tela imediatamente. O carregamento/filtragem acontece depois para não parecer travado.
+    openStageUpdatesModal({ loading: true });
+
+    loadStageUpdates()
+      .then(() => {
+        if (stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
+          renderStageUpdatesModal();
+        }
+      })
+      .catch((error) => {
+        if (stageUpdatesContentEl && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
+          stageUpdatesContentEl.innerHTML = `<div class="empty-state">${escapeHtml(error?.message || 'Falha ao carregar apontamentos setoriais.')}</div>`;
+        }
+      });
   });
 }
 
@@ -3666,6 +3732,12 @@ if (stageUpdatesModalEl) {
       closeStageUpdatesModal();
       return;
     }
+    const trackingButton = event.target.closest('[data-stage-update-tracking]');
+    if (trackingButton) {
+      updateStageTrackingFromButton(trackingButton);
+      return;
+    }
+
     const concludeButton = event.target.closest('[data-stage-conclude]');
     if (concludeButton) {
       concludeStageUpdate(concludeButton.dataset.stageConclude);
@@ -5015,6 +5087,7 @@ async function loadStageUpdates() {
     if (stageUpdatesContentEl && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
       stageUpdatesContentEl.innerHTML = `<div class="empty-state">${escapeHtml(error.message || 'Falha ao carregar apontamentos setoriais.')}</div>`;
     }
+    throw error;
   }
 }
 
@@ -5189,7 +5262,7 @@ function renderStageValidationWorkspace() {
                       <td>${escapeHtml(String(item.progress || 0))}%</td>
                       <td>${stageTrackingBadgeHtml(item)}</td>
                       <td>${escapeHtml(item.note || '—')}</td>
-                      <td><button class="primary-button" type="button" data-stage-conclude="${escapeHtml(item.id)}">${escapeHtml(isReviewStageStatus(item.status) ? 'Tratar revisão' : 'Concluir')}</button></td>
+                      <td><div class="stage-row-actions">${stageTrackingUpdateButtonHtml(item)}<button class="primary-button" type="button" data-stage-conclude="${escapeHtml(item.id)}">${escapeHtml(isReviewStageStatus(item.status) ? 'Tratar revisão' : 'Concluir')}</button></div></td>
                     </tr>`).join('')}
                 </tbody>
               </table>
@@ -5212,7 +5285,7 @@ function renderStageValidationWorkspace() {
                       ${stageTrackingBadgeHtml(item)}
                     </div>
                   </div>
-                  <button class="primary-button" type="button" data-stage-conclude="${escapeHtml(item.id)}">${escapeHtml(isReviewStageStatus(item.status) ? 'Tratar revisão' : 'Concluir')}</button>
+                  <div class="stage-row-actions">${stageTrackingUpdateButtonHtml(item)}<button class="primary-button" type="button" data-stage-conclude="${escapeHtml(item.id)}">${escapeHtml(isReviewStageStatus(item.status) ? 'Tratar revisão' : 'Concluir')}</button></div>
                 </div>
                 <p><strong>Spool:</strong> ${escapeHtml(item.spoolDescription || '—')}</p>
                 <p><strong>${escapeHtml(isReviewStageStatus(item.status) ? 'Motivo da revisão:' : 'Observação do setor:')}</strong> ${escapeHtml(item.note || (isReviewStageStatus(item.status) ? 'Sem motivo informado.' : 'Sem observação do setor.'))}</p>
@@ -5253,7 +5326,7 @@ function renderStageUpdatesModal() {
   renderStageSectorWorkspace();
 }
 
-function openStageUpdatesModal() {
+function openStageUpdatesModal(options = {}) {
   if (!stageUpdatesModalEl) return;
   const titleEl = document.getElementById('stage-updates-title');
   const subtitleEl = document.getElementById('stage-updates-subtitle');
@@ -5261,7 +5334,18 @@ function openStageUpdatesModal() {
   if (subtitleEl) subtitleEl.textContent = canValidateStageWorkspace()
     ? 'Conclua os registros validados para que saiam da fila e permaneçam no histórico.'
     : 'Cada setor informa somente a sua própria etapa por spool. O PCP valida e mantém o histórico.';
-  renderStageUpdatesModal();
+
+  if (options.loading && stageUpdatesContentEl) {
+    stageUpdatesContentEl.innerHTML = `
+      <div class="stage-workspace-shell">
+        <section class="admin-card admin-card--wide">
+          <div class="empty-state">Carregando apontamentos... a tela já está aberta e os dados serão filtrados automaticamente.</div>
+        </section>
+      </div>`;
+  } else {
+    renderStageUpdatesModal();
+  }
+
   stageUpdatesModalEl.classList.remove('hidden');
   stageUpdatesModalEl.setAttribute('aria-hidden', 'false');
   document.body.classList.add('modal-open');

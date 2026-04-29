@@ -3208,3 +3208,8 @@ button.alert-badge {
   color: #cbd5e1;
   border: 1px solid rgba(148, 163, 184, 0.22);
 }
+
+
+.stage-row-actions [data-stage-update-tracking] {
+  border-color: rgba(84, 181, 255, 0.34);
+}

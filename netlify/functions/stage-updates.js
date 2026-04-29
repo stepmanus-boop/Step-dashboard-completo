@@ -9,6 +9,18 @@ const SUPPORTED_SECTORS = ['pintura', 'inspecao', 'pendente_envio', 'producao', 
 const PROGRESS_OPTIONS = [25, 50, 75, 100];
 const PENDING_STATUSES = ['pending', 'pending_advance', 'pending_review'];
 
+const SMARTSHEET_API_BASE = process.env.SMARTSHEET_API_BASE || 'https://api.smartsheet.com/2.0';
+const SMARTSHEET_TOKEN = process.env.SMARTSHEET_TOKEN || '5pP36OjBaD1W2HWyxf6aoGxXasPvEl8gbqOmQ';
+
+const TRACKING_UPDATE_COLUMN_BY_SECTOR = {
+  pintura: 'Surface preparation and/or coating',
+  solda: 'Full welding execution',
+  producao: 'Spool Assemble and tack weld',
+  calderaria: 'Spool Assemble and tack weld',
+  inspecao: 'Final Inspection',
+  pendente_envio: 'Package and Delivered',
+};
+
 const TRACKING_FIELDS_BY_SECTOR = {
   pintura: ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)'],
   inspecao: ['Final Inspection', 'Hydro Test Pressure (QC)', 'Non Destructive Examination (QC)', 'Final Dimensional Inpection/3D (QC)', 'Initial Dimensional Inspection/3D'],
@@ -17,6 +29,146 @@ const TRACKING_FIELDS_BY_SECTOR = {
   calderaria: ['Spool Assemble and tack weld', 'Welding Preparation', 'Material Separation', 'Material Release to Fabrication'],
   solda: ['Full welding execution'],
 };
+
+function normalizeColumnTitle(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '')
+    .toLowerCase();
+}
+
+async function smartsheetFetch(path, options = {}) {
+  if (!SMARTSHEET_TOKEN) {
+    const err = new Error('SMARTSHEET_TOKEN não configurado.');
+    err.statusCode = 500;
+    throw err;
+  }
+
+  const response = await fetch(`${SMARTSHEET_API_BASE}${path}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${SMARTSHEET_TOKEN}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+
+  if (!response.ok) {
+    const message = await response.text().catch(() => '');
+    const err = new Error(`Smartsheet ${response.status}: ${message || 'Falha ao atualizar tracking.'}`);
+    err.statusCode = response.status;
+    throw err;
+  }
+
+  return response.json().catch(() => ({}));
+}
+
+async function getSheetColumns(sheetId) {
+  const sheet = await smartsheetFetch(`/sheets/${sheetId}?pageSize=1`);
+  return Array.isArray(sheet?.columns) ? sheet.columns : [];
+}
+
+function getTrackingUpdateColumnForSector(sector) {
+  return TRACKING_UPDATE_COLUMN_BY_SECTOR[normalizeSectorValue(sector)] || '';
+}
+
+function findColumnId(columns, columnTitle) {
+  const target = normalizeColumnTitle(columnTitle);
+  const found = (Array.isArray(columns) ? columns : []).find((column) => normalizeColumnTitle(column?.title) === target);
+  return found?.id || null;
+}
+
+async function updateTrackingCellForStageUpdate(update, session) {
+  const { project, spool, payload } = await findProjectAndSpool(update.projectRowId, update.spoolIso);
+  if (!project || !spool) {
+    const err = new Error('BSP ou spool não localizado no Tracking.');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const columnTitle = getTrackingUpdateColumnForSector(update.sector);
+  if (!columnTitle) {
+    const err = new Error(`Não existe coluna configurada para atualizar o setor ${update.sector || 'informado'}.`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const progress = Number(update.progress || 0);
+  const currentProgress = getTrackingProgressForSector(spool, update.sector);
+  if (currentProgress != null && currentProgress >= progress) {
+    return {
+      update: applyTrackingVerification({
+        ...update,
+        trackingUpdatedBy: session.username || '',
+        trackingUpdatedByName: session.name || session.username || 'PCP',
+        trackingUpdatedAt: new Date().toISOString(),
+        trackingUpdatedColumn: columnTitle,
+      }, project, spool),
+      applied: false,
+      alreadyUpdated: true,
+      columnTitle,
+      currentProgress,
+    };
+  }
+
+  const sheetId = payload?.meta?.sheetId;
+  if (!sheetId) {
+    const err = new Error('Sheet ID do Tracking não localizado.');
+    err.statusCode = 500;
+    throw err;
+  }
+
+  const rowId = Number(spool.rowId || 0);
+  if (!rowId) {
+    const err = new Error('Linha da spool no Tracking não localizada.');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const columns = await getSheetColumns(sheetId);
+  const columnId = findColumnId(columns, columnTitle);
+  if (!columnId) {
+    const err = new Error(`Coluna "${columnTitle}" não encontrada no Tracking.`);
+    err.statusCode = 404;
+    throw err;
+  }
+
+  await smartsheetFetch(`/sheets/${sheetId}/rows`, {
+    method: 'PUT',
+    body: JSON.stringify([
+      {
+        id: rowId,
+        cells: [
+          {
+            columnId: Number(columnId),
+            value: progress / 100,
+            strict: false,
+          },
+        ],
+      },
+    ]),
+  });
+
+  const now = new Date().toISOString();
+  return {
+    update: {
+      ...update,
+      trackingCheckedAt: now,
+      trackingProgress: progress,
+      trackingMatched: true,
+      trackingStatus: 'matched',
+      trackingUpdatedBy: session.username || '',
+      trackingUpdatedByName: session.name || session.username || 'PCP',
+      trackingUpdatedAt: now,
+      trackingUpdatedColumn: columnTitle,
+    },
+    applied: true,
+    alreadyUpdated: false,
+    columnTitle,
+    currentProgress: progress,
+  };
+}
 
 function parseTrackingPercent(value) {
   if (value == null || value === '') return null;
@@ -280,6 +432,44 @@ exports.handler = async (event) => {
         return jsonResponse(403, { ok: false, error: 'Apenas PCP ou administrador pode concluir apontamentos.' });
       }
       const body = JSON.parse(event.body || '{}');
+
+      if (String(body.action || '').trim().toLowerCase() === 'update_tracking') {
+        const id = String(body.id || '').trim();
+        if (!id) return jsonResponse(400, { ok: false, error: 'Informe o apontamento para atualizar o Tracking.' });
+
+        const updates = await listUpdates();
+        const index = updates.findIndex((item) => String(item.id) === id);
+        if (index < 0) return jsonResponse(404, { ok: false, error: 'Apontamento não encontrado.' });
+
+        const current = updates[index];
+        if (!PENDING_STATUSES.includes(String(current.status || 'pending').trim().toLowerCase())) {
+          return jsonResponse(400, { ok: false, error: 'Somente apontamentos pendentes podem atualizar o Tracking.' });
+        }
+        if (String(current.status || '').trim().toLowerCase() === 'pending_review') {
+          return jsonResponse(400, { ok: false, error: 'Apontamento de revisão não atualiza percentual do Tracking.' });
+        }
+
+        const result = await updateTrackingCellForStageUpdate(current, session);
+        const updatedRecord = {
+          ...current,
+          ...result.update,
+        };
+
+        if (!isSupabaseConfigured()) {
+          updates[index] = updatedRecord;
+          await saveUpdates(updates);
+        }
+
+        return jsonResponse(200, {
+          ok: true,
+          update: updatedRecord,
+          applied: result.applied,
+          alreadyUpdated: result.alreadyUpdated,
+          columnTitle: result.columnTitle,
+          storage: isSupabaseConfigured() ? 'supabase' : 'json',
+        });
+      }
+
       const ids = Array.isArray(body.ids) ? body.ids.map((id) => String(id || '').trim()).filter(Boolean) : [];
       const resolutionNote = String(body.resolutionNote || '').trim();
       if (ids.length) {
