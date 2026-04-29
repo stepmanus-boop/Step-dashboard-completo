@@ -1,17 +1,23 @@
-
 const { readLocalJson } = require('./_auth');
 const { buildPayload } = require('./projects');
 
-async function loadProjectPayload() {
+async function loadProjectPayload(options = {}) {
+  const allowFallback = options.allowFallback !== false;
   try {
     return await buildPayload();
-  } catch (_) {
+  } catch (error) {
+    if (!allowFallback) {
+      const err = new Error('Não foi possível consultar o Smartsheet/Tracking em tempo real. O apontamento foi bloqueado para evitar registro em dados desatualizados.');
+      err.statusCode = 503;
+      err.cause = error;
+      throw err;
+    }
     return readLocalJson('netlify/data/fallback-projects.json', { ok: true, projects: [], meta: {} });
   }
 }
 
-async function findProjectAndSpool(projectRowId, spoolIso) {
-  const payload = await loadProjectPayload();
+async function findProjectAndSpool(projectRowId, spoolIso, options = {}) {
+  const payload = await loadProjectPayload(options);
   const projects = Array.isArray(payload?.projects) ? payload.projects : [];
   const normalizedProjectId = String(projectRowId ?? '').trim();
   const project = projects.find((item) => {

@@ -96,7 +96,7 @@ async function enrichUpdatesWithTracking(updates) {
   if (!list.length) return [];
   let payload = null;
   try {
-    payload = await loadProjectPayload();
+    payload = await loadProjectPayload({ allowFallback: false });
   } catch (_) {
     payload = { projects: [] };
   }
@@ -216,7 +216,7 @@ async function createSingleUpdate(payload, session, existingUpdates = null) {
   if (!PROGRESS_OPTIONS.includes(progress)) {
     throw new Error('Selecione um avanço válido: 25%, 50%, 75% ou 100%.');
   }
-  const { project, spool } = await findProjectAndSpool(projectRowId, spoolIso);
+  const { project, spool } = await findProjectAndSpool(projectRowId, spoolIso, { allowFallback: false });
   if (!project || !spool) {
     const err = new Error('BSP ou spool não localizado para este apontamento.');
     err.statusCode = 404;

@@ -3659,7 +3659,7 @@ if (openStageUpdatesEl) {
     syncStageDraftsForCurrentSector();
 
     if (canValidateStageWorkspace()) {
-      openStageValidationInNewTab();
+      openStageValidationWorkspaceInline();
       return;
     }
 
@@ -5153,7 +5153,7 @@ function renderStageSectorWorkspace() {
         <section class="admin-card admin-card--wide">
           <div class="admin-card-head"><h4>Lançar avanço da etapa</h4></div>
           ${matchedProjects.length ? `<div class="stage-project-list">${matchedProjects.map((project) => {
-            const spools = getDisplaySpoolsForProject(project, Array.isArray(project.spools) ? project.spools : []);
+            const spools = Array.isArray(project.spools) ? project.spools : [];
             return `
               <article class="stage-project-card">
                 <div class="stage-project-head">
@@ -5243,15 +5243,41 @@ function shouldOpenStageValidationWorkspaceFromUrl() {
   }
 }
 
-function openStageValidationInNewTab() {
+function openStageValidationWorkspaceInline() {
+  if (!canValidateStageWorkspace()) return;
+
+  state.stageUpdatesSearchQuery = '';
+  syncStageDraftsForCurrentSector();
+
+  // Mantém a Validação PCP na aba atual.
+  // Antes era usado window.open(...), o que criava uma nova página a cada clique.
   try {
-    const url = new URL(window.location.href);
-    url.searchParams.set('stageWorkspace', '1');
-    url.hash = 'stage-validation';
-    window.open(url.toString(), '_blank', 'noopener,noreferrer');
-  } catch {
-    window.open('?stageWorkspace=1#stage-validation', '_blank', 'noopener,noreferrer');
-  }
+    if (!shouldOpenStageValidationWorkspaceFromUrl()) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('stageWorkspace', '1');
+      url.hash = 'stage-validation';
+      window.history.replaceState({}, '', url.toString());
+    }
+  } catch {}
+
+  openStageUpdatesModal({ loading: true });
+
+  loadStageUpdates()
+    .then(() => {
+      if (stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
+        renderStageUpdatesModal();
+      }
+    })
+    .catch((error) => {
+      if (stageUpdatesContentEl && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
+        stageUpdatesContentEl.innerHTML = `<div class="empty-state">${escapeHtml(error?.message || 'Falha ao carregar apontamentos setoriais.')}</div>`;
+      }
+    });
+}
+
+// Mantido como alias para evitar referência quebrada em versões antigas do HTML/cache.
+function openStageValidationInNewTab() {
+  openStageValidationWorkspaceInline();
 }
 
 function getFilteredStageUpdatesForValidation() {
