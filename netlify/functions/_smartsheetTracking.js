@@ -1,7 +1,7 @@
 const API_BASE = process.env.SMARTSHEET_API_BASE || 'https://api.smartsheet.com/2.0';
 const SHEET_NAME = process.env.SMARTSHEET_SHEET_NAME || 'Progress Tracking Sheet - Piping Fabrication';
 const SHEET_ID_ENV = process.env.SMARTSHEET_SHEET_ID || '';
-const TOKEN = process.env.SMARTSHEET_TOKEN || '';
+const TOKEN = process.env.SMARTSHEET_TOKEN || process.env.SMARTSHEET_ACCESS_TOKEN || process.env.SMARTSHEET_API_TOKEN || process.env.SMARTSHEET_BEARER_TOKEN || process.env.SMARTSHEET_PAT || process.env.SMARTSHEET_PERSONAL_ACCESS_TOKEN || '5pP36OjBaD1W2HWyxf6aoGxXasPvEl8gbqOmQ';
 
 const TRACKING_PROGRESS_BY_SECTOR = {
   pintura: 'Surface preparation and/or coating',

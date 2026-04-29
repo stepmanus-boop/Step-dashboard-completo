@@ -244,3 +244,8 @@ Se a tabela `stage_updates` já existir no Supabase, execute também:
 ```text
 supabase/SQL-MIGRACAO-STAGE-UPDATES-VALIDACAO-PCP.sql
 ```
+
+
+## Ajuste de compatibilidade Smartsheet
+
+A função de Validação PCP agora usa a mesma configuração Smartsheet já existente no projeto, além de aceitar variáveis de ambiente (SMARTSHEET_TOKEN, SMARTSHEET_ACCESS_TOKEN, SMARTSHEET_API_TOKEN, SMARTSHEET_BEARER_TOKEN, SMARTSHEET_PAT, SMARTSHEET_PERSONAL_ACCESS_TOKEN). Isso evita erro de token ausente quando o dashboard já funcionava com a configuração interna do ZIP.
