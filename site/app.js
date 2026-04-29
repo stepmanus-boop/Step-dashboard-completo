@@ -38,15 +38,17 @@ const state = {
   selectedProjectForSignal: null,
   sectorAlertsMode: 'default',
   stageUpdates: [],
-  trackingDatePendencies: [],
-  trackingDatePendenciesLoaded: false,
-  trackingDatePendenciesLoading: false,
-  showTrackingDatePendencies: false,
   stageUpdatesSearchQuery: '',
   stageSubmittingKeys: {},
   stageDrafts: {},
   stageBulkSubmitting: false,
   stageBatchValidationMode: false,
+  stageSelectedIds: [],
+  stageDatePendencies: [],
+  stageDatePendingLoaded: false,
+  stageDatePendingLoading: false,
+  stageTrackingSubmitting: false,
+  stageDateSelectedIds: [],
   attentionPopupQueue: [],
   attentionPopupCurrent: null,
   incomingAlertState: {
@@ -1427,20 +1429,15 @@ function getStageTrackingInfo(item) {
   const current = Number(item?.trackingProgress);
   const hasCurrent = Number.isFinite(current);
   const matched = Boolean(item?.trackingMatched) || (hasCurrent && current >= progress);
-  const missingDate = Boolean(item?.trackingMissingDate);
 
   return {
     current: hasCurrent ? current : null,
     matched,
-    missingDate,
-    dateColumn: item?.trackingDateColumn || '',
     label: hasCurrent
-      ? (matched
-        ? (missingDate ? `Tracking OK ${formatPercent(current)} • sem data` : `Tracking OK ${formatPercent(current)}`)
-        : `Aguardando tracking ${formatPercent(current)}/${formatPercent(progress)}`)
+      ? (matched ? `Tracking OK ${formatPercent(current)}` : `Aguardando tracking ${formatPercent(current)}/${formatPercent(progress)}`)
       : 'Tracking não localizado',
     className: hasCurrent
-      ? (missingDate ? 'stage-badge--tracking-date-missing' : (matched ? 'stage-badge--tracking-ok' : 'stage-badge--tracking-waiting'))
+      ? (matched ? 'stage-badge--tracking-ok' : 'stage-badge--tracking-waiting')
       : 'stage-badge--tracking-missing',
   };
 }
@@ -1449,338 +1446,6 @@ function stageTrackingBadgeHtml(item) {
   const info = getStageTrackingInfo(item);
   return `<span class="stage-badge ${info.className}">${escapeHtml(info.label)}</span>`;
 }
-
-function hasSuperiorTrackingProgress(item) {
-  const info = getStageTrackingInfo(item);
-  const current = Number(info.current);
-  const requested = Number(item?.progress || 0);
-  return Number.isFinite(current) && current > requested;
-}
-
-function canUpdateTrackingFromStage(item) {
-  if (!canValidateStageWorkspace()) return false;
-  if (!isPendingStageStatus(item?.status)) return false;
-  if (isReviewStageStatus(item?.status)) return false;
-  return !hasSuperiorTrackingProgress(item);
-}
-
-function stageTrackingUpdateButtonHtml(item) {
-  const info = getStageTrackingInfo(item);
-  if (hasSuperiorTrackingProgress(item)) {
-    return `<button class="ghost-button ghost-button--compact" type="button" disabled>Tracking superior</button>`;
-  }
-  if (!canUpdateTrackingFromStage(item)) return '';
-  const label = info.missingDate ? 'Regravar + Data' : (info.matched ? 'Regravar Tracking' : 'Atualizar Tracking');
-  return `<button class="ghost-button ghost-button--compact" type="button" data-stage-update-tracking="${escapeHtml(item.id)}">${label}</button>`;
-}
-
-function stageTrackingSelectionHtml(item) {
-  const disabled = !canUpdateTrackingFromStage(item);
-  const title = hasSuperiorTrackingProgress(item)
-    ? 'Bloqueado: o Tracking já está com avanço superior'
-    : (disabled ? 'Este item não pode atualizar o Tracking' : 'Selecionar para atualizar/regravar no Tracking');
-  return `<label class="stage-select-cell" title="${escapeHtml(title)}">
-    <input type="checkbox" data-stage-tracking-select="${escapeHtml(item.id)}" value="${escapeHtml(item.id)}" ${disabled ? 'disabled' : ''}>
-  </label>`;
-}
-
-async function updateStageTrackingFromButton(button) {
-  const id = String(button?.dataset?.stageUpdateTracking || '').trim();
-  if (!id) return;
-
-  button.disabled = true;
-  const previousText = button.textContent;
-  button.textContent = 'Atualizando...';
-
-  try {
-    const response = await fetch('/api/stage-updates', {
-      method: 'PATCH',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, action: 'update_tracking', items: [buildTrackingUpdatePayloadItem(id)] }),
-    });
-    const responseText = await response.text();
-    let data = null;
-    try {
-      data = responseText ? JSON.parse(responseText) : null;
-    } catch {}
-    if (!response.ok || !data?.ok) throw new Error(data?.error || responseText || 'Falha ao atualizar Tracking.');
-
-    if (data.update) {
-      state.stageUpdates = (Array.isArray(state.stageUpdates) ? state.stageUpdates : []).map((item) =>
-        String(item.id) === String(id) ? { ...item, ...data.update } : item
-      );
-    }
-
-    const superior = Array.isArray(data.results) ? data.results.find((item) => item.higherCurrentProgress) : null;
-    if (superior?.message) {
-      window.alert(superior.message);
-    }
-
-    renderStageUpdatesModal();
-    loadProjects().catch(() => {});
-    loadStageUpdates().then(() => {
-      if (stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) renderStageUpdatesModal();
-    }).catch(() => {});
-  } catch (error) {
-    button.disabled = false;
-    button.textContent = previousText || 'Atualizar Tracking';
-    window.alert(error.message || 'Falha ao atualizar Tracking.');
-  }
-}
-
-function getSelectedStageTrackingIds() {
-  return Array.from(stageUpdatesModalEl?.querySelectorAll('[data-stage-tracking-select]:checked') || [])
-    .map((input) => String(input.value || input.dataset.stageTrackingSelect || '').trim())
-    .filter(Boolean);
-}
-
-function getStageUpdateById(id) {
-  return (Array.isArray(state.stageUpdates) ? state.stageUpdates : [])
-    .find((item) => String(item.id) === String(id)) || null;
-}
-
-function buildTrackingUpdatePayloadItem(id) {
-  const item = getStageUpdateById(id);
-  if (!item) return { id };
-  const duplicateRows = Array.isArray(item.trackingDuplicateRows) ? item.trackingDuplicateRows : [];
-  const rowIds = Array.isArray(item.trackingRowIds) && item.trackingRowIds.length
-    ? item.trackingRowIds
-    : duplicateRows.map((row) => row.rowId).filter(Boolean);
-
-  return {
-    id,
-    sheetId: item.trackingSheetId || '',
-    rowId: item.trackingRowId || '',
-    rowIds,
-    rows: duplicateRows,
-    columnTitle: item.trackingUpdateColumn || '',
-  };
-}
-
-function setAllVisibleStageTrackingSelections(checked) {
-  const boxes = Array.from(stageUpdatesModalEl?.querySelectorAll('[data-stage-tracking-select]:not(:disabled)') || []);
-  boxes.forEach((box) => {
-    box.checked = Boolean(checked);
-  });
-}
-
-function getVisibleStageTrackingSelectionCount() {
-  return Array.from(stageUpdatesModalEl?.querySelectorAll('[data-stage-tracking-select]:not(:disabled)') || []).length;
-}
-
-async function updateSelectedStageTracking(button) {
-  const ids = getSelectedStageTrackingIds();
-  if (!ids.length) {
-    window.alert('Selecione ao menos um apontamento para atualizar o Tracking.');
-    return;
-  }
-
-  button.disabled = true;
-  const previousText = button.textContent;
-  button.textContent = `Atualizando ${ids.length}...`;
-
-  try {
-    const response = await fetch('/api/stage-updates', {
-      method: 'PATCH',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'update_tracking', ids, items: ids.map(buildTrackingUpdatePayloadItem) }),
-    });
-    const responseText = await response.text();
-    let data = null;
-    try {
-      data = responseText ? JSON.parse(responseText) : null;
-    } catch {}
-
-    if (!response.ok || !data?.ok) {
-      const detail = Array.isArray(data?.errors) && data.errors.length
-        ? `\n\n${data.errors.slice(0, 8).map((item) => `• ${item.spoolIso ? `${item.spoolIso}: ` : ''}${item.error}`).join('\n')}`
-        : (responseText && !data ? `\n\n${responseText.slice(0, 800)}` : '');
-      throw new Error((data?.error || 'Falha ao atualizar Tracking em lote.') + detail);
-    }
-
-    if (Array.isArray(data.updates) && data.updates.length) {
-      const updatedMap = new Map(data.updates.map((item) => [String(item.id), item]));
-      state.stageUpdates = (Array.isArray(state.stageUpdates) ? state.stageUpdates : []).map((item) => {
-        const next = updatedMap.get(String(item.id));
-        return next ? { ...item, ...next } : item;
-      });
-    }
-
-    const errors = Array.isArray(data.errors) ? data.errors : [];
-    renderStageUpdatesModal();
-    loadProjects().catch(() => {});
-    loadStageUpdates().then(() => {
-      if (stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) renderStageUpdatesModal();
-    }).catch(() => {});
-
-    const superiorResults = Array.isArray(data.results)
-      ? data.results.filter((item) => item.higherCurrentProgress && item.message)
-      : [];
-
-    if (errors.length || superiorResults.length) {
-      const superiorText = superiorResults.length
-        ? `\n\nAvanços superiores preservados:\n${superiorResults.slice(0, 6).map((item) => `• ${item.message}`).join('\n')}`
-        : '';
-      const errorText = errors.length
-        ? `\n\nFalhas:\n${errors.slice(0, 6).map((item) => `• ${item.error}`).join('\n')}`
-        : '';
-      window.alert(`Atualização do Tracking concluída.\nAtualizados/OK: ${Array.isArray(data.updates) ? data.updates.length : 0}${superiorText}${errorText}`);
-    }
-  } catch (error) {
-    button.disabled = false;
-    button.textContent = previousText || 'Atualizar selecionados';
-    window.alert(error.message || 'Falha ao atualizar Tracking em lote.');
-  }
-}
-
-function getSelectedTrackingDatePendencyIds() {
-  return Array.from(stageUpdatesModalEl?.querySelectorAll('[data-date-pendency-select]:checked') || [])
-    .map((input) => String(input.value || input.dataset.datePendencySelect || '').trim())
-    .filter(Boolean);
-}
-
-function setAllDatePendencySelections(checked) {
-  const boxes = Array.from(stageUpdatesModalEl?.querySelectorAll('[data-date-pendency-select]:not(:disabled)') || []);
-  boxes.forEach((box) => {
-    box.checked = Boolean(checked);
-  });
-}
-
-async function loadTrackingDatePendencies(button = null) {
-  const previousText = button?.textContent;
-  if (button) {
-    button.disabled = true;
-    button.textContent = 'Verificando...';
-  }
-
-  state.trackingDatePendenciesLoading = true;
-  state.showTrackingDatePendencies = true;
-  renderStageUpdatesModal();
-
-  try {
-    const response = await fetch('/api/stage-updates', {
-      method: 'PATCH',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'list_date_pendencies' }),
-    });
-    const responseText = await response.text();
-    let data = null;
-    try {
-      data = responseText ? JSON.parse(responseText) : null;
-    } catch {}
-
-    if (!response.ok || !data?.ok) throw new Error(data?.error || responseText || 'Falha ao verificar pendências de datas.');
-
-    state.trackingDatePendencies = Array.isArray(data.pendencies) ? data.pendencies : [];
-    state.trackingDatePendenciesLoaded = true;
-  } catch (error) {
-    window.alert(error.message || 'Falha ao verificar pendências de datas.');
-  } finally {
-    state.trackingDatePendenciesLoading = false;
-    if (button) {
-      button.disabled = false;
-      button.textContent = previousText || 'Pendências de datas do histórico';
-    }
-    renderStageUpdatesModal();
-  }
-}
-
-async function fixTrackingDatePendencies(button, mode = 'selected') {
-  const ids = mode === 'all'
-    ? (Array.isArray(state.trackingDatePendencies) ? state.trackingDatePendencies.map((item) => item.id) : [])
-    : getSelectedTrackingDatePendencyIds();
-
-  if (!ids.length) {
-    window.alert('Selecione ao menos uma pendência de data para corrigir.');
-    return;
-  }
-
-  const previousText = button?.textContent;
-  if (button) {
-    button.disabled = true;
-    button.textContent = `Corrigindo ${ids.length}...`;
-  }
-
-  try {
-    const response = await fetch('/api/stage-updates', {
-      method: 'PATCH',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'fix_date_pendencies', ids }),
-    });
-    const responseText = await response.text();
-    let data = null;
-    try {
-      data = responseText ? JSON.parse(responseText) : null;
-    } catch {}
-
-    if (!response.ok || !data?.ok) {
-      const detail = Array.isArray(data?.errors) && data.errors.length
-        ? `\n\n${data.errors.slice(0, 8).map((item) => `• ${item.spoolIso ? `${item.spoolIso}: ` : ''}${item.error}`).join('\n')}`
-        : (responseText && !data ? `\n\n${responseText.slice(0, 800)}` : '');
-      throw new Error((data?.error || 'Falha ao corrigir pendências de datas.') + detail);
-    }
-
-    state.trackingDatePendencies = Array.isArray(data.pendencies) ? data.pendencies : [];
-    state.trackingDatePendenciesLoaded = true;
-    loadProjects().catch(() => {});
-    window.alert(`Pendências de datas do histórico corrigidas: ${data.fixedCount || 0}`);
-  } catch (error) {
-    window.alert(error.message || 'Falha ao corrigir pendências de datas.');
-  } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = previousText || 'Corrigir selecionadas';
-    }
-    renderStageUpdatesModal();
-  }
-}
-
-function renderTrackingDatePendenciesPanel() {
-  if (!state.showTrackingDatePendencies) return '';
-  const pendencies = Array.isArray(state.trackingDatePendencies) ? state.trackingDatePendencies : [];
-  const loaded = state.trackingDatePendenciesLoaded;
-
-  return `
-    <section class="admin-card admin-card--wide tracking-date-panel">
-      <div class="admin-card-head">
-        <div>
-          <h4>Pendências de datas do histórico no Tracking</h4>
-          <p>Lista somente apontamentos validados no histórico do sistema com avanço 100%, mas que estão sem a data correspondente no Tracking.</p>
-        </div>
-        <div class="stage-row-actions">
-          <button class="ghost-button" type="button" data-stage-load-date-pendencies="true">${state.trackingDatePendenciesLoading ? 'Verificando...' : 'Atualizar verificação'}</button>
-          <button class="ghost-button" type="button" data-date-pendency-select-all="true" ${pendencies.length ? '' : 'disabled'}>Selecionar todas</button>
-          <button class="primary-button" type="button" data-date-pendency-fix-selected="true" ${pendencies.length ? '' : 'disabled'}>Corrigir selecionadas</button>
-          <button class="primary-button" type="button" data-date-pendency-fix-all="true" ${pendencies.length ? '' : 'disabled'}>Corrigir em massa</button>
-        </div>
-      </div>
-      ${state.trackingDatePendenciesLoading ? `<div class="empty-state">Verificando Tracking...</div>` : (
-        pendencies.length ? `
-          <div class="table-shell">
-            <table class="stage-inline-table tracking-date-table">
-              <thead><tr><th><label class="stage-select-cell stage-select-cell--master" title="Selecionar todas as pendências"><input type="checkbox" data-date-pendency-master="true"></label></th><th>BSP</th><th>Spool</th><th>Processo</th><th>Data faltante</th><th>Data que será aplicada</th></tr></thead>
-              <tbody>
-                ${pendencies.map((item) => `
-                  <tr>
-                    <td><label class="stage-select-cell"><input type="checkbox" data-date-pendency-select="${escapeHtml(item.id)}" value="${escapeHtml(item.id)}"></label></td>
-                    <td>${escapeHtml(item.projectDisplay || '—')}</td>
-                    <td>${escapeHtml(item.spoolIso || '—')}</td>
-                    <td><span class="stage-badge stage-badge--tracking-date-missing">${escapeHtml(item.progressColumn || '—')}</span></td>
-                    <td>${escapeHtml(item.dateColumn || '—')}</td>
-                    <td>${escapeHtml(item.suggestedDate || '—')}</td>
-                  </tr>`).join('')}
-              </tbody>
-            </table>
-          </div>` : `<div class="empty-state">${loaded ? 'Nenhuma pendência de data encontrada.' : 'Clique em “Pendências de datas do histórico” para verificar o Tracking.'}</div>`
-      )}
-    </section>`;
-}
-
-
 
 function getPendingStageUpdate(projectRowId, spoolIso, sector = getStageWorkspaceSector()) {
   return getStageUpdatesForCurrentSector().find((item) =>
@@ -2773,7 +2438,7 @@ function updatePrimaryUserActionUi() {
     openStageUpdatesEl.classList.toggle('hidden', !canOpen);
     openStageUpdatesEl.textContent = canValidateStageWorkspace() ? 'Validação PCP' : 'Apontamentos';
     openStageUpdatesEl.title = canValidateStageWorkspace()
-      ? 'Abrir Validação PCP em uma aba separada'
+      ? 'Validar apontamentos enviados pelos setores e consultar o histórico'
       : 'Informar o avanço da sua etapa por spool';
   }
 }
@@ -3984,56 +3649,34 @@ if (openProjectSignalsEl) {
   });
 }
 
-function isStageWorkspaceStandaloneRequest() {
-  const params = new URLSearchParams(window.location.search || '');
-  return params.get('stageWorkspace') === '1' || window.location.hash === '#stage-validation';
-}
-
-function getStageWorkspaceStandaloneUrl() {
-  const url = new URL(window.location.href);
-  url.searchParams.set('stageWorkspace', '1');
-  url.hash = 'stage-validation';
-  return url.toString();
-}
-
-async function openStageUpdatesWorkspace({ loading = true } = {}) {
-  if (!state.user) {
-    openLoginModal();
-    return;
-  }
-
-  state.stageUpdatesSearchQuery = '';
-  syncStageDraftsForCurrentSector();
-
-  openStageUpdatesModal({ loading });
-
-  try {
-    await loadStageUpdates();
-    if (stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
-      renderStageUpdatesModal();
-    }
-  } catch (error) {
-    if (stageUpdatesContentEl && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
-      stageUpdatesContentEl.innerHTML = `<div class="empty-state">${escapeHtml(error?.message || 'Falha ao carregar apontamentos setoriais.')}</div>`;
-    }
-  }
-}
-
-
 if (openStageUpdatesEl) {
   openStageUpdatesEl.addEventListener('click', () => {
     if (!state.user) {
       openLoginModal();
       return;
     }
+    state.stageUpdatesSearchQuery = '';
+    syncStageDraftsForCurrentSector();
 
-    // Para PCP/Admin, abre a Validação em uma aba separada para não misturar com a tela principal.
-    if (canValidateStageWorkspace() && !isStageWorkspaceStandaloneRequest()) {
-      const opened = window.open(getStageWorkspaceStandaloneUrl(), '_blank', 'noopener,noreferrer');
-      if (opened) return;
+    if (canValidateStageWorkspace()) {
+      openStageValidationInNewTab();
+      return;
     }
 
-    openStageUpdatesWorkspace({ loading: true });
+    // Abre a tela imediatamente. O carregamento/filtragem acontece depois para não parecer travado.
+    openStageUpdatesModal({ loading: true });
+
+    loadStageUpdates()
+      .then(() => {
+        if (stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
+          renderStageUpdatesModal();
+        }
+      })
+      .catch((error) => {
+        if (stageUpdatesContentEl && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
+          stageUpdatesContentEl.innerHTML = `<div class="empty-state">${escapeHtml(error?.message || 'Falha ao carregar apontamentos setoriais.')}</div>`;
+        }
+      });
   });
 }
 
@@ -4042,73 +3685,81 @@ if (stageUpdatesCloseEl) {
 }
 
 if (stageUpdatesModalEl) {
-  stageUpdatesModalEl.addEventListener('change', (event) => {
-    const dateMaster = event.target.closest('[data-date-pendency-master]');
-    if (dateMaster) {
-      setAllDatePendencySelections(dateMaster.checked);
-      return;
-    }
-
-    const trackingMaster = event.target.closest('[data-stage-tracking-master]');
-    if (trackingMaster) {
-      setAllVisibleStageTrackingSelections(trackingMaster.checked);
-      return;
-    }
-  });
-}
-
-if (stageUpdatesModalEl) {
   stageUpdatesModalEl.addEventListener('click', (event) => {
     if (event.target.matches('[data-close-stage-updates="true"]')) {
       closeStageUpdatesModal();
       return;
     }
-    const loadDatePendenciesButton = event.target.closest('[data-stage-load-date-pendencies]');
-    if (loadDatePendenciesButton) {
-      loadTrackingDatePendencies(loadDatePendenciesButton);
+    const masterCheck = event.target.closest('[data-stage-master-check="true"]');
+    if (masterCheck) {
+      const pending = getFilteredStageUpdatesForValidation().filter((item) => isPendingStageStatus(item.status));
+      const ids = masterCheck.checked ? pending.filter(isStageUpdateSelectableForTracking).map((item) => item.id) : [];
+      setStageSelection(ids);
+      renderStageUpdatesModal();
       return;
     }
-
-    const selectAllDatePendenciesButton = event.target.closest('[data-date-pendency-select-all]');
-    if (selectAllDatePendenciesButton) {
-      const total = Array.from(stageUpdatesModalEl?.querySelectorAll('[data-date-pendency-select]:not(:disabled)') || []).length;
-      const selected = getSelectedTrackingDatePendencyIds().length;
-      setAllDatePendencySelections(selected < total);
+    const itemCheck = event.target.closest('[data-stage-item-check]');
+    if (itemCheck) {
+      const id = String(itemCheck.dataset.stageItemCheck || '').trim();
+      const current = new Set(state.stageSelectedIds || []);
+      if (itemCheck.checked) current.add(id);
+      else current.delete(id);
+      setStageSelection(Array.from(current));
+      renderStageUpdatesModal();
       return;
     }
-
-    const fixSelectedDatePendenciesButton = event.target.closest('[data-date-pendency-fix-selected]');
-    if (fixSelectedDatePendenciesButton) {
-      fixTrackingDatePendencies(fixSelectedDatePendenciesButton, 'selected');
+    const dateMasterCheck = event.target.closest('[data-stage-date-master-check="true"]');
+    if (dateMasterCheck) {
+      const ids = dateMasterCheck.checked ? (state.stageDatePendencies || []).map((item) => item.id) : [];
+      setStageDateSelection(ids);
+      renderStageUpdatesModal();
       return;
     }
-
-    const fixAllDatePendenciesButton = event.target.closest('[data-date-pendency-fix-all]');
-    if (fixAllDatePendenciesButton) {
-      fixTrackingDatePendencies(fixAllDatePendenciesButton, 'all');
+    const dateItemCheck = event.target.closest('[data-stage-date-item-check]');
+    if (dateItemCheck) {
+      const id = String(dateItemCheck.dataset.stageDateItemCheck || '').trim();
+      const current = new Set(state.stageDateSelectedIds || []);
+      if (dateItemCheck.checked) current.add(id);
+      else current.delete(id);
+      setStageDateSelection(Array.from(current));
+      renderStageUpdatesModal();
       return;
     }
-
-    const trackingSelectedButton = event.target.closest('[data-stage-update-tracking-selected]');
-    if (trackingSelectedButton) {
-      updateSelectedStageTracking(trackingSelectedButton);
+    const trackingUpdateButton = event.target.closest('[data-stage-tracking-update]');
+    if (trackingUpdateButton) {
+      sendStageTrackingUpdate([trackingUpdateButton.dataset.stageTrackingUpdate], { forceRewrite: false });
       return;
     }
-
-    const selectAllTrackingButton = event.target.closest('[data-stage-select-all-tracking]');
-    if (selectAllTrackingButton) {
-      const selectableCount = getVisibleStageTrackingSelectionCount();
-      const selectedCount = getSelectedStageTrackingIds().length;
-      setAllVisibleStageTrackingSelections(selectedCount < selectableCount);
+    const trackingRewriteButton = event.target.closest('[data-stage-tracking-rewrite]');
+    if (trackingRewriteButton) {
+      sendStageTrackingUpdate([trackingRewriteButton.dataset.stageTrackingRewrite], { forceRewrite: true });
       return;
     }
-
-    const trackingButton = event.target.closest('[data-stage-update-tracking]');
-    if (trackingButton) {
-      updateStageTrackingFromButton(trackingButton);
+    if (event.target.closest('[data-stage-tracking-bulk="true"]')) {
+      sendStageTrackingUpdate(state.stageSelectedIds || [], { forceRewrite: true });
       return;
     }
-
+    if (event.target.closest('[data-stage-conclude-bulk-ok="true"]')) {
+      concludeStageUpdatesBulkOk();
+      return;
+    }
+    if (event.target.closest('[data-stage-load-date-pending="true"]')) {
+      loadStageHistoryDatePendencies();
+      return;
+    }
+    const dateFixButton = event.target.closest('[data-stage-date-fix]');
+    if (dateFixButton) {
+      sendStageTrackingUpdate([dateFixButton.dataset.stageDateFix], { dateOnly: true, forceRewrite: true });
+      return;
+    }
+    if (event.target.closest('[data-stage-date-bulk="true"]')) {
+      sendStageTrackingUpdate(state.stageDateSelectedIds || [], { dateOnly: true, forceRewrite: true });
+      return;
+    }
+    if (event.target.closest('[data-stage-date-fix-all="true"]')) {
+      sendStageTrackingUpdate((state.stageDatePendencies || []).map((item) => item.id), { dateOnly: true, forceRewrite: true });
+      return;
+    }
     const concludeButton = event.target.closest('[data-stage-conclude]');
     if (concludeButton) {
       concludeStageUpdate(concludeButton.dataset.stageConclude);
@@ -4129,13 +3780,7 @@ if (stageUpdatesModalEl) {
       return;
     }
     if (event.target.closest('[data-stage-conclude-bulk="true"]')) {
-      const ids = (Array.isArray(state.stageUpdates) ? state.stageUpdates : [])
-        .filter((item) => isPendingStageStatus(item.status) && !isReviewStageStatus(item.status) && getStageTrackingInfo(item).matched)
-        .map((item) => item.id);
-      if (!ids.length) {
-        window.alert('Nenhum apontamento com Tracking OK para concluir em lote.');
-        return;
-      }
+      const ids = (Array.isArray(state.stageUpdates) ? state.stageUpdates : []).filter((item) => isPendingStageStatus(item.status)).map((item) => item.id);
       concludeStageUpdatesBulk(ids);
       return;
     }
@@ -5415,6 +5060,9 @@ async function handleLoginSubmit(event) {
     await loadAlertResponses();
     syncStageDraftsForCurrentSector();
     await loadStageUpdates();
+    if (shouldOpenStageValidationWorkspaceFromUrl() && canValidateStageWorkspace()) {
+      openStageUpdatesModal();
+    }
     if (state.user?.role === "admin") {
       await loadAdminData();
     }
@@ -5433,6 +5081,12 @@ async function handleLogout() {
   state.stageUpdates = [];
   state.stageDrafts = {};
   state.stageBatchValidationMode = false;
+  state.stageSelectedIds = [];
+  state.stageDatePendencies = [];
+  state.stageDatePendingLoaded = false;
+  state.stageDatePendingLoading = false;
+  state.stageTrackingSubmitting = false;
+  state.stageDateSelectedIds = [];
   state.attentionPopupQueue = [];
   state.attentionPopupCurrent = null;
   state.incomingAlertState = { manual: { initialized: false, ids: [] }, projectSignals: { initialized: false, ids: [] }, automatic: { initialized: false, ids: [] }, stageUpdates: { initialized: false, ids: [] } };
@@ -5580,11 +5234,30 @@ function renderStageSectorWorkspace() {
     </div>`;
 }
 
-function renderStageValidationWorkspace() {
-  if (!stageUpdatesContentEl) return;
+function shouldOpenStageValidationWorkspaceFromUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search || '');
+    return params.get('stageWorkspace') === '1' || window.location.hash === '#stage-validation';
+  } catch {
+    return false;
+  }
+}
+
+function openStageValidationInNewTab() {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set('stageWorkspace', '1');
+    url.hash = 'stage-validation';
+    window.open(url.toString(), '_blank', 'noopener,noreferrer');
+  } catch {
+    window.open('?stageWorkspace=1#stage-validation', '_blank', 'noopener,noreferrer');
+  }
+}
+
+function getFilteredStageUpdatesForValidation() {
   const query = String(state.stageUpdatesSearchQuery || '').trim();
   const all = Array.isArray(state.stageUpdates) ? state.stageUpdates : [];
-  const filtered = all.filter((item) => {
+  return all.filter((item) => {
     if (!query) return true;
     return matchesFlexibleSearch([
       item.projectNumber,
@@ -5598,109 +5271,213 @@ function renderStageValidationWorkspace() {
       item.createdBy,
     ], query);
   }).sort((a,b)=> new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+}
+
+function isAdvanceStageUpdate(item) {
+  return !isReviewStageStatus(item?.status);
+}
+
+function isStageUpdateSelectableForTracking(item) {
+  return Boolean(item && isPendingStageStatus(item.status) && isAdvanceStageUpdate(item));
+}
+
+function getSelectedVisibleStageIds(items = []) {
+  const visibleIds = new Set(items.filter(isStageUpdateSelectableForTracking).map((item) => String(item.id || '')));
+  return (Array.isArray(state.stageSelectedIds) ? state.stageSelectedIds : []).filter((id) => visibleIds.has(String(id)));
+}
+
+function setStageSelection(ids = []) {
+  state.stageSelectedIds = Array.from(new Set((Array.isArray(ids) ? ids : []).map((id) => String(id || '').trim()).filter(Boolean)));
+}
+
+function setStageDateSelection(ids = []) {
+  state.stageDateSelectedIds = Array.from(new Set((Array.isArray(ids) ? ids : []).map((id) => String(id || '').trim()).filter(Boolean)));
+}
+
+function trackingActionLabel(item, rewrite = false) {
+  if (rewrite) return 'Regravar Tracking';
+  const info = getStageTrackingInfo(item);
+  if (info.current != null && info.current > Number(item?.progress || 0)) return 'Confirmar avanço superior';
+  return 'Atualizar Tracking';
+}
+
+function stageTrackingMessageFromResult(result) {
+  const rows = Number(result?.rowCount || 0);
+  const column = result?.progressColumn ? ` • ${result.progressColumn}` : '';
+  const message = result?.message || 'Tracking processado.';
+  return `${message}${rows ? ` (${rows} linha(s) localizada(s)${column})` : ''}`;
+}
+
+function renderStageValidationPendingTable(pending = []) {
+  const selectable = pending.filter(isStageUpdateSelectableForTracking);
+  const selected = new Set(getSelectedVisibleStageIds(pending));
+  const allSelected = selectable.length > 0 && selectable.every((item) => selected.has(String(item.id || '')));
+  if (!pending.length) return '<div class="empty-state">Nenhum apontamento pendente no momento.</div>';
+  return `
+    <div class="table-shell stage-validation-table-shell">
+      <table class="stage-inline-table stage-validation-table">
+        <thead>
+          <tr>
+            <th class="stage-check-cell"><input type="checkbox" data-stage-master-check="true" ${allSelected ? 'checked' : ''} ${selectable.length ? '' : 'disabled'} aria-label="Selecionar todos os apontamentos visíveis" /></th>
+            <th>BSP / Spool</th>
+            <th>Setor</th>
+            <th>Avanço</th>
+            <th>Tracking</th>
+            <th>Enviado por</th>
+            <th>Observação</th>
+            <th>Ação</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${pending.map((item) => {
+            const id = String(item.id || '');
+            const selectableItem = isStageUpdateSelectableForTracking(item);
+            const info = getStageTrackingInfo(item);
+            const canConcludeOk = isReviewStageStatus(item.status) || (selectableItem && info.matched);
+            const rewriteButton = selectableItem && info.matched
+              ? `<button class="ghost-button" type="button" data-stage-tracking-rewrite="${escapeHtml(id)}">${escapeHtml(trackingActionLabel(item, true))}</button>`
+              : '';
+            const updateButton = selectableItem && !info.matched
+              ? `<button class="primary-button" type="button" data-stage-tracking-update="${escapeHtml(id)}">${escapeHtml(trackingActionLabel(item, false))}</button>`
+              : '';
+            const concludeButton = canConcludeOk
+              ? `<button class="ghost-button" type="button" data-stage-conclude="${escapeHtml(id)}">${escapeHtml(isReviewStageStatus(item.status) ? 'Concluir revisão' : 'Concluir OK')}</button>`
+              : '';
+            return `
+              <tr data-stage-row-id="${escapeHtml(id)}" class="${info.matched ? 'stage-row--ok' : ''}">
+                <td class="stage-check-cell"><input type="checkbox" data-stage-item-check="${escapeHtml(id)}" ${selected.has(id) ? 'checked' : ''} ${selectableItem ? '' : 'disabled'} aria-label="Selecionar apontamento" /></td>
+                <td><strong>${escapeHtml(item.projectDisplay || item.projectNumber || 'Projeto')}</strong><br><span class="stage-muted">${escapeHtml(item.spoolIso || 'Spool')}</span></td>
+                <td>${escapeHtml(sectorLabel(item.sector))}<br><span class="stage-badge ${isReviewStageStatus(item.status) ? 'stage-badge--review' : 'stage-badge--pending'}">${escapeHtml(stageUpdatePendingLabel(item.status))}</span></td>
+                <td><strong>${escapeHtml(String(item.progress || 0))}%</strong>${Number(item.progress || 0) === 100 ? `<br><span class="stage-muted">Data: ${escapeHtml(item.completionDate || 'data atual')}</span>` : ''}</td>
+                <td>${stageTrackingBadgeHtml(item)}</td>
+                <td>${escapeHtml(item.createdByName || item.createdBy || 'Usuário')}<br><span class="stage-muted">${escapeHtml(formatStageDate(item.createdAt))}</span></td>
+                <td>${escapeHtml(item.note || '—')}</td>
+                <td><div class="stage-row-actions stage-row-actions--stack">${updateButton}${rewriteButton}${concludeButton || `<span class="stage-muted">Atualize o Tracking primeiro</span>`}</div></td>
+              </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function renderStageHistoryList(history = []) {
+  if (!history.length) return '<div class="empty-state">Nenhum histórico validado encontrado.</div>';
+  return `<div class="stage-update-list stage-history-list">${history.map((item) => `
+    <article class="stage-update-card">
+      <div class="stage-update-head">
+        <div>
+          <strong>${escapeHtml(item.projectDisplay || item.projectNumber || 'Projeto')} • ${escapeHtml(item.spoolIso || 'Spool')}</strong>
+          <div class="stage-update-meta">
+            <span class="stage-badge stage-badge--sector">${escapeHtml(sectorLabel(item.sector))}</span>
+            <span class="stage-badge ${isReviewStageStatus(item.status) ? 'stage-badge--review-resolved' : 'stage-badge--resolved'}">${escapeHtml(stageUpdateResolveLabel(item.status))}</span>
+            <span class="stage-badge">${escapeHtml(String(item.progress || 0))}%</span>
+          </div>
+        </div>
+      </div>
+      <div class="stage-muted">Informado por ${escapeHtml(item.createdByName || item.createdBy || 'Usuário')} • ${escapeHtml(isReviewStageStatus(item.status) ? 'revisão tratada' : 'validado')} por ${escapeHtml(item.resolvedByName || item.resolvedBy || 'PCP')} em ${escapeHtml(formatStageDate(item.resolvedAt))}</div>
+      ${item.resolutionNote ? `<div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(item.resolutionNote)}</p></div>` : ''}
+    </article>`).join('')}</div>`;
+}
+
+function renderStageDatePendencies() {
+  if (state.stageDatePendingLoading) return '<div class="empty-state">Carregando pendências de datas do histórico...</div>';
+  if (!state.stageDatePendingLoaded) return '<div class="empty-state">Clique em “Pendências de datas do histórico” para verificar somente apontamentos 100% já validados pelo app.</div>';
+  const items = Array.isArray(state.stageDatePendencies) ? state.stageDatePendencies : [];
+  if (!items.length) return '<div class="empty-state">Nenhuma pendência de data encontrada no histórico validado do app.</div>';
+  const selected = new Set(state.stageDateSelectedIds || []);
+  const allSelected = items.length > 0 && items.every((item) => selected.has(String(item.id || '')));
+  return `
+    <div class="table-shell stage-validation-table-shell">
+      <table class="stage-inline-table stage-validation-table">
+        <thead>
+          <tr>
+            <th class="stage-check-cell"><input type="checkbox" data-stage-date-master-check="true" ${allSelected ? 'checked' : ''} aria-label="Selecionar todas as pendências visíveis" /></th>
+            <th>BSP / Spool</th>
+            <th>Processo</th>
+            <th>Data faltante</th>
+            <th>Data aplicada</th>
+            <th>Linhas</th>
+            <th>Ação</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.map((item) => {
+            const id = String(item.id || '');
+            return `
+              <tr>
+                <td class="stage-check-cell"><input type="checkbox" data-stage-date-item-check="${escapeHtml(id)}" ${selected.has(id) ? 'checked' : ''} /></td>
+                <td><strong>${escapeHtml(item.projectDisplay || item.projectNumber || 'Projeto')}</strong><br><span class="stage-muted">${escapeHtml(item.spoolIso || 'Spool')}</span></td>
+                <td>${escapeHtml(item.process || '—')}${item.needsPaintingNextSteps ? '<br><span class="stage-badge stage-badge--tracking-waiting">Pintura 100% + próximas etapas 25%</span>' : ''}</td>
+                <td>${escapeHtml(item.missingDateColumn || '—')}</td>
+                <td>${escapeHtml(item.applyDate || 'data atual')}</td>
+                <td>${escapeHtml(String(item.affectedRows || item.rowCount || 0))}/${escapeHtml(String(item.rowCount || 0))}</td>
+                <td><button class="primary-button" type="button" data-stage-date-fix="${escapeHtml(id)}">Corrigir</button></td>
+              </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function renderStageValidationWorkspace() {
+  if (!stageUpdatesContentEl) return;
+  const filtered = getFilteredStageUpdatesForValidation();
   const pending = filtered.filter((item) => isPendingStageStatus(item.status));
-  const trackingUpdatable = pending.filter((item) => canUpdateTrackingFromStage(item));
-  const readyToConclude = pending.filter((item) => !isReviewStageStatus(item.status) && getStageTrackingInfo(item).matched);
-  const history = filtered.filter((item) => isResolvedStageStatus(item.status)).slice(0, 50);
-  const groupedPending = pending.reduce((acc, item) => {
-    const key = String(item.projectDisplay || item.projectNumber || 'Projeto');
-    acc[key] = acc[key] || [];
-    acc[key].push(item);
-    return acc;
-  }, {});
+  const history = filtered.filter((item) => isResolvedStageStatus(item.status)).slice(0, 80);
+  const selectable = pending.filter(isStageUpdateSelectableForTracking);
+  const selectedIds = getSelectedVisibleStageIds(pending);
+  const selectedDateIds = (state.stageDateSelectedIds || []).filter((id) => (state.stageDatePendencies || []).some((item) => String(item.id) === String(id)));
+  state.stageSelectedIds = selectedIds;
+  state.stageDateSelectedIds = selectedDateIds;
+  const submitting = Boolean(state.stageTrackingSubmitting);
+
   stageUpdatesContentEl.innerHTML = `
-    <div class="stage-workspace-shell">
-      <section class="admin-card admin-card--wide">
+    <div class="stage-workspace-shell stage-validation-workspace" id="stage-validation">
+      <section class="admin-card admin-card--wide stage-validation-header-card">
         <div class="stage-toolbar">
           <label class="stack-field">
             <span>Buscar BSP / spool / setor</span>
             <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP 25-732-03 ou BSP2573203" autocomplete="off" inputmode="search" />
           </label>
           <div class="stage-row-actions">
-            <div class="stage-muted">Pendentes: <strong>${pending.length}</strong> • Tracking OK: <strong>${readyToConclude.length}</strong> • Atualizar/Regravar: <strong>${trackingUpdatable.length}</strong> • Histórico: <strong>${history.length}</strong></div>
-            <button class="ghost-button" type="button" data-stage-load-date-pendencies="true">Pendências de datas do histórico${state.trackingDatePendenciesLoaded ? ` (${state.trackingDatePendencies.length})` : ''}</button>
-            <button class="ghost-button" type="button" data-stage-select-all-tracking="true" ${trackingUpdatable.length ? '' : 'disabled'}>Selecionar atualizáveis/OK</button>
-            <button class="ghost-button" type="button" data-stage-update-tracking-selected="true" ${trackingUpdatable.length ? '' : 'disabled'}>Atualizar/Regravar selecionados</button>
-            <button class="ghost-button" type="button" data-stage-toggle-batch="true">${state.stageBatchValidationMode ? 'Voltar à lista' : 'Tela em lote'}</button>
-            <button class="primary-button" type="button" data-stage-conclude-bulk="true" ${readyToConclude.length ? '' : 'disabled'}>Concluir lote OK</button>
+            <div class="stage-muted">Pendentes: <strong>${pending.length}</strong> • Selecionados: <strong>${selectedIds.length}</strong> • Histórico: <strong>${history.length}</strong></div>
+            <button class="ghost-button" type="button" data-stage-load-date-pending="true" ${state.stageDatePendingLoading ? 'disabled' : ''}>${state.stageDatePendingLoading ? 'Verificando...' : 'Pendências de datas do histórico'}</button>
+            <button class="primary-button" type="button" data-stage-tracking-bulk="true" ${selectedIds.length && !submitting ? '' : 'disabled'}>${submitting ? 'Atualizando...' : 'Atualizar/Regravar selecionados'}</button>
+            <button class="ghost-button" type="button" data-stage-conclude-bulk-ok="true" ${pending.length && !submitting ? '' : 'disabled'}>Concluir lote OK</button>
           </div>
         </div>
+        <div class="stage-validation-note">
+          A atualização usa a API do Smartsheet com percentuais numéricos: 25% = 0.25, 50% = 0.5, 75% = 0.75 e 100% = 1. O apontamento só sai dos pendentes após confirmação do Tracking.
+        </div>
       </section>
-      ${renderTrackingDatePendenciesPanel()}
-      ${state.stageBatchValidationMode ? `
+
       <section class="admin-card admin-card--wide">
-        <div class="admin-card-head"><h4>Validação em lote do PCP</h4></div>
-        ${pending.length ? `<div class="stage-batch-groups">${Object.entries(groupedPending).map(([projectName, items]) => `
-          <article class="stage-project-card">
-            <div class="stage-project-head"><strong>${escapeHtml(projectName)}</strong><div class="stage-muted">${items.length} item(ns)</div></div>
-            <div class="table-shell">
-              <table class="stage-inline-table">
-                <thead><tr><th><label class="stage-select-cell stage-select-cell--master" title="Selecionar todos os atualizáveis deste lote"><input type="checkbox" data-stage-tracking-master="true"></label></th><th>Spool</th><th>Setor</th><th>Tipo</th><th>Avanço</th><th>Tracking</th><th>Observação</th><th>Ação</th></tr></thead>
-                <tbody>
-                  ${items.map((item) => `
-                    <tr>
-                      <td>${stageTrackingSelectionHtml(item)}</td>
-                      <td>${escapeHtml(item.spoolIso || '—')}</td>
-                      <td>${escapeHtml(sectorLabel(item.sector))}</td>
-                      <td>${escapeHtml(isReviewStageStatus(item.status) ? 'Revisão' : 'Avanço')}</td>
-                      <td>${escapeHtml(String(item.progress || 0))}%</td>
-                      <td>${stageTrackingBadgeHtml(item)}</td>
-                      <td>${escapeHtml(item.note || '—')}</td>
-                      <td><div class="stage-row-actions">${stageTrackingUpdateButtonHtml(item)}<button class="primary-button" type="button" data-stage-conclude="${escapeHtml(item.id)}">${escapeHtml(isReviewStageStatus(item.status) ? 'Tratar revisão' : 'Concluir')}</button></div></td>
-                    </tr>`).join('')}
-                </tbody>
-              </table>
-            </div>
-          </article>`).join('')}</div>` : `<div class="empty-state">Nenhum apontamento pendente no momento.</div>`}
-      </section>` : `
-      <div class="stage-two-col">
-        <section class="admin-card admin-card--wide">
-          <div class="admin-card-head"><h4>Pendentes para validação do PCP</h4></div>
-          <div class="stage-update-list">
-            ${pending.length ? pending.map((item) => `
-              <article class="stage-update-card">
-                <div class="stage-update-head">
-                  ${stageTrackingSelectionHtml(item)}
-                  <div>
-                    <strong>${escapeHtml(item.projectDisplay || item.projectNumber || 'Projeto')} • ${escapeHtml(item.spoolIso || 'Spool')}</strong>
-                    <div class="stage-update-meta">
-                      <span class="stage-badge stage-badge--sector">${escapeHtml(sectorLabel(item.sector))}</span>
-                      <span class="stage-badge ${isReviewStageStatus(item.status) ? 'stage-badge--review' : 'stage-badge--pending'}">${escapeHtml(stageUpdatePendingLabel(item.status))}</span>
-                      <span class="stage-badge">${escapeHtml(String(item.progress || 0))}%</span>
-                      ${stageTrackingBadgeHtml(item)}
-                    </div>
-                  </div>
-                  <div class="stage-row-actions">${stageTrackingUpdateButtonHtml(item)}<button class="primary-button" type="button" data-stage-conclude="${escapeHtml(item.id)}">${escapeHtml(isReviewStageStatus(item.status) ? 'Tratar revisão' : 'Concluir')}</button></div>
-                </div>
-                <p><strong>Spool:</strong> ${escapeHtml(item.spoolDescription || '—')}</p>
-                <p><strong>${escapeHtml(isReviewStageStatus(item.status) ? 'Motivo da revisão:' : 'Observação do setor:')}</strong> ${escapeHtml(item.note || (isReviewStageStatus(item.status) ? 'Sem motivo informado.' : 'Sem observação do setor.'))}</p>
-                <div class="stage-muted">Informado por ${escapeHtml(item.createdByName || item.createdBy || 'Usuário')} em ${escapeHtml(formatStageDate(item.createdAt))}</div>
-              </article>`).join('') : `<div class="empty-state">Nenhum apontamento pendente no momento.</div>`}
+        <div class="admin-card-head">
+          <h4>Validação PCP dos apontamentos</h4>
+          <div class="stage-muted">Itens elegíveis para lote: ${selectable.length}</div>
+        </div>
+        ${renderStageValidationPendingTable(pending)}
+      </section>
+
+      <section class="admin-card admin-card--wide">
+        <div class="admin-card-head">
+          <h4>Pendências de datas do histórico</h4>
+          <div class="stage-row-actions">
+            <span class="stage-muted">Selecionadas: <strong>${selectedDateIds.length}</strong></span>
+            <button class="primary-button" type="button" data-stage-date-bulk="true" ${selectedDateIds.length && !submitting ? '' : 'disabled'}>Corrigir selecionadas</button>
+            <button class="ghost-button" type="button" data-stage-date-fix-all="true" ${(state.stageDatePendencies || []).length && !submitting ? '' : 'disabled'}>Corrigir em massa</button>
           </div>
-        </section>
-        <section class="admin-card admin-card--wide">
-          <div class="admin-card-head"><h4>Histórico validado</h4></div>
-          <div class="stage-update-list">
-            ${history.length ? history.map((item) => `
-              <article class="stage-update-card">
-                <div class="stage-update-head">
-                  <div>
-                    <strong>${escapeHtml(item.projectDisplay || item.projectNumber || 'Projeto')} • ${escapeHtml(item.spoolIso || 'Spool')}</strong>
-                    <div class="stage-update-meta">
-                      <span class="stage-badge stage-badge--sector">${escapeHtml(sectorLabel(item.sector))}</span>
-                      <span class="stage-badge ${isReviewStageStatus(item.status) ? 'stage-badge--review-resolved' : 'stage-badge--resolved'}">${escapeHtml(stageUpdateResolveLabel(item.status))}</span>
-                      <span class="stage-badge">${escapeHtml(String(item.progress || 0))}%</span>
-                    </div>
-                  </div>
-                </div>
-                <div class="stage-muted">Informado por ${escapeHtml(item.createdByName || item.createdBy || 'Usuário')} • ${escapeHtml(isReviewStageStatus(item.status) ? 'revisão tratada' : 'concluído')} por ${escapeHtml(item.resolvedByName || item.resolvedBy || 'PCP')} em ${escapeHtml(formatStageDate(item.resolvedAt))}</div>
-                ${item.resolutionNote ? `<div class="response-bubble response-bubble--admin"><strong>Fechamento PCP</strong><p>${escapeHtml(item.resolutionNote)}</p></div>` : ''}
-              </article>`).join('') : `<div class="empty-state">Nenhum histórico validado encontrado.</div>`}
-          </div>
-        </section>
-      </div>`}
+        </div>
+        ${renderStageDatePendencies()}
+      </section>
+
+      <section class="admin-card admin-card--wide">
+        <div class="admin-card-head"><h4>Histórico validado</h4></div>
+        ${renderStageHistoryList(history)}
+      </section>
     </div>`;
 }
+
 
 function renderStageUpdatesModal() {
   if (!stageUpdatesContentEl) return;
@@ -5821,6 +5598,75 @@ async function handleStageWorkspaceBulkSubmit() {
   }
 }
 
+async function loadStageHistoryDatePendencies() {
+  if (!canValidateStageWorkspace() || state.stageDatePendingLoading) return;
+  state.stageDatePendingLoading = true;
+  renderStageUpdatesModal();
+  try {
+    const response = await fetch('/api/stage-updates?mode=history-date-pending', { credentials: 'same-origin', cache: 'no-store' });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao carregar pendências de datas do histórico.');
+    state.stageDatePendencies = Array.isArray(data.pendencies) ? data.pendencies : [];
+    state.stageDatePendingLoaded = true;
+    setStageDateSelection([]);
+  } catch (error) {
+    window.alert(error.message || 'Falha ao carregar pendências de datas do histórico.');
+  } finally {
+    state.stageDatePendingLoading = false;
+    renderStageUpdatesModal();
+  }
+}
+
+async function sendStageTrackingUpdate(ids = [], options = {}) {
+  const cleanIds = Array.from(new Set((Array.isArray(ids) ? ids : [ids]).map((id) => String(id || '').trim()).filter(Boolean)));
+  if (!cleanIds.length || state.stageTrackingSubmitting) return;
+  state.stageTrackingSubmitting = true;
+  renderStageUpdatesModal();
+  try {
+    const action = options.dateOnly ? 'fix-history-dates' : 'update-tracking';
+    const response = await fetch('/api/stage-updates', {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action,
+        ids: cleanIds,
+        forceRewrite: Boolean(options.forceRewrite),
+      }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao atualizar o Tracking.');
+    const results = data?.tracking?.results || [];
+    const messages = results.slice(0, 4).map(stageTrackingMessageFromResult).filter(Boolean);
+    if (Array.isArray(data?.errors) && data.errors.length) messages.push(`Pendências não processadas: ${data.errors.length}`);
+    if (messages.length) window.alert(messages.join('\n'));
+    setStageSelection([]);
+    if (options.dateOnly) {
+      setStageDateSelection([]);
+      await loadStageHistoryDatePendencies();
+    }
+    await loadStageUpdates();
+    renderStageUpdatesModal();
+  } catch (error) {
+    window.alert(error.message || 'Falha ao atualizar o Tracking.');
+  } finally {
+    state.stageTrackingSubmitting = false;
+    renderStageUpdatesModal();
+  }
+}
+
+function getVisiblePendingValidationIds(onlySelected = false) {
+  const pending = getFilteredStageUpdatesForValidation().filter((item) => isPendingStageStatus(item.status));
+  if (onlySelected && (state.stageSelectedIds || []).length) return getSelectedVisibleStageIds(pending);
+  return pending.map((item) => String(item.id || '')).filter(Boolean);
+}
+
+async function concludeStageUpdatesBulkOk() {
+  const selected = getVisiblePendingValidationIds(true);
+  const ids = selected.length ? selected : getVisiblePendingValidationIds(false);
+  await concludeStageUpdatesBulk(ids);
+}
+
 async function concludeStageUpdatesBulk(ids = []) {
   const cleanIds = Array.from(new Set((Array.isArray(ids) ? ids : []).map((id) => String(id || '').trim()).filter(Boolean)));
   if (!cleanIds.length) return;
@@ -5835,7 +5681,11 @@ async function concludeStageUpdatesBulk(ids = []) {
       body: JSON.stringify({ ids: cleanIds, resolutionNote }),
     });
     const data = await response.json().catch(() => null);
-    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao concluir lote de apontamentos.');
+    if (!response.ok || (!data?.ok && !data?.partial)) throw new Error(data?.error || 'Falha ao concluir lote de apontamentos.');
+    if (Array.isArray(data?.errors) && data.errors.length) {
+      window.alert(`Alguns itens não foram concluídos porque ainda precisam de atualização no Tracking: ${data.errors.length}`);
+    }
+    setStageSelection([]);
     await loadStageUpdates();
     renderStageUpdatesModal();
   } catch (error) {
@@ -5915,7 +5765,10 @@ async function concludeStageUpdate(id) {
       body: JSON.stringify({ id, resolutionNote }),
     });
     const data = await response.json().catch(() => null);
-    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao concluir apontamento.');
+    if (!response.ok || (!data?.ok && !data?.partial)) throw new Error(data?.error || 'Falha ao concluir apontamento.');
+    if (Array.isArray(data?.errors) && data.errors.length) {
+      window.alert('Este apontamento ainda precisa de atualização no Tracking antes de concluir.');
+    }
     await loadStageUpdates();
     renderStageUpdatesModal();
   } catch (error) {
@@ -6052,17 +5905,22 @@ async function init() {
   resetAdminUserForm();
   const authenticated = await bootstrapSession();
   if (authenticated) {
+    const autoOpenStageValidation = shouldOpenStageValidationWorkspaceFromUrl() && canValidateStageWorkspace();
+    if (autoOpenStageValidation) {
+      state.stageUpdatesSearchQuery = '';
+      openStageUpdatesModal({ loading: true });
+    }
     await loadProjects();
     await syncPushSubscription(false).catch(() => {});
     await loadManualAlerts();
     await loadAlertResponses();
     syncStageDraftsForCurrentSector();
     await loadStageUpdates();
+    if (autoOpenStageValidation && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
+      renderStageUpdatesModal();
+    }
     if (state.user?.role === "admin") {
       await loadAdminData();
-    }
-    if (isStageWorkspaceStandaloneRequest() && canOpenStageWorkspace()) {
-      await openStageUpdatesWorkspace({ loading: true });
     }
     startPolling();
   }

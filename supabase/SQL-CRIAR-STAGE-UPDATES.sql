@@ -12,7 +12,7 @@ create table if not exists public.stage_updates (
   progress integer not null check (progress in (25, 50, 75, 100)),
   completion_date date,
   note text,
-  status text not null default 'pending' check (status in ('pending', 'resolved')),
+  status text not null default 'pending_advance',
   created_by text,
   created_by_name text,
   created_at timestamptz not null default now(),
@@ -23,9 +23,20 @@ create table if not exists public.stage_updates (
   updated_at timestamptz not null default now()
 );
 
+alter table public.stage_updates
+  drop constraint if exists stage_updates_status_check;
+
+alter table public.stage_updates
+  add constraint stage_updates_status_check
+  check (status in ('pending', 'resolved', 'pending_advance', 'pending_review', 'resolved_advance', 'resolved_review'));
+
+alter table public.stage_updates
+  alter column status set default 'pending_advance';
+
 create index if not exists idx_stage_updates_project_row_id on public.stage_updates(project_row_id);
 create index if not exists idx_stage_updates_spool_sector_status on public.stage_updates(spool_iso, sector, status);
 create index if not exists idx_stage_updates_created_at on public.stage_updates(created_at desc);
+create index if not exists idx_stage_updates_resolved_progress on public.stage_updates(status, progress, resolved_at desc);
 
 create or replace function public.set_stage_updates_updated_at()
 returns trigger

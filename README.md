@@ -213,3 +213,34 @@ Para usar a base real, configure no Netlify:
 
 ## Configuração rápida
 Veja o arquivo `GUIA-CONFIGURACAO-GITHUB-NETLIFY.txt` para ativar persistência via GitHub e API real do Smartsheet.
+
+## Validação PCP integrada ao Smartsheet/Tracking
+
+Esta versão inclui o fluxo de validação PCP com atualização direta do Smartsheet pela Netlify Function `/api/stage-updates`.
+
+Principais pontos implementados:
+
+- O botão **Validação PCP** abre a tela em nova aba usando `?stageWorkspace=1#stage-validation`.
+- O PCP/Admin pode atualizar ou regravar o Tracking individualmente ou em lote.
+- Percentuais são enviados ao Smartsheet como número decimal: `0.25`, `0.5`, `0.75` e `1`.
+- O sistema não retrocede avanço maior já existente no Tracking.
+- Apontamentos de 25%, 50% e 75% atualizam somente percentual.
+- Apontamentos de 100% atualizam percentual e a data correspondente.
+- Pintura 100% também alimenta `Final Inspection` e `Package and Delivered` com 25%, sem reduzir valores maiores.
+- Duplicados de spool/drawing são atualizados juntos dentro do mesmo projeto/BSP.
+- A área **Pendências de datas do histórico** confere somente apontamentos 100% registrados pelo app e já validados.
+
+Antes do deploy, confirme no Netlify as variáveis:
+
+```env
+SMARTSHEET_TOKEN=...
+SMARTSHEET_SHEET_ID=...
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+```
+
+Se a tabela `stage_updates` já existir no Supabase, execute também:
+
+```text
+supabase/SQL-MIGRACAO-STAGE-UPDATES-VALIDACAO-PCP.sql
+```
