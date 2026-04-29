@@ -21,6 +21,15 @@ const TRACKING_UPDATE_COLUMN_BY_SECTOR = {
   pendente_envio: 'Package and Delivered',
 };
 
+const TRACKING_FIELDS_BY_SECTOR = {
+  pintura: ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)'],
+  solda: ['Full welding execution'],
+  producao: ['Spool Assemble and tack weld', 'Welding Preparation'],
+  calderaria: ['Spool Assemble and tack weld', 'Welding Preparation', 'Material Separation', 'Material Release to Fabrication'],
+  inspecao: ['Final Inspection', 'Hydro Test Pressure (QC)', 'Non Destructive Examination (QC)', 'Final Dimensional Inpection/3D (QC)', 'Initial Dimensional Inspection/3D'],
+  pendente_envio: ['Package and Delivered', 'Final Inspection'],
+};
+
 const TRACKING_DATE_COLUMN_BY_PROGRESS_COLUMN = {
   'Surface preparation and/or coating': 'Coating Finish Date',
   'Full welding execution': 'Welding Finish Date',
