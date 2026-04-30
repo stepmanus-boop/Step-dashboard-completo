@@ -865,6 +865,47 @@ function setSelectedAdminAlertSectors(values = []) {
   });
 }
 
+function normalizeProjectPmAliases(input = []) {
+  const values = Array.isArray(input) ? input : String(input || '').split(/[\n;,|]+/);
+  const seen = new Set();
+  const aliases = [];
+  for (const value of values) {
+    const item = String(value || '').trim();
+    if (!item) continue;
+    const key = normalizeText(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    aliases.push(item);
+  }
+  return aliases;
+}
+
+function getAdminProjectPmAliases() {
+  return normalizeProjectPmAliases(document.getElementById('admin-user-project-pms')?.value || '');
+}
+
+function setAdminProjectPmAliases(values = []) {
+  const input = document.getElementById('admin-user-project-pms');
+  if (input) input.value = normalizeProjectPmAliases(values).join('\n');
+}
+
+function adminUserFormHasProjectsScope() {
+  const role = document.getElementById('admin-user-role')?.value || 'sector';
+  if (role === 'admin') return false;
+  const sector = normalizeSectorValue(document.getElementById('admin-user-sector')?.value || '');
+  return sector === 'projetos' || getSelectedAdminAlertSectors().includes('projetos');
+}
+
+function updateAdminProjectPmAliasesVisibility() {
+  const field = document.getElementById('admin-user-project-pms-field');
+  const input = document.getElementById('admin-user-project-pms');
+  if (!field || !input) return;
+  const show = adminUserFormHasProjectsScope();
+  field.classList.toggle('hidden', !show);
+  input.disabled = !show;
+  if (!show) input.value = '';
+}
+
 function sectorLabel(value) {
   const normalized = String(value || "").toLowerCase();
   if (normalized === "pintura") return "Pintura";
@@ -2461,7 +2502,12 @@ function projectBelongsToUser(project, user = state.user) {
   if (!project || !userHasProjectsScope(user)) return false;
   const pmValue = String(project.pm || '').trim();
   if (!pmValue) return false;
-  const candidates = tokenizeNormalizedNames([user.name, user.username, String(user.username || '').split('@')[0]]);
+  const candidates = tokenizeNormalizedNames([
+    user.name,
+    user.username,
+    String(user.username || '').split('@')[0],
+    ...(Array.isArray(user.projectPmAliases) ? user.projectPmAliases : []),
+  ]);
   if (!candidates.size) return false;
   const normalizedPm = normalizeText(pmValue).trim();
   const pmTokens = tokenizeNormalizedNames(pmValue.split(/[;,|/]+/));
@@ -3512,6 +3558,8 @@ if (loginCloseEl) {
 
 const adminUserSectorEl = document.getElementById("admin-user-sector");
 const adminUserRoleEl = document.getElementById("admin-user-role");
+const adminUserProjectPmsFieldEl = document.getElementById("admin-user-project-pms-field");
+const adminUserProjectPmsEl = document.getElementById("admin-user-project-pms");
 if (adminUserSectorEl) {
   adminUserSectorEl.addEventListener("change", (event) => {
     const next = normalizeSectorValue(event.target.value);
@@ -3520,6 +3568,7 @@ if (adminUserSectorEl) {
       selected.add(next);
       setSelectedAdminAlertSectors([...selected]);
     }
+    updateAdminProjectPmAliasesVisibility();
   });
 }
 
@@ -3529,8 +3578,15 @@ if (adminUserRoleEl) {
     document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
       input.disabled = disabled;
     });
+    updateAdminProjectPmAliasesVisibility();
   });
 }
+
+document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
+  input.addEventListener('change', updateAdminProjectPmAliasesVisibility);
+});
+
+updateAdminProjectPmAliasesVisibility();
 
 if (loginModalEl) {
   loginModalEl.addEventListener("click", (event) => {
@@ -4786,6 +4842,8 @@ function resetAdminUserForm() {
   if (adminUserCancelEditEl) adminUserCancelEditEl.classList.add("hidden");
   if (adminUserSubmitLabelEl) adminUserSubmitLabelEl.textContent = "Criar usuário";
   setSelectedAdminAlertSectors([document.getElementById("admin-user-sector")?.value || "pintura"]);
+  setAdminProjectPmAliases([]);
+  updateAdminProjectPmAliasesVisibility();
 }
 
 function startEditUser(userId) {
@@ -4798,6 +4856,8 @@ function startEditUser(userId) {
   document.getElementById("admin-user-role").value = user.role === "admin" ? "admin" : "sector";
   document.getElementById("admin-user-sector").value = user.sector && user.sector !== "all" ? user.sector : "pintura";
   setSelectedAdminAlertSectors(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]);
+  setAdminProjectPmAliases(user.projectPmAliases || []);
+  updateAdminProjectPmAliasesVisibility();
   if (adminUserIdEl) adminUserIdEl.value = user.id || "";
   if (adminUserCancelEditEl) adminUserCancelEditEl.classList.remove("hidden");
   if (adminUserSubmitLabelEl) adminUserSubmitLabelEl.textContent = "Salvar usuário";
@@ -4846,6 +4906,7 @@ function renderAdminUsersList(users = []) {
           <span>Perfil: ${escapeHtml(user.role === "admin" ? "Admin notificações" : "Setor")}</span>
           <span>Setor principal: ${escapeHtml(sectorLabel(user.sector))}</span>
           <span>Recebe alertas de: ${escapeHtml(formatSectorList(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]))}</span>
+          ${(userHasProjectsScope(user) && Array.isArray(user.projectPmAliases) && user.projectPmAliases.length) ? `<span>PMs adicionais: ${escapeHtml(user.projectPmAliases.join(', '))}</span>` : ''}
           <span>${user.active ? "Ativo" : "Inativo"}</span>
         </div>
         <div class="manual-alert-actions">
@@ -4968,6 +5029,7 @@ async function loadAdminData() {
       role: user.role,
       sector: user.sector,
       alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector],
+      projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
       active: user.active !== false,
       createdAt: user.createdAt || null,
     }));
@@ -4988,6 +5050,7 @@ async function loadAdminData() {
       role: user.role,
       sector: user.sector,
       alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector],
+      projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
       active: user.active !== false,
       createdAt: user.createdAt || null,
     }));
@@ -5887,6 +5950,7 @@ async function handleAdminUserSubmit(event) {
       role: document.getElementById("admin-user-role").value,
       sector: document.getElementById("admin-user-sector").value,
       alertSectors: getSelectedAdminAlertSectors(),
+      projectPmAliases: adminUserFormHasProjectsScope() ? getAdminProjectPmAliases() : [],
     };
     const response = await fetch("/api/admin-users", {
       method: editingId ? "PUT" : "POST",
@@ -5905,6 +5969,7 @@ async function handleAdminUserSubmit(event) {
       role: payload.role,
       sector: payload.role === "admin" ? "all" : payload.sector,
       alertSectors: payload.role === "admin" ? [] : payload.alertSectors,
+      projectPmAliases: payload.role === "admin" ? [] : payload.projectPmAliases,
       active: true,
       createdAt: new Date().toISOString(),
     };

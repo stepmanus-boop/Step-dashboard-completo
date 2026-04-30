@@ -33,7 +33,12 @@ function projectBelongsToUser(project, user) {
   if (!project || !user) return false;
   const pmValue = String(project.pm || '').trim();
   if (!pmValue) return false;
-  const candidates = tokenizeNormalizedNames([user.name, user.username, String(user.username || '').split('@')[0]]);
+  const candidates = tokenizeNormalizedNames([
+    user.name,
+    user.username,
+    String(user.username || '').split('@')[0],
+    ...(Array.isArray(user.projectPmAliases) ? user.projectPmAliases : []),
+  ]);
   if (!candidates.size) return false;
   const normalizedPm = normalizeText(pmValue).trim();
   const pmTokens = tokenizeNormalizedNames(pmValue.split(/[;,|/]+/));
@@ -97,6 +102,7 @@ async function getEffectiveSession(session) {
       role: freshUser.role || session.role,
       sector: normalizeSectorValue(freshUser.sector || session.sector),
       alertSectors: normalizeSectorList(freshUser.sector || session.sector, freshUser.alertSectors || session.alertSectors),
+      projectPmAliases: Array.isArray(freshUser.projectPmAliases) ? freshUser.projectPmAliases : (Array.isArray(session.projectPmAliases) ? session.projectPmAliases : []),
       name: freshUser.name || session.name,
       username: freshUser.username || session.username,
       sub: freshUser.id || session.sub,

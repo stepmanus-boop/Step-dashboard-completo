@@ -48,6 +48,7 @@ function mapUser(row) {
     role: row.role === 'admin' ? 'admin' : 'sector',
     sector: normalizeSectorValue(row.sector || (row.role === 'admin' ? 'all' : '')), 
     alertSectors: normalizeSectorList(row.sector || '', Array.isArray(row.alert_sectors) ? row.alert_sectors : []),
+    projectPmAliases: Array.isArray(row.project_pm_aliases) ? row.project_pm_aliases.filter(Boolean) : [],
     active: row.active !== false,
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null,
@@ -153,6 +154,7 @@ async function insertUser(input) {
     role: input.role,
     sector: input.sector,
     alert_sectors: input.alertSectors || [],
+    project_pm_aliases: Array.isArray(input.projectPmAliases) ? input.projectPmAliases : [],
     active: input.active !== false,
   };
   const rows = await supabaseFetch('/rest/v1/users?select=*', {
@@ -172,6 +174,7 @@ async function updateUser(userId, updates) {
   if ('role' in updates) payload.role = updates.role;
   if ('sector' in updates) payload.sector = updates.sector;
   if ('alertSectors' in updates) payload.alert_sectors = updates.alertSectors || [];
+  if ('projectPmAliases' in updates) payload.project_pm_aliases = Array.isArray(updates.projectPmAliases) ? updates.projectPmAliases : [];
   if ('active' in updates) payload.active = updates.active !== false;
   const rows = await supabaseFetch(`/rest/v1/users?id=eq.${q}&select=*`, {
     method: 'PATCH',

@@ -24,6 +24,7 @@ exports.handler = async (event) => {
       role: 'admin',
       sector: 'all',
       alertSectors: [],
+      projectPmAliases: [],
       active: true,
       passwordHash: 'admin123',
     };
@@ -46,6 +47,7 @@ exports.handler = async (event) => {
         role: user.role,
         sector: user.sector,
         alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [],
+        projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
       },
     }, {
       headers: {

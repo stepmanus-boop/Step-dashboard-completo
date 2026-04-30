@@ -2,6 +2,26 @@ const crypto = require('crypto');
 const { jsonResponse, requireAdmin, hashPassword, normalizeText, normalizeSectorList, normalizeSectorValue } = require('./_auth');
 const { listUsers, insertUser, updateUser, isSupabaseConfigured } = require('./_supabase');
 
+function normalizeProjectPmAliases(input) {
+  const values = Array.isArray(input) ? input : String(input || '').split(/[\n;,|]+/);
+  const seen = new Set();
+  const aliases = [];
+  for (const value of values) {
+    const item = String(value || '').trim();
+    if (!item) continue;
+    const key = normalizeText(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    aliases.push(item);
+  }
+  return aliases;
+}
+
+function isProjectsUser(role, sector, alertSectors = []) {
+  if (role === 'admin') return false;
+  return normalizeSectorValue(sector) === 'projetos' || normalizeSectorList('', alertSectors).includes('projetos');
+}
+
 exports.handler = async (event) => {
   const admin = requireAdmin(event);
   if (!admin.ok) return admin.response;
@@ -22,6 +42,7 @@ exports.handler = async (event) => {
         role: user.role,
         sector: user.sector,
         alertSectors: normalizeSectorList('', user.alertSectors),
+        projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
         active: Boolean(user.active),
         createdAt: user.createdAt || null,
       })),
@@ -48,6 +69,7 @@ exports.handler = async (event) => {
       const role = body.role === 'admin' ? 'admin' : 'sector';
       const sector = role === 'admin' ? 'all' : normalizeSectorValue(body.sector);
       const alertSectors = role === 'admin' ? [] : normalizeSectorList('', body.alertSectors);
+      const projectPmAliases = isProjectsUser(role, sector, alertSectors) ? normalizeProjectPmAliases(body.projectPmAliases) : [];
 
       if (!name || !username) {
         return jsonResponse(400, { ok: false, error: 'Preencha nome e usuário.' });
@@ -70,6 +92,7 @@ exports.handler = async (event) => {
         role,
         sector,
         alertSectors: role === 'admin' ? [] : alertSectors,
+        projectPmAliases,
         active: body.active === false ? false : true,
         ...(password ? { passwordHash: hashPassword(password) } : {}),
       });
@@ -100,6 +123,7 @@ exports.handler = async (event) => {
         role: nextRole,
         sector: nextRole === 'admin' ? 'all' : (current.sector && current.sector !== 'all' ? current.sector : ''),
         alertSectors: nextRole === 'admin' ? [] : normalizeSectorList('', current.alertSectors),
+        projectPmAliases: nextRole === 'admin' ? [] : (isProjectsUser(nextRole, current.sector, current.alertSectors) ? normalizeProjectPmAliases(current.projectPmAliases) : []),
       });
       return jsonResponse(200, { ok: true, user: saved });
     } catch (error) {
@@ -119,6 +143,7 @@ exports.handler = async (event) => {
     const role = body.role === 'admin' ? 'admin' : 'sector';
     const sector = role === 'admin' ? 'all' : normalizeSectorValue(body.sector);
     const alertSectors = role === 'admin' ? [] : normalizeSectorList('', body.alertSectors);
+    const projectPmAliases = isProjectsUser(role, sector, alertSectors) ? normalizeProjectPmAliases(body.projectPmAliases) : [];
 
     if (!name || !username || !password) {
       return jsonResponse(400, { ok: false, error: 'Preencha nome, usuário e senha.' });
@@ -141,6 +166,7 @@ exports.handler = async (event) => {
       role,
       sector,
       alertSectors,
+      projectPmAliases,
       active: true,
     });
 
