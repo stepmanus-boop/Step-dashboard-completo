@@ -25,6 +25,7 @@ exports.handler = async (event) => {
       sector: 'all',
       alertSectors: [],
       active: true,
+      supervisedUsers: [],
       passwordHash: 'admin123',
     };
 

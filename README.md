@@ -250,21 +250,14 @@ supabase/SQL-MIGRACAO-STAGE-UPDATES-VALIDACAO-PCP.sql
 
 A função de Validação PCP agora usa a mesma configuração Smartsheet já existente no projeto, além de aceitar variáveis de ambiente (SMARTSHEET_TOKEN, SMARTSHEET_ACCESS_TOKEN, SMARTSHEET_API_TOKEN, SMARTSHEET_BEARER_TOKEN, SMARTSHEET_PAT, SMARTSHEET_PERSONAL_ACCESS_TOKEN). Isso evita erro de token ausente quando o dashboard já funcionava com a configuração interna do ZIP.
 
-## Perfil Supervisor de Projetos
+## Acesso de Projetos com usuários vinculados
 
-Esta versão adiciona o perfil **Supervisor de Projetos** para usuários do setor **Projetos**.
+Usuários do setor **Projetos** podem receber uma lista de outros usuários de Projetos vinculados. No cadastro/edição de usuário, selecione o setor **Projetos** e marque as pessoas de Projetos que o usuário também deve acompanhar.
 
-Fluxo esperado:
+Exemplo: se o usuário Rodrigo tiver Álvaro e Thales vinculados, ao clicar em **Meus projetos** ele verá as BSPs onde o campo PM corresponde a Rodrigo, Álvaro ou Thales.
 
-1. Execute no Supabase o arquivo `supabase/SQL-MIGRACAO-USUARIOS-SUPERVISOR-PROJETOS.sql`.
-2. Acesse o painel Admin > Novo usuário.
-3. Edite ou crie um usuário com perfil **Supervisor de Projetos**.
-4. Selecione os usuários de Projetos que ele supervisiona.
-5. Ao entrar no dashboard, o supervisor verá em **Meus projetos** as demandas dele e dos usuários vinculados.
+Antes de usar em produção, execute no Supabase:
 
-Exemplos de uso:
-
-- Rodrigo Biazzi pode supervisionar Álvaro e Rafael Brandão.
-- Amanda pode supervisionar Túlio e Rodrigo Quintão.
-
-O filtro cruza os nomes configurados com a coluna PM do Tracking/Smartsheet, sem liberar acesso administrativo.
+```sql
+supabase/SQL-MIGRACAO-USUARIOS-PROJETOS-VINCULADOS.sql
+```

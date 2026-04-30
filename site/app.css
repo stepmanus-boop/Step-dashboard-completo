@@ -3306,21 +3306,17 @@ button.alert-badge {
   background: rgba(127, 29, 29, 0.38) !important;
 }
 
-.check-grid--supervisor {
-  grid-template-columns: 1fr;
-  max-height: 240px;
+/* Usuários de Projetos vinculados */
+.check-grid--project-users {
+  max-height: 230px;
   overflow: auto;
   padding-right: 4px;
 }
 
-.check-grid--supervisor .check-row {
-  min-height: 46px;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
+.check-grid--project-users .check-row {
+  min-height: 48px;
 }
 
-.check-grid--supervisor .stage-muted {
-  font-size: 0.76rem;
-  margin-left: 6px;
+.check-grid--project-users .stage-muted {
+  font-size: 11px;
 }

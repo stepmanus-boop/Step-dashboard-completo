@@ -45,7 +45,7 @@ function mapUser(row) {
     name: row.name,
     username: row.username,
     passwordHash: row.password_hash,
-    role: row.role === 'admin' ? 'admin' : (row.role === 'supervisor' ? 'supervisor' : 'sector'),
+    role: row.role === 'admin' ? 'admin' : 'sector',
     sector: normalizeSectorValue(row.sector || (row.role === 'admin' ? 'all' : '')), 
     alertSectors: normalizeSectorList(row.sector || '', Array.isArray(row.alert_sectors) ? row.alert_sectors : []),
     supervisedUsers: normalizeSupervisedUsers(Array.isArray(row.supervised_users) ? row.supervised_users : []),

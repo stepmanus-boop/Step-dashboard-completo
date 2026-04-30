@@ -30,6 +30,7 @@ const state = {
   adminAlertSearchQuery: "",
   adminActiveTab: "usuario",
   alertResponses: [],
+  adminUsers: [],
   selectedAlertForResponse: null,
   manualAlertSignature: "",
   automaticAlertSignature: "",
@@ -49,7 +50,6 @@ const state = {
   stageDatePendingLoading: false,
   stageTrackingSubmitting: false,
   stageDateSelectedIds: [],
-  adminUsers: [],
   attentionPopupQueue: [],
   attentionPopupCurrent: null,
   incomingAlertState: {
@@ -866,21 +866,13 @@ function setSelectedAdminAlertSectors(values = []) {
   });
 }
 
-function normalizeRoleValue(value) {
-  const role = String(value || '').trim().toLowerCase();
-  if (role === 'admin') return 'admin';
-  if (role === 'supervisor') return 'supervisor';
-  return 'sector';
+function isAdminFormProjectUser() {
+  const role = String(adminUserRoleEl?.value || 'sector').trim().toLowerCase();
+  const sector = normalizeSectorValue(adminUserSectorEl?.value || '');
+  return role !== 'admin' && sector === 'projetos';
 }
 
-function isProjectsUser(user) {
-  if (!user || user.role === 'admin') return false;
-  return normalizeSectorValue(user.sector) === 'projetos'
-    || (Array.isArray(user.alertSectors) && user.alertSectors.map(normalizeSectorValue).includes('projetos'))
-    || normalizeRoleValue(user.role) === 'supervisor';
-}
-
-function normalizeSupervisedUsersList(values = []) {
+function normalizeProjectLinkedUsersList(values = []) {
   const source = Array.isArray(values) ? values : [];
   const seen = new Set();
   const result = [];
@@ -897,23 +889,23 @@ function normalizeSupervisedUsersList(values = []) {
   return result;
 }
 
-function getSelectedSupervisedUsers() {
+function getSelectedProjectLinkedUsers() {
   const users = Array.isArray(state.adminUsers) ? state.adminUsers : [];
-  const selectedIds = new Set(Array.from(document.querySelectorAll('[data-admin-supervised-user]:checked')).map((input) => String(input.value || '').trim()).filter(Boolean));
+  const selectedIds = new Set(Array.from(document.querySelectorAll('[data-admin-linked-project-user]:checked')).map((input) => String(input.value || '').trim()).filter(Boolean));
   return users
     .filter((user) => selectedIds.has(String(user.id || '')))
     .map((user) => ({ id: user.id || '', name: user.name || '', username: user.username || '' }));
 }
 
-function formatSupervisedUsersList(values = []) {
-  const users = normalizeSupervisedUsersList(values);
+function formatProjectLinkedUsersList(values = []) {
+  const users = normalizeProjectLinkedUsersList(values);
   return users.length ? users.map((user) => user.name || user.username || user.id).filter(Boolean).join(', ') : '—';
 }
 
-function setSelectedSupervisedUsers(values = []) {
-  const normalized = normalizeSupervisedUsersList(values);
+function setSelectedProjectLinkedUsers(values = []) {
+  const normalized = normalizeProjectLinkedUsersList(values);
   const selectedKeys = new Set(normalized.flatMap((item) => [item.id, item.username, item.name].map((value) => normalizeText(value).trim()).filter(Boolean)));
-  document.querySelectorAll('[data-admin-supervised-user]').forEach((input) => {
+  document.querySelectorAll('[data-admin-linked-project-user]').forEach((input) => {
     const id = normalizeText(input.value || '').trim();
     const username = normalizeText(input.dataset.username || '').trim();
     const name = normalizeText(input.dataset.name || '').trim();
@@ -921,39 +913,47 @@ function setSelectedSupervisedUsers(values = []) {
   });
 }
 
-function syncSupervisorAdminFields() {
-  const role = normalizeRoleValue(adminUserRoleEl?.value || 'sector');
-  const isSupervisor = role === 'supervisor';
+function isProjectsAdminUser(user) {
+  if (!user || user.role === 'admin') return false;
+  return normalizeSectorValue(user.sector) === 'projetos'
+    || (Array.isArray(user.alertSectors) && user.alertSectors.map(normalizeSectorValue).includes('projetos'));
+}
+
+function syncProjectLinkedAdminFields() {
+  const role = String(adminUserRoleEl?.value || 'sector').trim().toLowerCase();
   const isAdmin = role === 'admin';
-  if (adminSupervisedUsersFieldEl) adminSupervisedUsersFieldEl.classList.toggle('hidden', !isSupervisor);
-  if (adminUserSectorEl && isSupervisor) adminUserSectorEl.value = 'projetos';
+  const isProjectUser = isAdminFormProjectUser();
+  if (adminLinkedProjectUsersFieldEl) adminLinkedProjectUsersFieldEl.classList.toggle('hidden', !isProjectUser);
   document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
-    input.disabled = isAdmin || isSupervisor;
+    input.disabled = isAdmin;
   });
   if (isAdmin) {
     setSelectedAdminAlertSectors([]);
-  } else if (isSupervisor) {
-    setSelectedAdminAlertSectors(['projetos']);
+    setSelectedProjectLinkedUsers([]);
+  } else if (isProjectUser) {
+    const selected = new Set(getSelectedAdminAlertSectors());
+    selected.add('projetos');
+    setSelectedAdminAlertSectors([...selected]);
   }
 }
 
-function renderAdminSupervisedUsersList(selected = []) {
-  if (!adminSupervisedUsersListEl) return;
+function renderAdminProjectLinkedUsersList(selected = []) {
+  if (!adminLinkedProjectUsersListEl) return;
   const editingId = String(adminUserIdEl?.value || '').trim();
   const users = (Array.isArray(state.adminUsers) ? state.adminUsers : [])
-    .filter((user) => isProjectsUser(user) && String(user.id || '') !== editingId)
+    .filter((user) => isProjectsAdminUser(user) && String(user.id || '') !== editingId)
     .sort((a, b) => String(a.name || a.username || '').localeCompare(String(b.name || b.username || ''), 'pt-BR'));
   if (!users.length) {
-    adminSupervisedUsersListEl.innerHTML = '<span class="stage-muted">Nenhum usuário de Projetos cadastrado para selecionar.</span>';
+    adminLinkedProjectUsersListEl.innerHTML = '<span class="stage-muted">Nenhum outro usuário de Projetos disponível para vincular.</span>';
     return;
   }
-  adminSupervisedUsersListEl.innerHTML = users.map((user) => `
+  adminLinkedProjectUsersListEl.innerHTML = users.map((user) => `
     <label class="check-row">
-      <input type="checkbox" data-admin-supervised-user value="${escapeHtml(user.id || '')}" data-username="${escapeHtml(user.username || '')}" data-name="${escapeHtml(user.name || '')}" />
+      <input type="checkbox" data-admin-linked-project-user value="${escapeHtml(user.id || '')}" data-username="${escapeHtml(user.username || '')}" data-name="${escapeHtml(user.name || '')}" />
       ${escapeHtml(user.name || user.username || 'Usuário')} <span class="stage-muted">${escapeHtml(user.username || '')}</span>
     </label>
   `).join('');
-  setSelectedSupervisedUsers(selected);
+  setSelectedProjectLinkedUsers(selected);
 }
 
 function sectorLabel(value) {
@@ -2542,7 +2542,7 @@ function tokenizeNormalizedNames(values = []) {
     if (!normalized) continue;
     set.add(normalized);
     for (const part of normalized.split(/[^a-z0-9]+/)) {
-      if (part && part.length >= 4) set.add(part);
+      if (part) set.add(part);
     }
   }
   return set;
@@ -2552,7 +2552,7 @@ function getProjectAccessPeople(user = state.user) {
   if (!user) return [];
   return [
     { id: user.id || '', name: user.name || '', username: user.username || '' },
-    ...normalizeSupervisedUsersList(user.supervisedUsers || []),
+    ...normalizeProjectLinkedUsersList(user.supervisedUsers || []),
   ];
 }
 
@@ -3634,8 +3634,8 @@ if (loginCloseEl) {
 
 const adminUserSectorEl = document.getElementById("admin-user-sector");
 const adminUserRoleEl = document.getElementById("admin-user-role");
-const adminSupervisedUsersFieldEl = document.getElementById("admin-supervised-users-field");
-const adminSupervisedUsersListEl = document.getElementById("admin-supervised-users-list");
+const adminLinkedProjectUsersFieldEl = document.getElementById("admin-linked-project-users-field");
+const adminLinkedProjectUsersListEl = document.getElementById("admin-linked-project-users-list");
 if (adminUserSectorEl) {
   adminUserSectorEl.addEventListener("change", (event) => {
     const next = normalizeSectorValue(event.target.value);
@@ -3644,14 +3644,15 @@ if (adminUserSectorEl) {
       selected.add(next);
       setSelectedAdminAlertSectors([...selected]);
     }
-    syncSupervisorAdminFields();
+    syncProjectLinkedAdminFields();
+    renderAdminProjectLinkedUsersList(getSelectedProjectLinkedUsers());
   });
 }
 
 if (adminUserRoleEl) {
   adminUserRoleEl.addEventListener("change", () => {
-    syncSupervisorAdminFields();
-    renderAdminSupervisedUsersList(getSelectedSupervisedUsers());
+    syncProjectLinkedAdminFields();
+    renderAdminProjectLinkedUsersList(getSelectedProjectLinkedUsers());
   });
 }
 
@@ -4906,12 +4907,11 @@ function renderAdminAlertResponses() {
 function resetAdminUserForm() {
   if (adminUserFormEl) adminUserFormEl.reset();
   if (adminUserIdEl) adminUserIdEl.value = "";
-  if (adminUserRoleEl) adminUserRoleEl.value = 'sector';
   if (adminUserCancelEditEl) adminUserCancelEditEl.classList.add("hidden");
   if (adminUserSubmitLabelEl) adminUserSubmitLabelEl.textContent = "Criar usuário";
   setSelectedAdminAlertSectors([document.getElementById("admin-user-sector")?.value || "pintura"]);
-  renderAdminSupervisedUsersList([]);
-  syncSupervisorAdminFields();
+  renderAdminProjectLinkedUsersList([]);
+  syncProjectLinkedAdminFields();
 }
 
 function startEditUser(userId) {
@@ -4921,12 +4921,12 @@ function startEditUser(userId) {
   document.getElementById("admin-user-name").value = user.name || "";
   document.getElementById("admin-user-username").value = user.username || "";
   document.getElementById("admin-user-password").value = "";
-  document.getElementById("admin-user-role").value = normalizeRoleValue(user.role);
+  document.getElementById("admin-user-role").value = user.role === "admin" ? "admin" : "sector";
   document.getElementById("admin-user-sector").value = user.sector && user.sector !== "all" ? user.sector : "pintura";
   setSelectedAdminAlertSectors(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]);
   if (adminUserIdEl) adminUserIdEl.value = user.id || "";
-  renderAdminSupervisedUsersList(user.supervisedUsers || []);
-  syncSupervisorAdminFields();
+  renderAdminProjectLinkedUsersList(user.supervisedUsers || []);
+  syncProjectLinkedAdminFields();
   if (adminUserCancelEditEl) adminUserCancelEditEl.classList.remove("hidden");
   if (adminUserSubmitLabelEl) adminUserSubmitLabelEl.textContent = "Salvar usuário";
   adminUserFeedbackEl.textContent = `Editando ${user.name || user.username}.`;
@@ -4961,7 +4961,7 @@ function renderAdminUsersList(users = []) {
   if (!adminUsersListEl) return;
   adminUsersListEl._cachedUsers = users;
   state.adminUsers = Array.isArray(users) ? users : [];
-  renderAdminSupervisedUsersList(getSelectedSupervisedUsers());
+  renderAdminProjectLinkedUsersList(getSelectedProjectLinkedUsers());
   if (!users.length) {
     adminUsersListEl.innerHTML = '<div class="empty-state">Nenhum usuário cadastrado.</div>';
     return;
@@ -4973,10 +4973,10 @@ function renderAdminUsersList(users = []) {
         <strong>${escapeHtml(user.name)}</strong>
         <div class="admin-list-item-meta">
           <span>Login: ${escapeHtml(user.username)}</span>
-          <span>Perfil: ${escapeHtml(user.role === "admin" ? "Admin notificações" : (user.role === "supervisor" ? "Supervisor de Projetos" : "Setor"))}</span>
+          <span>Perfil: ${escapeHtml(user.role === "admin" ? "Admin notificações" : "Setor")}</span>
           <span>Setor principal: ${escapeHtml(sectorLabel(user.sector))}</span>
           <span>Recebe alertas de: ${escapeHtml(formatSectorList(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]))}</span>
-          ${user.role === "supervisor" ? `<span>Supervisiona: ${escapeHtml(formatSupervisedUsersList(user.supervisedUsers))}</span>` : ""}
+          ${isProjectsAdminUser(user) && normalizeProjectLinkedUsersList(user.supervisedUsers).length ? `<span>Também vê projetos de: ${escapeHtml(formatProjectLinkedUsersList(user.supervisedUsers))}</span>` : ""}
           <span>${user.active ? "Ativo" : "Inativo"}</span>
         </div>
         <div class="manual-alert-actions">
@@ -6020,7 +6020,7 @@ async function handleAdminUserSubmit(event) {
       role: document.getElementById("admin-user-role").value,
       sector: document.getElementById("admin-user-sector").value,
       alertSectors: getSelectedAdminAlertSectors(),
-      supervisedUsers: getSelectedSupervisedUsers(),
+      supervisedUsers: isAdminFormProjectUser() ? getSelectedProjectLinkedUsers() : [],
     };
     const response = await fetch("/api/admin-users", {
       method: editingId ? "PUT" : "POST",
@@ -6039,7 +6039,7 @@ async function handleAdminUserSubmit(event) {
       role: payload.role,
       sector: payload.role === "admin" ? "all" : payload.sector,
       alertSectors: payload.role === "admin" ? [] : payload.alertSectors,
-      supervisedUsers: payload.role === "supervisor" ? payload.supervisedUsers : [],
+      supervisedUsers: payload.role !== "admin" && normalizeSectorValue(payload.sector) === "projetos" ? payload.supervisedUsers : [],
       active: true,
       createdAt: new Date().toISOString(),
     };

@@ -371,7 +371,6 @@
               <span>Perfil</span>
               <select id="admin-user-role">
                 <option value="sector">Setor</option>
-                <option value="supervisor">Supervisor de Projetos</option>
                 <option value="admin">Admin</option>
               </select>
             </label>
@@ -392,12 +391,12 @@
             </label>
           </div>
 
-          <label id="admin-supervised-users-field" class="stack-field hidden">
-            <span>Usuários supervisionados</span>
-            <div id="admin-supervised-users-list" class="check-grid check-grid--supervisor">
-              <span class="stage-muted">Carregue ou crie usuários de Projetos para vincular ao supervisor.</span>
+          <label id="admin-linked-project-users-field" class="stack-field hidden">
+            <span>Pessoas de Projetos vinculadas</span>
+            <div id="admin-linked-project-users-list" class="check-grid check-grid--project-users">
+              <span class="stage-muted">Carregue ou crie usuários do setor Projetos para vincular.</span>
             </div>
-            <small class="stage-muted">O supervisor verá as demandas dele e dos usuários selecionados em “Meus projetos”.</small>
+            <small class="stage-muted">O usuário verá as próprias BSPs e também as BSPs dos nomes selecionados em “Meus projetos”.</small>
           </label>
           <label class="stack-field">
             <span>Setores monitorados</span>

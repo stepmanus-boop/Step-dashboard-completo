@@ -52,11 +52,8 @@ function verifyToken(token) {
   if (!token || !String(token).includes(".")) return null;
   const [encoded, signature] = String(token).split(".");
   const expected = crypto.createHmac("sha256", SESSION_SECRET).update(encoded).digest("hex");
+  if (!crypto.timingSafeEqual(Buffer.from(signature || ""), Buffer.from(expected))) return null;
   try {
-    const signatureBuffer = Buffer.from(signature || "");
-    const expectedBuffer = Buffer.from(expected);
-    if (signatureBuffer.length !== expectedBuffer.length) return null;
-    if (!crypto.timingSafeEqual(signatureBuffer, expectedBuffer)) return null;
     const payload = JSON.parse(fromBase64Url(encoded));
     if (!payload || !payload.exp || payload.exp < Date.now()) return null;
     return payload;
@@ -72,8 +69,6 @@ function createSessionCookie(user) {
     role: user.role,
     sector: user.sector,
     alertSectors: normalizeSectorList(user.sector, user.alertSectors),
-    // Não gravar supervisedUsers no cookie para evitar cookie grande/truncado e falha no auth-me.
-    // A lista completa é devolvida pelo auth-login/auth-me a partir do Supabase.
     name: user.name,
     exp: Date.now() + SESSION_TTL_MS,
   };
@@ -161,7 +156,6 @@ function normalizeSectorList(primarySector, alertSectors) {
   }
   return normalized;
 }
-
 
 function normalizeSupervisedUsers(value) {
   const source = Array.isArray(value) ? value : [];
