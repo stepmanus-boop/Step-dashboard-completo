@@ -407,8 +407,14 @@
           </label>
           <label class="stack-field hidden" id="admin-user-project-pms-field">
             <span>PMs adicionais para visualizar</span>
-            <textarea id="admin-user-project-pms" rows="3" placeholder="Ex.: João Silva; Carlos Souza; Mariana"></textarea>
-            <small>Use os nomes como aparecem na coluna PM do Tracking. Separe por vírgula, ponto e vírgula ou quebra de linha.</small>
+            <div class="pm-select-box">
+              <input id="admin-user-project-pms-search" class="pm-select-search" type="search" placeholder="Buscar PM na lista..." autocomplete="off" />
+              <div id="admin-user-project-pms-options" class="pm-select-options" role="group" aria-label="PMs adicionais para visualizar">
+                <div class="pm-select-empty">Carregando nomes de PM do Tracking...</div>
+              </div>
+              <div id="admin-user-project-pms-count" class="pm-select-count">Nenhum PM adicional selecionado.</div>
+            </div>
+            <small>Selecione os nomes como aparecem na coluna PM do Tracking. A lista é montada automaticamente pelos projetos carregados.</small>
           </label>
           <div class="stack-actions">
             <button class="primary-button" type="submit"><span id="admin-user-submit-label">Criar usuário</span></button>

@@ -29,6 +29,8 @@ const state = {
   projectSignals: [],
   adminAlertSearchQuery: "",
   adminActiveTab: "usuario",
+  adminProjectPmAliasesDraft: [],
+  adminProjectPmSearchQuery: "",
   alertResponses: [],
   selectedAlertForResponse: null,
   manualAlertSignature: "",
@@ -880,13 +882,88 @@ function normalizeProjectPmAliases(input = []) {
   return aliases;
 }
 
+function splitProjectPmNames(value = '') {
+  return String(value || '')
+    .split(/[\n;,|/]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function getAvailableProjectPmAliases(extraValues = []) {
+  const values = [];
+  if (Array.isArray(extraValues)) values.push(...extraValues);
+  for (const project of Array.isArray(state.projects) ? state.projects : []) {
+    values.push(...splitProjectPmNames(project?.pm || ''));
+  }
+  return normalizeProjectPmAliases(values).sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
+}
+
 function getAdminProjectPmAliases() {
-  return normalizeProjectPmAliases(document.getElementById('admin-user-project-pms')?.value || '');
+  return normalizeProjectPmAliases(state.adminProjectPmAliasesDraft || []);
+}
+
+function updateAdminProjectPmAliasCount() {
+  const countEl = document.getElementById('admin-user-project-pms-count');
+  if (!countEl) return;
+  const selected = getAdminProjectPmAliases();
+  countEl.textContent = selected.length
+    ? `${selected.length} PM${selected.length > 1 ? 's' : ''} adicional${selected.length > 1 ? 'is' : ''} selecionado${selected.length > 1 ? 's' : ''}: ${selected.join(', ')}`
+    : 'Nenhum PM adicional selecionado.';
+}
+
+function renderAdminProjectPmAliasOptions() {
+  const optionsEl = document.getElementById('admin-user-project-pms-options');
+  if (!optionsEl) return;
+
+  const selectedValues = getAdminProjectPmAliases();
+  const selectedKeys = new Set(selectedValues.map((item) => normalizeText(item)));
+  const search = normalizeText(state.adminProjectPmSearchQuery || document.getElementById('admin-user-project-pms-search')?.value || '');
+  const allOptions = getAvailableProjectPmAliases(selectedValues);
+  const filteredOptions = allOptions.filter((name) => !search || normalizeText(name).includes(search));
+
+  if (!allOptions.length) {
+    optionsEl.innerHTML = '<div class="pm-select-empty">Nenhum nome de PM encontrado nos projetos carregados.</div>';
+    updateAdminProjectPmAliasCount();
+    return;
+  }
+
+  if (!filteredOptions.length) {
+    optionsEl.innerHTML = '<div class="pm-select-empty">Nenhum PM encontrado para essa busca.</div>';
+    updateAdminProjectPmAliasCount();
+    return;
+  }
+
+  optionsEl.innerHTML = filteredOptions.map((name) => {
+    const checked = selectedKeys.has(normalizeText(name)) ? 'checked' : '';
+    const disabled = adminUserFormHasProjectsScope() ? '' : 'disabled';
+    return `
+      <label class="check-row pm-select-row">
+        <input type="checkbox" data-admin-project-pm-option value="${escapeHtml(name)}" ${checked} ${disabled} />
+        ${escapeHtml(name)}
+      </label>
+    `;
+  }).join('');
+  updateAdminProjectPmAliasCount();
 }
 
 function setAdminProjectPmAliases(values = []) {
-  const input = document.getElementById('admin-user-project-pms');
-  if (input) input.value = normalizeProjectPmAliases(values).join('\n');
+  state.adminProjectPmAliasesDraft = normalizeProjectPmAliases(values);
+  renderAdminProjectPmAliasOptions();
+}
+
+function setAdminProjectPmSearchQuery(value = '') {
+  state.adminProjectPmSearchQuery = String(value || '');
+  renderAdminProjectPmAliasOptions();
+}
+
+function toggleAdminProjectPmAlias(value, checked) {
+  const current = getAdminProjectPmAliases();
+  const key = normalizeText(value);
+  const next = checked
+    ? normalizeProjectPmAliases([...current, value])
+    : current.filter((item) => normalizeText(item) !== key);
+  state.adminProjectPmAliasesDraft = next;
+  updateAdminProjectPmAliasCount();
 }
 
 function adminUserFormHasProjectsScope() {
@@ -898,12 +975,23 @@ function adminUserFormHasProjectsScope() {
 
 function updateAdminProjectPmAliasesVisibility() {
   const field = document.getElementById('admin-user-project-pms-field');
-  const input = document.getElementById('admin-user-project-pms');
-  if (!field || !input) return;
+  const searchInput = document.getElementById('admin-user-project-pms-search');
+  const optionsEl = document.getElementById('admin-user-project-pms-options');
+  if (!field) return;
   const show = adminUserFormHasProjectsScope();
   field.classList.toggle('hidden', !show);
-  input.disabled = !show;
-  if (!show) input.value = '';
+  if (searchInput) searchInput.disabled = !show;
+  if (optionsEl) {
+    optionsEl.querySelectorAll('input[data-admin-project-pm-option]').forEach((input) => {
+      input.disabled = !show;
+    });
+  }
+  if (!show) {
+    state.adminProjectPmAliasesDraft = [];
+    state.adminProjectPmSearchQuery = '';
+    if (searchInput) searchInput.value = '';
+  }
+  renderAdminProjectPmAliasOptions();
 }
 
 function sectorLabel(value) {
@@ -3213,6 +3301,7 @@ async function loadProjects() {
     }
 
     state.projects = enrichProjects(data.projects || []);
+    renderAdminProjectPmAliasOptions();
     renderProjectViewTabs();
     state.stats = data.stats || null;
     state.meta = data.meta || null;
@@ -3559,7 +3648,8 @@ if (loginCloseEl) {
 const adminUserSectorEl = document.getElementById("admin-user-sector");
 const adminUserRoleEl = document.getElementById("admin-user-role");
 const adminUserProjectPmsFieldEl = document.getElementById("admin-user-project-pms-field");
-const adminUserProjectPmsEl = document.getElementById("admin-user-project-pms");
+const adminUserProjectPmsSearchEl = document.getElementById("admin-user-project-pms-search");
+const adminUserProjectPmsOptionsEl = document.getElementById("admin-user-project-pms-options");
 if (adminUserSectorEl) {
   adminUserSectorEl.addEventListener("change", (event) => {
     const next = normalizeSectorValue(event.target.value);
@@ -3585,6 +3675,20 @@ if (adminUserRoleEl) {
 document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
   input.addEventListener('change', updateAdminProjectPmAliasesVisibility);
 });
+
+if (adminUserProjectPmsSearchEl) {
+  adminUserProjectPmsSearchEl.addEventListener('input', (event) => {
+    setAdminProjectPmSearchQuery(event.target.value);
+  });
+}
+
+if (adminUserProjectPmsOptionsEl) {
+  adminUserProjectPmsOptionsEl.addEventListener('change', (event) => {
+    const input = event.target?.closest?.('input[data-admin-project-pm-option]');
+    if (!input) return;
+    toggleAdminProjectPmAlias(input.value, input.checked);
+  });
+}
 
 updateAdminProjectPmAliasesVisibility();
 
@@ -4842,6 +4946,8 @@ function resetAdminUserForm() {
   if (adminUserCancelEditEl) adminUserCancelEditEl.classList.add("hidden");
   if (adminUserSubmitLabelEl) adminUserSubmitLabelEl.textContent = "Criar usuário";
   setSelectedAdminAlertSectors([document.getElementById("admin-user-sector")?.value || "pintura"]);
+  state.adminProjectPmSearchQuery = "";
+  if (adminUserProjectPmsSearchEl) adminUserProjectPmsSearchEl.value = "";
   setAdminProjectPmAliases([]);
   updateAdminProjectPmAliasesVisibility();
 }
@@ -4856,6 +4962,8 @@ function startEditUser(userId) {
   document.getElementById("admin-user-role").value = user.role === "admin" ? "admin" : "sector";
   document.getElementById("admin-user-sector").value = user.sector && user.sector !== "all" ? user.sector : "pintura";
   setSelectedAdminAlertSectors(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]);
+  state.adminProjectPmSearchQuery = "";
+  if (adminUserProjectPmsSearchEl) adminUserProjectPmsSearchEl.value = "";
   setAdminProjectPmAliases(user.projectPmAliases || []);
   updateAdminProjectPmAliasesVisibility();
   if (adminUserIdEl) adminUserIdEl.value = user.id || "";
