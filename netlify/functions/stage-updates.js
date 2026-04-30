@@ -118,6 +118,30 @@ async function enrichUpdatesWithTracking(updates) {
 }
 
 
+async function autoResolveTrackingMatchedUpdates(enrichedUpdates, rawUpdates, session) {
+  if (!canValidate(session)) return { changed: false, updates: Array.isArray(enrichedUpdates) ? enrichedUpdates : [] };
+
+  const candidates = (Array.isArray(enrichedUpdates) ? enrichedUpdates : []).filter((item) =>
+    isPendingStatus(item?.status)
+    && !isReviewStatus(item?.status)
+    && item?.trackingMatched === true
+  );
+
+  if (!candidates.length) return { changed: false, updates: Array.isArray(enrichedUpdates) ? enrichedUpdates : [] };
+
+  let changed = false;
+  const resolutionNote = 'Concluído automaticamente pelo PCP porque o Tracking já estava OK.';
+  for (const item of candidates) {
+    const saved = await resolveStageUpdateRecord(item.id, rawUpdates, session, resolutionNote);
+    if (saved) changed = true;
+  }
+
+  if (changed && !isSupabaseConfigured()) await saveUpdates(rawUpdates);
+
+  const refreshed = await enrichUpdatesWithTracking(rawUpdates);
+  return { changed, updates: refreshed };
+}
+
 function canValidate(session) {
   const sector = normalizeSectorValue(session?.sector);
   return session?.role === 'admin' || sector === 'pcp';
@@ -402,10 +426,13 @@ exports.handler = async (event) => {
         return jsonResponse(200, { ok: true, pendencies });
       }
       const enriched = await enrichUpdatesWithTracking(updates);
+      const autoResolved = await autoResolveTrackingMatchedUpdates(enriched, updates, session);
       return jsonResponse(200, {
         ok: true,
-        updates: enriched,
-        autoResolvedCount: 0,
+        updates: autoResolved.updates,
+        autoResolvedCount: autoResolved.changed
+          ? autoResolved.updates.filter((item) => isResolvedStatus(item?.status) && String(item?.resolutionNote || '').includes('Tracking já estava OK')).length
+          : 0,
         permissions: {
           canCreate: canCreate(session),
           canValidate: canValidate(session),

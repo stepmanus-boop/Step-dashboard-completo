@@ -476,8 +476,7 @@ function openAttentionPopupTarget(item) {
   const kind = String(item.kind || '').trim().toLowerCase();
   if (kind === 'stage-updates') {
     state.stageBatchValidationMode = Boolean(state.user && normalizeSectorValue(state.user?.sector) === 'pcp');
-    if (canValidateStageWorkspace()) openStageValidationInNewTab();
-    else openStageUpdatesModal({ loading: true });
+    openStageUpdatesModal();
     return;
   }
   if (kind === 'automatic') {
@@ -1349,7 +1348,6 @@ function canViewMyProjectSignals(user = state.user) {
 
 const STAGE_WORKSPACE_SECTORS = ['engenharia', 'suprimento', 'pintura', 'inspecao', 'pendente_envio', 'producao', 'calderaria', 'solda'];
 const STAGE_PROGRESS_OPTIONS = [25, 50, 75, 100];
-const STAGE_VALIDATION_WINDOW_NAME = 'step_pcp_validation_workspace';
 
 function getStageWorkspaceSector(user = state.user) {
   return normalizeSectorValue(user?.sector);
@@ -3661,7 +3659,7 @@ if (openStageUpdatesEl) {
     syncStageDraftsForCurrentSector();
 
     if (canValidateStageWorkspace()) {
-      openStageValidationInNewTab();
+      openStageValidationWorkspaceInline();
       return;
     }
 
@@ -5250,14 +5248,25 @@ function shouldOpenStageValidationWorkspaceFromUrl() {
   }
 }
 
-function getStageValidationWorkspaceUrl() {
-  const url = new URL(window.location.href);
-  url.searchParams.set('stageWorkspace', '1');
-  url.hash = 'stage-validation';
-  return url.toString();
-}
+function openStageValidationWorkspaceInline() {
+  if (!canValidateStageWorkspace()) return;
 
-function loadStageValidationWorkspaceData() {
+  state.stageUpdatesSearchQuery = '';
+  syncStageDraftsForCurrentSector();
+
+  // Mantém a Validação PCP na aba atual.
+  // Antes era usado window.open(...), o que criava uma nova página a cada clique.
+  try {
+    if (!shouldOpenStageValidationWorkspaceFromUrl()) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('stageWorkspace', '1');
+      url.hash = 'stage-validation';
+      window.history.replaceState({}, '', url.toString());
+    }
+  } catch {}
+
+  openStageUpdatesModal({ loading: true });
+
   loadStageUpdates()
     .then(() => {
       if (stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
@@ -5271,41 +5280,8 @@ function loadStageValidationWorkspaceData() {
     });
 }
 
-function openStageValidationWorkspaceInline() {
-  if (!canValidateStageWorkspace()) return;
-
-  state.stageUpdatesSearchQuery = '';
-  syncStageDraftsForCurrentSector();
-
-  try {
-    if (!shouldOpenStageValidationWorkspaceFromUrl()) {
-      window.history.replaceState({}, '', getStageValidationWorkspaceUrl());
-    }
-  } catch {}
-
-  openStageUpdatesModal({ loading: true });
-  loadStageValidationWorkspaceData();
-}
-
+// Mantido como alias para evitar referência quebrada em versões antigas do HTML/cache.
 function openStageValidationInNewTab() {
-  if (!canValidateStageWorkspace()) return;
-
-  if (shouldOpenStageValidationWorkspaceFromUrl()) {
-    openStageValidationWorkspaceInline();
-    return;
-  }
-
-  let opened = null;
-  try {
-    opened = window.open(getStageValidationWorkspaceUrl(), STAGE_VALIDATION_WINDOW_NAME);
-  } catch {}
-
-  if (opened) {
-    try { opened.focus(); } catch {}
-    return;
-  }
-
-  // Fallback para navegador que bloqueia pop-up: abre a validação na aba atual.
   openStageValidationWorkspaceInline();
 }
 
@@ -5716,7 +5692,7 @@ async function sendStageTrackingUpdate(ids = [], options = {}) {
       }
       if (messages.length) window.alert(messages.join('\n'));
 
-      // Não recarrega o Tracking inteiro após corrigir datas; a lista local já foi atualizada.
+      await loadStageHistoryDatePendencies();
     } else {
       setStageSelection((state.stageSelectedIds || []).filter((id) => !successIds.has(String(id || ''))));
       renderStageUpdatesModal();
