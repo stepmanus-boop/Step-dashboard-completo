@@ -4947,7 +4947,8 @@ function resetAdminUserForm() {
   if (adminUserSubmitLabelEl) adminUserSubmitLabelEl.textContent = "Criar usuário";
   setSelectedAdminAlertSectors([document.getElementById("admin-user-sector")?.value || "pintura"]);
   state.adminProjectPmSearchQuery = "";
-  if (adminUserProjectPmsSearchEl) adminUserProjectPmsSearchEl.value = "";
+  const projectPmSearchEl = document.getElementById("admin-user-project-pms-search");
+  if (projectPmSearchEl) projectPmSearchEl.value = "";
   setAdminProjectPmAliases([]);
   updateAdminProjectPmAliasesVisibility();
 }
@@ -4963,7 +4964,8 @@ function startEditUser(userId) {
   document.getElementById("admin-user-sector").value = user.sector && user.sector !== "all" ? user.sector : "pintura";
   setSelectedAdminAlertSectors(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]);
   state.adminProjectPmSearchQuery = "";
-  if (adminUserProjectPmsSearchEl) adminUserProjectPmsSearchEl.value = "";
+  const projectPmSearchEl = document.getElementById("admin-user-project-pms-search");
+  if (projectPmSearchEl) projectPmSearchEl.value = "";
   setAdminProjectPmAliases(user.projectPmAliases || []);
   updateAdminProjectPmAliasesVisibility();
   if (adminUserIdEl) adminUserIdEl.value = user.id || "";
