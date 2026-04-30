@@ -157,25 +157,6 @@ function normalizeSectorList(primarySector, alertSectors) {
   return normalized;
 }
 
-function normalizeSupervisedUsers(value) {
-  const source = Array.isArray(value) ? value : [];
-  const seen = new Set();
-  const users = [];
-  for (const raw of source) {
-    const item = raw && typeof raw === 'object'
-      ? raw
-      : { name: String(raw || '').trim(), username: String(raw || '').trim(), id: '' };
-    const name = String(item.name || '').trim();
-    const username = String(item.username || '').trim();
-    const id = String(item.id || '').trim();
-    const key = normalizeText(username || name || id);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    users.push({ id, name, username });
-  }
-  return users;
-}
-
 function hashPassword(password, saltHex) {
   const salt = saltHex ? Buffer.from(saltHex, "hex") : crypto.randomBytes(16);
   const derived = crypto.scryptSync(String(password), salt, 32);
@@ -197,7 +178,6 @@ async function readLocalJson(relativePath, fallbackValue = []) {
 
 module.exports = {
   normalizeSectorList,
-  normalizeSupervisedUsers,
   SESSION_COOKIE_NAME,
   jsonResponse,
   createSessionCookie,

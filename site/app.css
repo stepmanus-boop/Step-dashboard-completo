@@ -3305,18 +3305,3 @@ button.alert-badge {
   border-color: rgba(248, 113, 113, 0.75) !important;
   background: rgba(127, 29, 29, 0.38) !important;
 }
-
-/* Usuários de Projetos vinculados */
-.check-grid--project-users {
-  max-height: 230px;
-  overflow: auto;
-  padding-right: 4px;
-}
-
-.check-grid--project-users .check-row {
-  min-height: 48px;
-}
-
-.check-grid--project-users .stage-muted {
-  font-size: 11px;
-}

@@ -1,7 +1,7 @@
 const API_BASE = process.env.SMARTSHEET_API_BASE || 'https://api.smartsheet.com/2.0';
 const SHEET_NAME = process.env.SMARTSHEET_SHEET_NAME || 'Progress Tracking Sheet - Piping Fabrication';
 const SHEET_ID_ENV = process.env.SMARTSHEET_SHEET_ID || '';
-const TOKEN = process.env.SMARTSHEET_TOKEN || process.env.SMARTSHEET_ACCESS_TOKEN || process.env.SMARTSHEET_API_TOKEN || process.env.SMARTSHEET_BEARER_TOKEN || process.env.SMARTSHEET_PAT || process.env.SMARTSHEET_PERSONAL_ACCESS_TOKEN || '5pP36OjBaD1W2HWyxf6aoGxXasPvEl8gbqOmQ';
+const TOKEN = process.env.SMARTSHEET_TOKEN || process.env.SMARTSHEET_ACCESS_TOKEN || process.env.SMARTSHEET_API_TOKEN || process.env.SMARTSHEET_BEARER_TOKEN || process.env.SMARTSHEET_PAT || process.env.SMARTSHEET_PERSONAL_ACCESS_TOKEN || '';
 
 const TRACKING_PROGRESS_BY_SECTOR = {
   pintura: 'Surface preparation and/or coating',
@@ -77,14 +77,31 @@ function normalizeSpoolIdentity(value) {
     .replace(/[^A-Z0-9]+/g, '');
 }
 
+function normalizeSpoolIdentityLoose(value) {
+  const prepared = String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[–—−]/g, '-')
+    .toUpperCase()
+    .replace(/\([^)]*\)/g, ' ');
+  const tokens = prepared.match(/[A-Z]+|\d+/g) || [];
+  return tokens.map((token) => /^\d+$/.test(token) ? String(Number(token)) : token).join('');
+}
+
 function compactContainsMatch(a, b) {
-  const left = normalizeSpoolIdentity(a);
-  const right = normalizeSpoolIdentity(b);
-  if (!left || !right) return false;
-  if (left === right) return true;
-  const min = Math.min(left.length, right.length);
-  if (min < 8) return false;
-  return left.includes(right) || right.includes(left);
+  const variantsA = [normalizeSpoolIdentity(a), normalizeSpoolIdentityLoose(a)].filter(Boolean);
+  const variantsB = [normalizeSpoolIdentity(b), normalizeSpoolIdentityLoose(b)].filter(Boolean);
+  if (!variantsA.length || !variantsB.length) return false;
+
+  for (const left of variantsA) {
+    for (const right of variantsB) {
+      if (!left || !right) continue;
+      if (left === right) return true;
+      const min = Math.min(left.length, right.length);
+      if (min >= 8 && (left.includes(right) || right.includes(left))) return true;
+    }
+  }
+  return false;
 }
 
 function parseNumberValue(input) {
@@ -260,13 +277,20 @@ async function updateRows(sheetId, rowChangesMap) {
   const rows = Array.from(rowChangesMap.values())
     .map((entry) => ({ id: entry.id, cells: Array.from(entry.cells.values()) }))
     .filter((row) => row.id && row.cells.length);
-  if (!rows.length) return { rows: [] };
-  const response = await apiFetch(`/sheets/${sheetId}/rows`, {
-    method: 'PUT',
-    body: JSON.stringify(rows),
-  });
+  if (!rows.length) return { rows: [], responses: [] };
+
+  const responses = [];
+  const chunkSize = 400;
+  for (let index = 0; index < rows.length; index += chunkSize) {
+    const chunk = rows.slice(index, index + chunkSize);
+    const response = await apiFetch('/sheets/' + sheetId + '/rows', {
+      method: 'PUT',
+      body: JSON.stringify(chunk),
+    });
+    responses.push(response);
+  }
   invalidateProjectCache();
-  return { rows, response };
+  return { rows, responses };
 }
 
 function addCellChange(rowChangesMap, rowId, column, value) {
@@ -358,6 +382,20 @@ function resolveInspectionProgressColumn(sheet, row) {
   return columns.finalDimensional || columns.nde || columns.hydro || columns.finalInspection || null;
 }
 
+function getCanonicalProgressColumnName(columnTitle) {
+  const normalized = normalizeColumnTitle(columnTitle);
+  if (!normalized) return '';
+  const candidates = new Set([
+    ...Object.keys(TRACKING_DATE_BY_PROGRESS_COLUMN),
+    ...Object.values(TRACKING_PROGRESS_BY_SECTOR),
+  ]);
+  for (const candidate of candidates) {
+    const aliases = [candidate, ...(COLUMN_ALIASES[candidate] || [])];
+    if (aliases.some((alias) => normalizeColumnTitle(alias) === normalized)) return candidate;
+  }
+  return columnTitle || '';
+}
+
 function resolveProgressColumn(sheet, update, referenceRow) {
   const explicit = String(update?.trackingColumn || update?.progressColumn || '').trim();
   if (explicit) return findColumn(sheet, explicit);
@@ -368,7 +406,8 @@ function resolveProgressColumn(sheet, update, referenceRow) {
 }
 
 function getDateColumnNameForProgressColumn(progressColumnTitle) {
-  const normalized = normalizeColumnTitle(progressColumnTitle);
+  const canonical = getCanonicalProgressColumnName(progressColumnTitle);
+  const normalized = normalizeColumnTitle(canonical || progressColumnTitle);
   const key = Object.keys(TRACKING_DATE_BY_PROGRESS_COLUMN).find((candidate) => normalizeColumnTitle(candidate) === normalized);
   return key ? TRACKING_DATE_BY_PROGRESS_COLUMN[key] : '';
 }
@@ -462,7 +501,7 @@ function buildStageUpdatePlan(sheet, update, options = {}) {
   let rowsNeedingProgress = 0;
   let specialNeeds = 0;
 
-  const isPainting100 = normalizeColumnTitle(progressColumn.title) === normalizeColumnTitle('Surface preparation and/or coating') && progress === 100;
+  const isPainting100 = normalizeColumnTitle(getCanonicalProgressColumnName(progressColumn.title)) === normalizeColumnTitle('Surface preparation and/or coating') && progress === 100;
   const finalInspectionColumn = isPainting100 ? findColumn(sheet, 'Final Inspection') : null;
   const packageColumn = isPainting100 ? findColumn(sheet, 'Package and Delivered') : null;
   if (isPainting100 && (!finalInspectionColumn || !packageColumn)) {
@@ -573,7 +612,7 @@ async function listHistoryDatePendencies(updates) {
     const dateColumn = dateColumnName ? findColumn(sheet, dateColumnName) : null;
     if (!dateColumn) continue;
 
-    const isPainting100 = normalizeColumnTitle(progressColumn.title) === normalizeColumnTitle('Surface preparation and/or coating');
+    const isPainting100 = normalizeColumnTitle(getCanonicalProgressColumnName(progressColumn.title)) === normalizeColumnTitle('Surface preparation and/or coating');
     const finalInspectionColumn = isPainting100 ? findColumn(sheet, 'Final Inspection') : null;
     const packageColumn = isPainting100 ? findColumn(sheet, 'Package and Delivered') : null;
 
@@ -611,6 +650,7 @@ module.exports = {
   TRACKING_DATE_BY_PROGRESS_COLUMN,
   normalizeColumnTitle,
   normalizeSpoolIdentity,
+  normalizeSpoolIdentityLoose,
   parsePercentValue,
   fetchTrackingSheet,
   applyStageUpdatesToTracking,

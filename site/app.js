@@ -30,7 +30,6 @@ const state = {
   adminAlertSearchQuery: "",
   adminActiveTab: "usuario",
   alertResponses: [],
-  adminUsers: [],
   selectedAlertForResponse: null,
   manualAlertSignature: "",
   automaticAlertSignature: "",
@@ -477,7 +476,8 @@ function openAttentionPopupTarget(item) {
   const kind = String(item.kind || '').trim().toLowerCase();
   if (kind === 'stage-updates') {
     state.stageBatchValidationMode = Boolean(state.user && normalizeSectorValue(state.user?.sector) === 'pcp');
-    openStageUpdatesModal();
+    if (canValidateStageWorkspace()) openStageValidationInNewTab();
+    else openStageUpdatesModal({ loading: true });
     return;
   }
   if (kind === 'automatic') {
@@ -864,96 +864,6 @@ function setSelectedAdminAlertSectors(values = []) {
   document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
     input.checked = allowed.has(normalizeSectorValue(input.value));
   });
-}
-
-function isAdminFormProjectUser() {
-  const role = String(adminUserRoleEl?.value || 'sector').trim().toLowerCase();
-  const sector = normalizeSectorValue(adminUserSectorEl?.value || '');
-  return role !== 'admin' && sector === 'projetos';
-}
-
-function normalizeProjectLinkedUsersList(values = []) {
-  const source = Array.isArray(values) ? values : [];
-  const seen = new Set();
-  const result = [];
-  for (const raw of source) {
-    const item = raw && typeof raw === 'object' ? raw : { name: String(raw || '').trim(), username: String(raw || '').trim(), id: '' };
-    const name = String(item.name || '').trim();
-    const username = String(item.username || '').trim();
-    const id = String(item.id || '').trim();
-    const key = normalizeText(username || name || id).trim();
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    result.push({ id, name, username });
-  }
-  return result;
-}
-
-function getSelectedProjectLinkedUsers() {
-  const users = Array.isArray(state.adminUsers) ? state.adminUsers : [];
-  const selectedIds = new Set(Array.from(document.querySelectorAll('[data-admin-linked-project-user]:checked')).map((input) => String(input.value || '').trim()).filter(Boolean));
-  return users
-    .filter((user) => selectedIds.has(String(user.id || '')))
-    .map((user) => ({ id: user.id || '', name: user.name || '', username: user.username || '' }));
-}
-
-function formatProjectLinkedUsersList(values = []) {
-  const users = normalizeProjectLinkedUsersList(values);
-  return users.length ? users.map((user) => user.name || user.username || user.id).filter(Boolean).join(', ') : '—';
-}
-
-function setSelectedProjectLinkedUsers(values = []) {
-  const normalized = normalizeProjectLinkedUsersList(values);
-  const selectedKeys = new Set(normalized.flatMap((item) => [item.id, item.username, item.name].map((value) => normalizeText(value).trim()).filter(Boolean)));
-  document.querySelectorAll('[data-admin-linked-project-user]').forEach((input) => {
-    const id = normalizeText(input.value || '').trim();
-    const username = normalizeText(input.dataset.username || '').trim();
-    const name = normalizeText(input.dataset.name || '').trim();
-    input.checked = selectedKeys.has(id) || selectedKeys.has(username) || selectedKeys.has(name);
-  });
-}
-
-function isProjectsAdminUser(user) {
-  if (!user || user.role === 'admin') return false;
-  return normalizeSectorValue(user.sector) === 'projetos'
-    || (Array.isArray(user.alertSectors) && user.alertSectors.map(normalizeSectorValue).includes('projetos'));
-}
-
-function syncProjectLinkedAdminFields() {
-  const role = String(adminUserRoleEl?.value || 'sector').trim().toLowerCase();
-  const isAdmin = role === 'admin';
-  const isProjectUser = isAdminFormProjectUser();
-  if (adminLinkedProjectUsersFieldEl) adminLinkedProjectUsersFieldEl.classList.toggle('hidden', !isProjectUser);
-  document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
-    input.disabled = isAdmin;
-  });
-  if (isAdmin) {
-    setSelectedAdminAlertSectors([]);
-    setSelectedProjectLinkedUsers([]);
-  } else if (isProjectUser) {
-    const selected = new Set(getSelectedAdminAlertSectors());
-    selected.add('projetos');
-    setSelectedAdminAlertSectors([...selected]);
-  }
-}
-
-function renderAdminProjectLinkedUsersList(selected = []) {
-  if (!adminLinkedProjectUsersListEl) return;
-  const editingId = String(adminUserIdEl?.value || '').trim();
-  const users = (Array.isArray(state.adminUsers) ? state.adminUsers : [])
-    .filter((user) => isProjectsAdminUser(user) && String(user.id || '') !== editingId)
-    .sort((a, b) => String(a.name || a.username || '').localeCompare(String(b.name || b.username || ''), 'pt-BR'));
-  if (!users.length) {
-    adminLinkedProjectUsersListEl.innerHTML = '<span class="stage-muted">Nenhum outro usuário de Projetos disponível para vincular.</span>';
-    return;
-  }
-  adminLinkedProjectUsersListEl.innerHTML = users.map((user) => `
-    <label class="check-row">
-      <input type="checkbox" data-admin-linked-project-user value="${escapeHtml(user.id || '')}" data-username="${escapeHtml(user.username || '')}" data-name="${escapeHtml(user.name || '')}" />
-      ${escapeHtml(user.name || user.username || 'Usuário')} <span class="stage-muted">${escapeHtml(user.username || '')}</span>
-    </label>
-  `).join('');
-  setSelectedProjectLinkedUsers(selected);
 }
 
 function sectorLabel(value) {
@@ -1439,6 +1349,7 @@ function canViewMyProjectSignals(user = state.user) {
 
 const STAGE_WORKSPACE_SECTORS = ['engenharia', 'suprimento', 'pintura', 'inspecao', 'pendente_envio', 'producao', 'calderaria', 'solda'];
 const STAGE_PROGRESS_OPTIONS = [25, 50, 75, 100];
+const STAGE_VALIDATION_WINDOW_NAME = 'step_pcp_validation_workspace';
 
 function getStageWorkspaceSector(user = state.user) {
   return normalizeSectorValue(user?.sector);
@@ -2548,48 +2459,17 @@ function tokenizeNormalizedNames(values = []) {
   return set;
 }
 
-function getProjectAccessPeople(user = state.user) {
-  if (!user) return [];
-  return [
-    { id: user.id || '', name: user.name || '', username: user.username || '' },
-    ...normalizeProjectLinkedUsersList(user.supervisedUsers || []),
-  ];
-}
-
-function buildProjectPersonCandidates(person) {
-  const candidates = [];
-  const push = (value) => {
-    const normalized = normalizeText(value).trim();
-    if (normalized && !candidates.includes(normalized)) candidates.push(normalized);
-  };
-  push(person?.name);
-  push(person?.username);
-  push(String(person?.username || '').split('@')[0]);
-  return candidates;
-}
-
-function pmEntryMatchesCandidate(entry, candidate) {
-  const pm = normalizeText(entry).trim();
-  const item = normalizeText(candidate).trim();
-  if (!pm || !item) return false;
-  if (pm === item) return true;
-  if (pm.length >= 4 && item.includes(pm)) return true;
-  if (item.length >= 4 && pm.includes(item)) return true;
-  return false;
-}
-
 function projectBelongsToUser(project, user = state.user) {
   if (!project || !userHasProjectsScope(user)) return false;
   const pmValue = String(project.pm || '').trim();
   if (!pmValue) return false;
-  const pmEntries = pmValue.split(/[;,|/]+/).map((item) => item.trim()).filter(Boolean);
-  const entries = pmEntries.length ? pmEntries : [pmValue];
-  const people = getProjectAccessPeople(user);
-  for (const person of people) {
-    const candidates = buildProjectPersonCandidates(person);
-    for (const candidate of candidates) {
-      if (entries.some((entry) => pmEntryMatchesCandidate(entry, candidate))) return true;
-    }
+  const candidates = tokenizeNormalizedNames([user.name, user.username, String(user.username || '').split('@')[0]]);
+  if (!candidates.size) return false;
+  const normalizedPm = normalizeText(pmValue).trim();
+  const pmTokens = tokenizeNormalizedNames(pmValue.split(/[;,|/]+/));
+  for (const candidate of candidates) {
+    if (normalizedPm === candidate || normalizedPm.includes(candidate)) return true;
+    if (pmTokens.has(candidate)) return true;
   }
   return false;
 }
@@ -3634,8 +3514,6 @@ if (loginCloseEl) {
 
 const adminUserSectorEl = document.getElementById("admin-user-sector");
 const adminUserRoleEl = document.getElementById("admin-user-role");
-const adminLinkedProjectUsersFieldEl = document.getElementById("admin-linked-project-users-field");
-const adminLinkedProjectUsersListEl = document.getElementById("admin-linked-project-users-list");
 if (adminUserSectorEl) {
   adminUserSectorEl.addEventListener("change", (event) => {
     const next = normalizeSectorValue(event.target.value);
@@ -3644,15 +3522,15 @@ if (adminUserSectorEl) {
       selected.add(next);
       setSelectedAdminAlertSectors([...selected]);
     }
-    syncProjectLinkedAdminFields();
-    renderAdminProjectLinkedUsersList(getSelectedProjectLinkedUsers());
   });
 }
 
 if (adminUserRoleEl) {
-  adminUserRoleEl.addEventListener("change", () => {
-    syncProjectLinkedAdminFields();
-    renderAdminProjectLinkedUsersList(getSelectedProjectLinkedUsers());
+  adminUserRoleEl.addEventListener("change", (event) => {
+    const disabled = event.target.value === "admin";
+    document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
+      input.disabled = disabled;
+    });
   });
 }
 
@@ -3783,7 +3661,7 @@ if (openStageUpdatesEl) {
     syncStageDraftsForCurrentSector();
 
     if (canValidateStageWorkspace()) {
-      openStageValidationWorkspaceInline();
+      openStageValidationInNewTab();
       return;
     }
 
@@ -4910,8 +4788,6 @@ function resetAdminUserForm() {
   if (adminUserCancelEditEl) adminUserCancelEditEl.classList.add("hidden");
   if (adminUserSubmitLabelEl) adminUserSubmitLabelEl.textContent = "Criar usuário";
   setSelectedAdminAlertSectors([document.getElementById("admin-user-sector")?.value || "pintura"]);
-  renderAdminProjectLinkedUsersList([]);
-  syncProjectLinkedAdminFields();
 }
 
 function startEditUser(userId) {
@@ -4925,8 +4801,6 @@ function startEditUser(userId) {
   document.getElementById("admin-user-sector").value = user.sector && user.sector !== "all" ? user.sector : "pintura";
   setSelectedAdminAlertSectors(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]);
   if (adminUserIdEl) adminUserIdEl.value = user.id || "";
-  renderAdminProjectLinkedUsersList(user.supervisedUsers || []);
-  syncProjectLinkedAdminFields();
   if (adminUserCancelEditEl) adminUserCancelEditEl.classList.remove("hidden");
   if (adminUserSubmitLabelEl) adminUserSubmitLabelEl.textContent = "Salvar usuário";
   adminUserFeedbackEl.textContent = `Editando ${user.name || user.username}.`;
@@ -4960,8 +4834,6 @@ async function syncAdminDataToGithub() {
 function renderAdminUsersList(users = []) {
   if (!adminUsersListEl) return;
   adminUsersListEl._cachedUsers = users;
-  state.adminUsers = Array.isArray(users) ? users : [];
-  renderAdminProjectLinkedUsersList(getSelectedProjectLinkedUsers());
   if (!users.length) {
     adminUsersListEl.innerHTML = '<div class="empty-state">Nenhum usuário cadastrado.</div>';
     return;
@@ -4976,7 +4848,6 @@ function renderAdminUsersList(users = []) {
           <span>Perfil: ${escapeHtml(user.role === "admin" ? "Admin notificações" : "Setor")}</span>
           <span>Setor principal: ${escapeHtml(sectorLabel(user.sector))}</span>
           <span>Recebe alertas de: ${escapeHtml(formatSectorList(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]))}</span>
-          ${isProjectsAdminUser(user) && normalizeProjectLinkedUsersList(user.supervisedUsers).length ? `<span>Também vê projetos de: ${escapeHtml(formatProjectLinkedUsersList(user.supervisedUsers))}</span>` : ""}
           <span>${user.active ? "Ativo" : "Inativo"}</span>
         </div>
         <div class="manual-alert-actions">
@@ -5099,7 +4970,6 @@ async function loadAdminData() {
       role: user.role,
       sector: user.sector,
       alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector],
-      supervisedUsers: Array.isArray(user.supervisedUsers) ? user.supervisedUsers : [],
       active: user.active !== false,
       createdAt: user.createdAt || null,
     }));
@@ -5120,7 +4990,6 @@ async function loadAdminData() {
       role: user.role,
       sector: user.sector,
       alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector],
-      supervisedUsers: Array.isArray(user.supervisedUsers) ? user.supervisedUsers : [],
       active: user.active !== false,
       createdAt: user.createdAt || null,
     }));
@@ -5381,25 +5250,14 @@ function shouldOpenStageValidationWorkspaceFromUrl() {
   }
 }
 
-function openStageValidationWorkspaceInline() {
-  if (!canValidateStageWorkspace()) return;
+function getStageValidationWorkspaceUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.set('stageWorkspace', '1');
+  url.hash = 'stage-validation';
+  return url.toString();
+}
 
-  state.stageUpdatesSearchQuery = '';
-  syncStageDraftsForCurrentSector();
-
-  // Mantém a Validação PCP na aba atual.
-  // Antes era usado window.open(...), o que criava uma nova página a cada clique.
-  try {
-    if (!shouldOpenStageValidationWorkspaceFromUrl()) {
-      const url = new URL(window.location.href);
-      url.searchParams.set('stageWorkspace', '1');
-      url.hash = 'stage-validation';
-      window.history.replaceState({}, '', url.toString());
-    }
-  } catch {}
-
-  openStageUpdatesModal({ loading: true });
-
+function loadStageValidationWorkspaceData() {
   loadStageUpdates()
     .then(() => {
       if (stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
@@ -5413,8 +5271,41 @@ function openStageValidationWorkspaceInline() {
     });
 }
 
-// Mantido como alias para evitar referência quebrada em versões antigas do HTML/cache.
+function openStageValidationWorkspaceInline() {
+  if (!canValidateStageWorkspace()) return;
+
+  state.stageUpdatesSearchQuery = '';
+  syncStageDraftsForCurrentSector();
+
+  try {
+    if (!shouldOpenStageValidationWorkspaceFromUrl()) {
+      window.history.replaceState({}, '', getStageValidationWorkspaceUrl());
+    }
+  } catch {}
+
+  openStageUpdatesModal({ loading: true });
+  loadStageValidationWorkspaceData();
+}
+
 function openStageValidationInNewTab() {
+  if (!canValidateStageWorkspace()) return;
+
+  if (shouldOpenStageValidationWorkspaceFromUrl()) {
+    openStageValidationWorkspaceInline();
+    return;
+  }
+
+  let opened = null;
+  try {
+    opened = window.open(getStageValidationWorkspaceUrl(), STAGE_VALIDATION_WINDOW_NAME);
+  } catch {}
+
+  if (opened) {
+    try { opened.focus(); } catch {}
+    return;
+  }
+
+  // Fallback para navegador que bloqueia pop-up: abre a validação na aba atual.
   openStageValidationWorkspaceInline();
 }
 
@@ -5825,7 +5716,7 @@ async function sendStageTrackingUpdate(ids = [], options = {}) {
       }
       if (messages.length) window.alert(messages.join('\n'));
 
-      await loadStageHistoryDatePendencies();
+      // Não recarrega o Tracking inteiro após corrigir datas; a lista local já foi atualizada.
     } else {
       setStageSelection((state.stageSelectedIds || []).filter((id) => !successIds.has(String(id || ''))));
       renderStageUpdatesModal();
@@ -6020,7 +5911,6 @@ async function handleAdminUserSubmit(event) {
       role: document.getElementById("admin-user-role").value,
       sector: document.getElementById("admin-user-sector").value,
       alertSectors: getSelectedAdminAlertSectors(),
-      supervisedUsers: isAdminFormProjectUser() ? getSelectedProjectLinkedUsers() : [],
     };
     const response = await fetch("/api/admin-users", {
       method: editingId ? "PUT" : "POST",
@@ -6039,7 +5929,6 @@ async function handleAdminUserSubmit(event) {
       role: payload.role,
       sector: payload.role === "admin" ? "all" : payload.sector,
       alertSectors: payload.role === "admin" ? [] : payload.alertSectors,
-      supervisedUsers: payload.role !== "admin" && normalizeSectorValue(payload.sector) === "projetos" ? payload.supervisedUsers : [],
       active: true,
       createdAt: new Date().toISOString(),
     };

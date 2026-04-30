@@ -1,14 +1,6 @@
 const crypto = require('crypto');
-const { jsonResponse, requireAdmin, hashPassword, normalizeText, normalizeSectorList, normalizeSectorValue, normalizeSupervisedUsers } = require('./_auth');
+const { jsonResponse, requireAdmin, hashPassword, normalizeText, normalizeSectorList, normalizeSectorValue } = require('./_auth');
 const { listUsers, insertUser, updateUser, isSupabaseConfigured } = require('./_supabase');
-
-function normalizeProjectAccessPayload(body = {}) {
-  return normalizeSupervisedUsers(Array.isArray(body.supervisedUsers) ? body.supervisedUsers : []);
-}
-
-function isProjectsSector(sector) {
-  return normalizeSectorValue(sector) === 'projetos';
-}
 
 exports.handler = async (event) => {
   const admin = requireAdmin(event);
@@ -27,10 +19,9 @@ exports.handler = async (event) => {
         id: user.id,
         name: user.name,
         username: user.username,
-        role: user.role === 'admin' ? 'admin' : 'sector',
+        role: user.role,
         sector: user.sector,
         alertSectors: normalizeSectorList('', user.alertSectors),
-        supervisedUsers: normalizeSupervisedUsers(user.supervisedUsers),
         active: Boolean(user.active),
         createdAt: user.createdAt || null,
       })),
@@ -57,7 +48,6 @@ exports.handler = async (event) => {
       const role = body.role === 'admin' ? 'admin' : 'sector';
       const sector = role === 'admin' ? 'all' : normalizeSectorValue(body.sector);
       const alertSectors = role === 'admin' ? [] : normalizeSectorList('', body.alertSectors);
-      const supervisedUsers = role !== 'admin' && isProjectsSector(sector) ? normalizeProjectAccessPayload(body) : [];
 
       if (!name || !username) {
         return jsonResponse(400, { ok: false, error: 'Preencha nome e usuário.' });
@@ -74,7 +64,7 @@ exports.handler = async (event) => {
         return jsonResponse(400, { ok: false, error: 'O admin atual não pode remover o próprio acesso.' });
       }
 
-      const updatePayload = {
+      const saved = await updateUser(userId, {
         name,
         username,
         role,
@@ -82,11 +72,7 @@ exports.handler = async (event) => {
         alertSectors: role === 'admin' ? [] : alertSectors,
         active: body.active === false ? false : true,
         ...(password ? { passwordHash: hashPassword(password) } : {}),
-      };
-      if (role !== 'admin' && (isProjectsSector(sector) || normalizeSupervisedUsers(current.supervisedUsers).length)) {
-        updatePayload.supervisedUsers = supervisedUsers;
-      }
-      const saved = await updateUser(userId, updatePayload);
+      });
 
       return jsonResponse(200, { ok: true, user: saved });
     } catch (error) {
@@ -110,16 +96,11 @@ exports.handler = async (event) => {
       if (current.id === admin.session.sub && nextRole !== 'admin') {
         return jsonResponse(400, { ok: false, error: 'O admin atual não pode remover o próprio acesso.' });
       }
-      const nextSector = nextRole === 'admin' ? 'all' : (current.sector && current.sector !== 'all' ? current.sector : '');
-      const patchPayload = {
+      const saved = await updateUser(userId, {
         role: nextRole,
-        sector: nextSector,
+        sector: nextRole === 'admin' ? 'all' : (current.sector && current.sector !== 'all' ? current.sector : ''),
         alertSectors: nextRole === 'admin' ? [] : normalizeSectorList('', current.alertSectors),
-      };
-      if (nextRole !== 'admin' && (isProjectsSector(nextSector) || normalizeSupervisedUsers(current.supervisedUsers).length)) {
-        patchPayload.supervisedUsers = isProjectsSector(nextSector) ? normalizeSupervisedUsers(current.supervisedUsers) : [];
-      }
-      const saved = await updateUser(userId, patchPayload);
+      });
       return jsonResponse(200, { ok: true, user: saved });
     } catch (error) {
       return jsonResponse(500, { ok: false, error: error.message || 'Falha ao atualizar perfil.' });
@@ -138,7 +119,6 @@ exports.handler = async (event) => {
     const role = body.role === 'admin' ? 'admin' : 'sector';
     const sector = role === 'admin' ? 'all' : normalizeSectorValue(body.sector);
     const alertSectors = role === 'admin' ? [] : normalizeSectorList('', body.alertSectors);
-    const supervisedUsers = role !== 'admin' && isProjectsSector(sector) ? normalizeProjectAccessPayload(body) : [];
 
     if (!name || !username || !password) {
       return jsonResponse(400, { ok: false, error: 'Preencha nome, usuário e senha.' });
@@ -153,7 +133,7 @@ exports.handler = async (event) => {
       return jsonResponse(409, { ok: false, error: 'Já existe um usuário com esse login.' });
     }
 
-    const createPayload = {
+    const saved = await insertUser({
       id: `u_${crypto.randomBytes(6).toString('hex')}`,
       name,
       username,
@@ -162,11 +142,7 @@ exports.handler = async (event) => {
       sector,
       alertSectors,
       active: true,
-    };
-    if (role !== 'admin' && isProjectsSector(sector)) {
-      createPayload.supervisedUsers = supervisedUsers;
-    }
-    const saved = await insertUser(createPayload);
+    });
 
     return jsonResponse(200, { ok: true, user: saved });
   } catch (error) {

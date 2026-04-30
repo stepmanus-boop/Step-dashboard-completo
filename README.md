@@ -249,15 +249,3 @@ supabase/SQL-MIGRACAO-STAGE-UPDATES-VALIDACAO-PCP.sql
 ## Ajuste de compatibilidade Smartsheet
 
 A função de Validação PCP agora usa a mesma configuração Smartsheet já existente no projeto, além de aceitar variáveis de ambiente (SMARTSHEET_TOKEN, SMARTSHEET_ACCESS_TOKEN, SMARTSHEET_API_TOKEN, SMARTSHEET_BEARER_TOKEN, SMARTSHEET_PAT, SMARTSHEET_PERSONAL_ACCESS_TOKEN). Isso evita erro de token ausente quando o dashboard já funcionava com a configuração interna do ZIP.
-
-## Acesso de Projetos com usuários vinculados
-
-Usuários do setor **Projetos** podem receber uma lista de outros usuários de Projetos vinculados. No cadastro/edição de usuário, selecione o setor **Projetos** e marque as pessoas de Projetos que o usuário também deve acompanhar.
-
-Exemplo: se o usuário Rodrigo tiver Álvaro e Thales vinculados, ao clicar em **Meus projetos** ele verá as BSPs onde o campo PM corresponde a Rodrigo, Álvaro ou Thales.
-
-Antes de usar em produção, execute no Supabase:
-
-```sql
-supabase/SQL-MIGRACAO-USUARIOS-PROJETOS-VINCULADOS.sql
-```
