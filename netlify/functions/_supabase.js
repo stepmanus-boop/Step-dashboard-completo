@@ -309,7 +309,6 @@ async function upsertPushSubscription(input) {
     subscription_json: input.subscription,
     active: input.active !== false,
   };
-  if ('supervisedUsers' in input) payload.supervised_users = normalizeSupervisedUsers(input.supervisedUsers || []);
   const rows = await supabaseFetch('/rest/v1/push_subscriptions?on_conflict=endpoint&select=*', {
     method: 'POST',
     headers: getSupabaseHeaders('resolution=merge-duplicates,return=representation'),
