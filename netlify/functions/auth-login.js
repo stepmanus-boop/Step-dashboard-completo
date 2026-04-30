@@ -46,6 +46,7 @@ exports.handler = async (event) => {
         role: user.role,
         sector: user.sector,
         alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [],
+        supervisedUsers: Array.isArray(user.supervisedUsers) ? user.supervisedUsers : [],
       },
     }, {
       headers: {

@@ -49,6 +49,7 @@ const state = {
   stageDatePendingLoading: false,
   stageTrackingSubmitting: false,
   stageDateSelectedIds: [],
+  adminUsers: [],
   attentionPopupQueue: [],
   attentionPopupCurrent: null,
   incomingAlertState: {
@@ -863,6 +864,96 @@ function setSelectedAdminAlertSectors(values = []) {
   document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
     input.checked = allowed.has(normalizeSectorValue(input.value));
   });
+}
+
+function normalizeRoleValue(value) {
+  const role = String(value || '').trim().toLowerCase();
+  if (role === 'admin') return 'admin';
+  if (role === 'supervisor') return 'supervisor';
+  return 'sector';
+}
+
+function isProjectsUser(user) {
+  if (!user || user.role === 'admin') return false;
+  return normalizeSectorValue(user.sector) === 'projetos'
+    || (Array.isArray(user.alertSectors) && user.alertSectors.map(normalizeSectorValue).includes('projetos'))
+    || normalizeRoleValue(user.role) === 'supervisor';
+}
+
+function normalizeSupervisedUsersList(values = []) {
+  const source = Array.isArray(values) ? values : [];
+  const seen = new Set();
+  const result = [];
+  for (const raw of source) {
+    const item = raw && typeof raw === 'object' ? raw : { name: String(raw || '').trim(), username: String(raw || '').trim(), id: '' };
+    const name = String(item.name || '').trim();
+    const username = String(item.username || '').trim();
+    const id = String(item.id || '').trim();
+    const key = normalizeText(username || name || id).trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push({ id, name, username });
+  }
+  return result;
+}
+
+function getSelectedSupervisedUsers() {
+  const users = Array.isArray(state.adminUsers) ? state.adminUsers : [];
+  const selectedIds = new Set(Array.from(document.querySelectorAll('[data-admin-supervised-user]:checked')).map((input) => String(input.value || '').trim()).filter(Boolean));
+  return users
+    .filter((user) => selectedIds.has(String(user.id || '')))
+    .map((user) => ({ id: user.id || '', name: user.name || '', username: user.username || '' }));
+}
+
+function formatSupervisedUsersList(values = []) {
+  const users = normalizeSupervisedUsersList(values);
+  return users.length ? users.map((user) => user.name || user.username || user.id).filter(Boolean).join(', ') : '—';
+}
+
+function setSelectedSupervisedUsers(values = []) {
+  const normalized = normalizeSupervisedUsersList(values);
+  const selectedKeys = new Set(normalized.flatMap((item) => [item.id, item.username, item.name].map((value) => normalizeText(value).trim()).filter(Boolean)));
+  document.querySelectorAll('[data-admin-supervised-user]').forEach((input) => {
+    const id = normalizeText(input.value || '').trim();
+    const username = normalizeText(input.dataset.username || '').trim();
+    const name = normalizeText(input.dataset.name || '').trim();
+    input.checked = selectedKeys.has(id) || selectedKeys.has(username) || selectedKeys.has(name);
+  });
+}
+
+function syncSupervisorAdminFields() {
+  const role = normalizeRoleValue(adminUserRoleEl?.value || 'sector');
+  const isSupervisor = role === 'supervisor';
+  const isAdmin = role === 'admin';
+  if (adminSupervisedUsersFieldEl) adminSupervisedUsersFieldEl.classList.toggle('hidden', !isSupervisor);
+  if (adminUserSectorEl && isSupervisor) adminUserSectorEl.value = 'projetos';
+  document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
+    input.disabled = isAdmin || isSupervisor;
+  });
+  if (isAdmin) {
+    setSelectedAdminAlertSectors([]);
+  } else if (isSupervisor) {
+    setSelectedAdminAlertSectors(['projetos']);
+  }
+}
+
+function renderAdminSupervisedUsersList(selected = []) {
+  if (!adminSupervisedUsersListEl) return;
+  const editingId = String(adminUserIdEl?.value || '').trim();
+  const users = (Array.isArray(state.adminUsers) ? state.adminUsers : [])
+    .filter((user) => isProjectsUser(user) && String(user.id || '') !== editingId)
+    .sort((a, b) => String(a.name || a.username || '').localeCompare(String(b.name || b.username || ''), 'pt-BR'));
+  if (!users.length) {
+    adminSupervisedUsersListEl.innerHTML = '<span class="stage-muted">Nenhum usuário de Projetos cadastrado para selecionar.</span>';
+    return;
+  }
+  adminSupervisedUsersListEl.innerHTML = users.map((user) => `
+    <label class="check-row">
+      <input type="checkbox" data-admin-supervised-user value="${escapeHtml(user.id || '')}" data-username="${escapeHtml(user.username || '')}" data-name="${escapeHtml(user.name || '')}" />
+      ${escapeHtml(user.name || user.username || 'Usuário')} <span class="stage-muted">${escapeHtml(user.username || '')}</span>
+    </label>
+  `).join('');
+  setSelectedSupervisedUsers(selected);
 }
 
 function sectorLabel(value) {
@@ -2451,23 +2542,54 @@ function tokenizeNormalizedNames(values = []) {
     if (!normalized) continue;
     set.add(normalized);
     for (const part of normalized.split(/[^a-z0-9]+/)) {
-      if (part) set.add(part);
+      if (part && part.length >= 4) set.add(part);
     }
   }
   return set;
+}
+
+function getProjectAccessPeople(user = state.user) {
+  if (!user) return [];
+  return [
+    { id: user.id || '', name: user.name || '', username: user.username || '' },
+    ...normalizeSupervisedUsersList(user.supervisedUsers || []),
+  ];
+}
+
+function buildProjectPersonCandidates(person) {
+  const candidates = [];
+  const push = (value) => {
+    const normalized = normalizeText(value).trim();
+    if (normalized && !candidates.includes(normalized)) candidates.push(normalized);
+  };
+  push(person?.name);
+  push(person?.username);
+  push(String(person?.username || '').split('@')[0]);
+  return candidates;
+}
+
+function pmEntryMatchesCandidate(entry, candidate) {
+  const pm = normalizeText(entry).trim();
+  const item = normalizeText(candidate).trim();
+  if (!pm || !item) return false;
+  if (pm === item) return true;
+  if (pm.length >= 4 && item.includes(pm)) return true;
+  if (item.length >= 4 && pm.includes(item)) return true;
+  return false;
 }
 
 function projectBelongsToUser(project, user = state.user) {
   if (!project || !userHasProjectsScope(user)) return false;
   const pmValue = String(project.pm || '').trim();
   if (!pmValue) return false;
-  const candidates = tokenizeNormalizedNames([user.name, user.username, String(user.username || '').split('@')[0]]);
-  if (!candidates.size) return false;
-  const normalizedPm = normalizeText(pmValue).trim();
-  const pmTokens = tokenizeNormalizedNames(pmValue.split(/[;,|/]+/));
-  for (const candidate of candidates) {
-    if (normalizedPm === candidate || normalizedPm.includes(candidate)) return true;
-    if (pmTokens.has(candidate)) return true;
+  const pmEntries = pmValue.split(/[;,|/]+/).map((item) => item.trim()).filter(Boolean);
+  const entries = pmEntries.length ? pmEntries : [pmValue];
+  const people = getProjectAccessPeople(user);
+  for (const person of people) {
+    const candidates = buildProjectPersonCandidates(person);
+    for (const candidate of candidates) {
+      if (entries.some((entry) => pmEntryMatchesCandidate(entry, candidate))) return true;
+    }
   }
   return false;
 }
@@ -3512,6 +3634,8 @@ if (loginCloseEl) {
 
 const adminUserSectorEl = document.getElementById("admin-user-sector");
 const adminUserRoleEl = document.getElementById("admin-user-role");
+const adminSupervisedUsersFieldEl = document.getElementById("admin-supervised-users-field");
+const adminSupervisedUsersListEl = document.getElementById("admin-supervised-users-list");
 if (adminUserSectorEl) {
   adminUserSectorEl.addEventListener("change", (event) => {
     const next = normalizeSectorValue(event.target.value);
@@ -3520,15 +3644,14 @@ if (adminUserSectorEl) {
       selected.add(next);
       setSelectedAdminAlertSectors([...selected]);
     }
+    syncSupervisorAdminFields();
   });
 }
 
 if (adminUserRoleEl) {
-  adminUserRoleEl.addEventListener("change", (event) => {
-    const disabled = event.target.value === "admin";
-    document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
-      input.disabled = disabled;
-    });
+  adminUserRoleEl.addEventListener("change", () => {
+    syncSupervisorAdminFields();
+    renderAdminSupervisedUsersList(getSelectedSupervisedUsers());
   });
 }
 
@@ -4783,9 +4906,12 @@ function renderAdminAlertResponses() {
 function resetAdminUserForm() {
   if (adminUserFormEl) adminUserFormEl.reset();
   if (adminUserIdEl) adminUserIdEl.value = "";
+  if (adminUserRoleEl) adminUserRoleEl.value = 'sector';
   if (adminUserCancelEditEl) adminUserCancelEditEl.classList.add("hidden");
   if (adminUserSubmitLabelEl) adminUserSubmitLabelEl.textContent = "Criar usuário";
   setSelectedAdminAlertSectors([document.getElementById("admin-user-sector")?.value || "pintura"]);
+  renderAdminSupervisedUsersList([]);
+  syncSupervisorAdminFields();
 }
 
 function startEditUser(userId) {
@@ -4795,10 +4921,12 @@ function startEditUser(userId) {
   document.getElementById("admin-user-name").value = user.name || "";
   document.getElementById("admin-user-username").value = user.username || "";
   document.getElementById("admin-user-password").value = "";
-  document.getElementById("admin-user-role").value = user.role === "admin" ? "admin" : "sector";
+  document.getElementById("admin-user-role").value = normalizeRoleValue(user.role);
   document.getElementById("admin-user-sector").value = user.sector && user.sector !== "all" ? user.sector : "pintura";
   setSelectedAdminAlertSectors(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]);
   if (adminUserIdEl) adminUserIdEl.value = user.id || "";
+  renderAdminSupervisedUsersList(user.supervisedUsers || []);
+  syncSupervisorAdminFields();
   if (adminUserCancelEditEl) adminUserCancelEditEl.classList.remove("hidden");
   if (adminUserSubmitLabelEl) adminUserSubmitLabelEl.textContent = "Salvar usuário";
   adminUserFeedbackEl.textContent = `Editando ${user.name || user.username}.`;
@@ -4832,6 +4960,8 @@ async function syncAdminDataToGithub() {
 function renderAdminUsersList(users = []) {
   if (!adminUsersListEl) return;
   adminUsersListEl._cachedUsers = users;
+  state.adminUsers = Array.isArray(users) ? users : [];
+  renderAdminSupervisedUsersList(getSelectedSupervisedUsers());
   if (!users.length) {
     adminUsersListEl.innerHTML = '<div class="empty-state">Nenhum usuário cadastrado.</div>';
     return;
@@ -4843,9 +4973,10 @@ function renderAdminUsersList(users = []) {
         <strong>${escapeHtml(user.name)}</strong>
         <div class="admin-list-item-meta">
           <span>Login: ${escapeHtml(user.username)}</span>
-          <span>Perfil: ${escapeHtml(user.role === "admin" ? "Admin notificações" : "Setor")}</span>
+          <span>Perfil: ${escapeHtml(user.role === "admin" ? "Admin notificações" : (user.role === "supervisor" ? "Supervisor de Projetos" : "Setor"))}</span>
           <span>Setor principal: ${escapeHtml(sectorLabel(user.sector))}</span>
           <span>Recebe alertas de: ${escapeHtml(formatSectorList(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]))}</span>
+          ${user.role === "supervisor" ? `<span>Supervisiona: ${escapeHtml(formatSupervisedUsersList(user.supervisedUsers))}</span>` : ""}
           <span>${user.active ? "Ativo" : "Inativo"}</span>
         </div>
         <div class="manual-alert-actions">
@@ -4968,6 +5099,7 @@ async function loadAdminData() {
       role: user.role,
       sector: user.sector,
       alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector],
+      supervisedUsers: Array.isArray(user.supervisedUsers) ? user.supervisedUsers : [],
       active: user.active !== false,
       createdAt: user.createdAt || null,
     }));
@@ -4988,6 +5120,7 @@ async function loadAdminData() {
       role: user.role,
       sector: user.sector,
       alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector],
+      supervisedUsers: Array.isArray(user.supervisedUsers) ? user.supervisedUsers : [],
       active: user.active !== false,
       createdAt: user.createdAt || null,
     }));
@@ -5887,6 +6020,7 @@ async function handleAdminUserSubmit(event) {
       role: document.getElementById("admin-user-role").value,
       sector: document.getElementById("admin-user-sector").value,
       alertSectors: getSelectedAdminAlertSectors(),
+      supervisedUsers: getSelectedSupervisedUsers(),
     };
     const response = await fetch("/api/admin-users", {
       method: editingId ? "PUT" : "POST",
@@ -5905,6 +6039,7 @@ async function handleAdminUserSubmit(event) {
       role: payload.role,
       sector: payload.role === "admin" ? "all" : payload.sector,
       alertSectors: payload.role === "admin" ? [] : payload.alertSectors,
+      supervisedUsers: payload.role === "supervisor" ? payload.supervisedUsers : [],
       active: true,
       createdAt: new Date().toISOString(),
     };

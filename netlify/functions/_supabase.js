@@ -1,4 +1,4 @@
-const { normalizeSectorList, normalizeText, normalizeSectorValue, hashPassword, verifyPassword } = require('./_auth');
+const { normalizeSectorList, normalizeSupervisedUsers, normalizeText, normalizeSectorValue, hashPassword, verifyPassword } = require('./_auth');
 
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '');
@@ -45,9 +45,10 @@ function mapUser(row) {
     name: row.name,
     username: row.username,
     passwordHash: row.password_hash,
-    role: row.role === 'admin' ? 'admin' : 'sector',
+    role: row.role === 'admin' ? 'admin' : (row.role === 'supervisor' ? 'supervisor' : 'sector'),
     sector: normalizeSectorValue(row.sector || (row.role === 'admin' ? 'all' : '')), 
     alertSectors: normalizeSectorList(row.sector || '', Array.isArray(row.alert_sectors) ? row.alert_sectors : []),
+    supervisedUsers: normalizeSupervisedUsers(Array.isArray(row.supervised_users) ? row.supervised_users : []),
     active: row.active !== false,
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null,
@@ -155,6 +156,7 @@ async function insertUser(input) {
     alert_sectors: input.alertSectors || [],
     active: input.active !== false,
   };
+  if ('supervisedUsers' in input) payload.supervised_users = normalizeSupervisedUsers(input.supervisedUsers || []);
   const rows = await supabaseFetch('/rest/v1/users?select=*', {
     method: 'POST',
     headers: getSupabaseHeaders('return=representation'),
@@ -173,6 +175,7 @@ async function updateUser(userId, updates) {
   if ('sector' in updates) payload.sector = updates.sector;
   if ('alertSectors' in updates) payload.alert_sectors = updates.alertSectors || [];
   if ('active' in updates) payload.active = updates.active !== false;
+  if ('supervisedUsers' in updates) payload.supervised_users = normalizeSupervisedUsers(updates.supervisedUsers || []);
   const rows = await supabaseFetch(`/rest/v1/users?id=eq.${q}&select=*`, {
     method: 'PATCH',
     headers: getSupabaseHeaders('return=representation'),
@@ -306,6 +309,7 @@ async function upsertPushSubscription(input) {
     subscription_json: input.subscription,
     active: input.active !== false,
   };
+  if ('supervisedUsers' in input) payload.supervised_users = normalizeSupervisedUsers(input.supervisedUsers || []);
   const rows = await supabaseFetch('/rest/v1/push_subscriptions?on_conflict=endpoint&select=*', {
     method: 'POST',
     headers: getSupabaseHeaders('resolution=merge-duplicates,return=representation'),

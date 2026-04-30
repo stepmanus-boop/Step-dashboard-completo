@@ -1,6 +1,18 @@
 const crypto = require('crypto');
-const { jsonResponse, requireAdmin, hashPassword, normalizeText, normalizeSectorList, normalizeSectorValue } = require('./_auth');
+const { jsonResponse, requireAdmin, hashPassword, normalizeText, normalizeSectorList, normalizeSectorValue, normalizeSupervisedUsers } = require('./_auth');
 const { listUsers, insertUser, updateUser, isSupabaseConfigured } = require('./_supabase');
+
+function normalizeRole(value) {
+  const role = String(value || '').trim().toLowerCase();
+  if (role === 'admin') return 'admin';
+  if (role === 'supervisor') return 'supervisor';
+  return 'sector';
+}
+
+function normalizeSupervisorPayload(body = {}) {
+  return normalizeSupervisedUsers(Array.isArray(body.supervisedUsers) ? body.supervisedUsers : []);
+}
+
 
 exports.handler = async (event) => {
   const admin = requireAdmin(event);
@@ -22,6 +34,7 @@ exports.handler = async (event) => {
         role: user.role,
         sector: user.sector,
         alertSectors: normalizeSectorList('', user.alertSectors),
+        supervisedUsers: normalizeSupervisedUsers(user.supervisedUsers),
         active: Boolean(user.active),
         createdAt: user.createdAt || null,
       })),
@@ -45,15 +58,19 @@ exports.handler = async (event) => {
       const name = String(body.name || '').trim();
       const username = String(body.username || '').trim();
       const password = String(body.password || '');
-      const role = body.role === 'admin' ? 'admin' : 'sector';
-      const sector = role === 'admin' ? 'all' : normalizeSectorValue(body.sector);
-      const alertSectors = role === 'admin' ? [] : normalizeSectorList('', body.alertSectors);
+      const role = normalizeRole(body.role);
+      const sector = role === 'admin' ? 'all' : (role === 'supervisor' ? 'projetos' : normalizeSectorValue(body.sector));
+      const alertSectors = role === 'admin' ? [] : normalizeSectorList('', role === 'supervisor' ? ['projetos'] : body.alertSectors);
+      const supervisedUsers = role === 'supervisor' ? normalizeSupervisorPayload(body) : [];
 
       if (!name || !username) {
         return jsonResponse(400, { ok: false, error: 'Preencha nome e usuário.' });
       }
       if (role !== 'admin' && !sector && !alertSectors.length) {
         return jsonResponse(400, { ok: false, error: 'Selecione ao menos um setor monitorado ou setor principal.' });
+      }
+      if (role === 'supervisor' && !supervisedUsers.length) {
+        return jsonResponse(400, { ok: false, error: 'Selecione ao menos um usuário de Projetos para supervisão.' });
       }
 
       const exists = users.some((user) => user.id !== userId && normalizeText(user.username) === normalizeText(username));
@@ -64,7 +81,7 @@ exports.handler = async (event) => {
         return jsonResponse(400, { ok: false, error: 'O admin atual não pode remover o próprio acesso.' });
       }
 
-      const saved = await updateUser(userId, {
+      const updatePayload = {
         name,
         username,
         role,
@@ -72,7 +89,11 @@ exports.handler = async (event) => {
         alertSectors: role === 'admin' ? [] : alertSectors,
         active: body.active === false ? false : true,
         ...(password ? { passwordHash: hashPassword(password) } : {}),
-      });
+      };
+      if (role === 'supervisor' || current.role === 'supervisor' || normalizeSupervisedUsers(current.supervisedUsers).length) {
+        updatePayload.supervisedUsers = supervisedUsers;
+      }
+      const saved = await updateUser(userId, updatePayload);
 
       return jsonResponse(200, { ok: true, user: saved });
     } catch (error) {
@@ -84,7 +105,7 @@ exports.handler = async (event) => {
     try {
       const body = JSON.parse(event.body || '{}');
       const userId = String(body.userId || '').trim();
-      const nextRole = body.role === 'admin' ? 'admin' : 'sector';
+      const nextRole = normalizeRole(body.role);
       if (!userId) {
         return jsonResponse(400, { ok: false, error: 'Usuário não informado.' });
       }
@@ -96,11 +117,15 @@ exports.handler = async (event) => {
       if (current.id === admin.session.sub && nextRole !== 'admin') {
         return jsonResponse(400, { ok: false, error: 'O admin atual não pode remover o próprio acesso.' });
       }
-      const saved = await updateUser(userId, {
+      const patchPayload = {
         role: nextRole,
-        sector: nextRole === 'admin' ? 'all' : (current.sector && current.sector !== 'all' ? current.sector : ''),
-        alertSectors: nextRole === 'admin' ? [] : normalizeSectorList('', current.alertSectors),
-      });
+        sector: nextRole === 'admin' ? 'all' : (nextRole === 'supervisor' ? 'projetos' : (current.sector && current.sector !== 'all' ? current.sector : '')),
+        alertSectors: nextRole === 'admin' ? [] : normalizeSectorList('', nextRole === 'supervisor' ? ['projetos'] : current.alertSectors),
+      };
+      if (nextRole === 'supervisor' || current.role === 'supervisor' || normalizeSupervisedUsers(current.supervisedUsers).length) {
+        patchPayload.supervisedUsers = nextRole === 'supervisor' ? normalizeSupervisedUsers(current.supervisedUsers) : [];
+      }
+      const saved = await updateUser(userId, patchPayload);
       return jsonResponse(200, { ok: true, user: saved });
     } catch (error) {
       return jsonResponse(500, { ok: false, error: error.message || 'Falha ao atualizar perfil.' });
@@ -116,15 +141,19 @@ exports.handler = async (event) => {
     const name = String(body.name || '').trim();
     const username = String(body.username || '').trim();
     const password = String(body.password || '');
-    const role = body.role === 'admin' ? 'admin' : 'sector';
-    const sector = role === 'admin' ? 'all' : normalizeSectorValue(body.sector);
-    const alertSectors = role === 'admin' ? [] : normalizeSectorList('', body.alertSectors);
+    const role = normalizeRole(body.role);
+    const sector = role === 'admin' ? 'all' : (role === 'supervisor' ? 'projetos' : normalizeSectorValue(body.sector));
+    const alertSectors = role === 'admin' ? [] : normalizeSectorList('', role === 'supervisor' ? ['projetos'] : body.alertSectors);
+    const supervisedUsers = role === 'supervisor' ? normalizeSupervisorPayload(body) : [];
 
     if (!name || !username || !password) {
       return jsonResponse(400, { ok: false, error: 'Preencha nome, usuário e senha.' });
     }
     if (role !== 'admin' && !sector && !alertSectors.length) {
       return jsonResponse(400, { ok: false, error: 'Selecione ao menos um setor monitorado ou setor principal.' });
+    }
+    if (role === 'supervisor' && !supervisedUsers.length) {
+      return jsonResponse(400, { ok: false, error: 'Selecione ao menos um usuário de Projetos para supervisão.' });
     }
 
     const users = await listUsers();
@@ -133,7 +162,7 @@ exports.handler = async (event) => {
       return jsonResponse(409, { ok: false, error: 'Já existe um usuário com esse login.' });
     }
 
-    const saved = await insertUser({
+    const createPayload = {
       id: `u_${crypto.randomBytes(6).toString('hex')}`,
       name,
       username,
@@ -142,7 +171,9 @@ exports.handler = async (event) => {
       sector,
       alertSectors,
       active: true,
-    });
+    };
+    if (role === 'supervisor') createPayload.supervisedUsers = supervisedUsers;
+    const saved = await insertUser(createPayload);
 
     return jsonResponse(200, { ok: true, user: saved });
   } catch (error) {
