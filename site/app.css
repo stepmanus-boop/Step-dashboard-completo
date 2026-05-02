@@ -3620,3 +3620,63 @@ button.alert-badge {
     min-height: 360px;
   }
 }
+
+/* Ajuste solicitado: reduzir a área inferior do detalhamento para exibir cerca de 7 ISOs
+   e deixar o restante da tabela com rolagem interna. */
+#project-modal .modal-dialog {
+  height: auto;
+  max-height: calc(100dvh - 14px);
+}
+
+#project-modal .modal-content {
+  height: auto;
+  max-height: calc(100dvh - 92px);
+  grid-template-rows: auto auto minmax(62px, 94px) minmax(220px, 300px);
+  align-content: start;
+}
+
+#project-modal .project-signals-section {
+  max-height: 94px;
+}
+
+#project-modal .project-signals-list {
+  max-height: 50px;
+}
+
+#project-modal .modal-table-wrap {
+  height: min(30dvh, 300px);
+  min-height: 220px;
+  max-height: 300px;
+  align-self: start;
+  overflow: auto;
+}
+
+#project-modal .modal-table thead th {
+  padding: 6px 6px;
+}
+
+#project-modal .modal-table tbody td {
+  padding: 5px 6px;
+  line-height: 1.15;
+}
+
+@media (max-height: 820px) {
+  #project-modal .modal-content {
+    max-height: calc(100dvh - 70px);
+    grid-template-rows: auto auto minmax(50px, 74px) minmax(190px, 250px);
+  }
+
+  #project-modal .project-signals-section {
+    max-height: 74px;
+  }
+
+  #project-modal .project-signals-list {
+    max-height: 34px;
+  }
+
+  #project-modal .modal-table-wrap {
+    height: min(29dvh, 250px);
+    min-height: 190px;
+    max-height: 250px;
+  }
+}
