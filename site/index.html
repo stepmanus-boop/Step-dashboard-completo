@@ -197,12 +197,13 @@
                   <th>Solda</th>
                   <th>Inspeção (QC)</th>
                   <th>TH</th>
+                  <th>Data de envio</th>
                   <th>Concluído?</th>
                 </tr>
               </thead>
               <tbody id="projects-body">
                 <tr>
-                  <td colspan="18" class="loading-cell">Carregando projetos...</td>
+                  <td colspan="19" class="loading-cell">Carregando projetos...</td>
                 </tr>
               </tbody>
             </table>
@@ -424,6 +425,17 @@
         </form>
       
 </section>
+
+      <section class="admin-card admin-card--wide admin-presence-card">
+        <div class="admin-card-head">
+          <div>
+            <h4>Monitor de acessos ao vivo</h4>
+            <p class="admin-card-subtitle">Usuários online e última tela visualizada no sistema.</p>
+          </div>
+          <span id="admin-presence-summary" class="admin-badge">0 online</span>
+        </div>
+        <div id="admin-presence-list" class="admin-presence-list empty-state">Nenhum usuário online agora.</div>
+      </section>
 
       <section class="admin-card admin-card--wide">
         <div class="admin-card-head">

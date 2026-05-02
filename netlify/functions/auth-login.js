@@ -1,5 +1,18 @@
 const { jsonResponse, createSessionCookie, normalizeText } = require('./_auth');
-const { getUserByUsername, isSupabaseConfigured, userPasswordMatches } = require('./_supabase');
+const { getUserByUsername, isSupabaseConfigured, userPasswordMatches, upsertUserPresence } = require('./_supabase');
+
+
+function getClientIp(event) {
+  const headers = event?.headers || {};
+  return String(headers['x-forwarded-for'] || headers['X-Forwarded-For'] || headers['client-ip'] || '')
+    .split(',')[0]
+    .trim();
+}
+
+function getUserAgent(event) {
+  const headers = event?.headers || {};
+  return String(headers['user-agent'] || headers['User-Agent'] || '').trim();
+}
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -37,6 +50,22 @@ exports.handler = async (event) => {
     if (!user || !user.active || !userPasswordMatches(password, user.passwordHash)) {
       return jsonResponse(401, { ok: false, error: 'Usuário ou senha inválidos.' });
     }
+
+    await upsertUserPresence({
+      userId: user.id,
+      username: user.username,
+      name: user.name,
+      role: user.role,
+      sector: user.sector,
+      alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [],
+      status: 'online',
+      markLogin: true,
+      lastViewName: 'Login no sistema',
+      lastViewUrl: '/',
+      lastViewTitle: 'STEP - Painel Operacional',
+      userAgent: getUserAgent(event),
+      ipAddress: getClientIp(event),
+    }).catch(() => null);
 
     return jsonResponse(200, {
       ok: true,

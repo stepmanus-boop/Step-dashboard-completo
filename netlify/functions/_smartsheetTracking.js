@@ -4,6 +4,8 @@ const SHEET_ID_ENV = process.env.SMARTSHEET_SHEET_ID || '';
 const TOKEN = process.env.SMARTSHEET_TOKEN || process.env.SMARTSHEET_ACCESS_TOKEN || process.env.SMARTSHEET_API_TOKEN || process.env.SMARTSHEET_BEARER_TOKEN || process.env.SMARTSHEET_PAT || process.env.SMARTSHEET_PERSONAL_ACCESS_TOKEN || '5pP36OjBaD1W2HWyxf6aoGxXasPvEl8gbqOmQ';
 
 const TRACKING_PROGRESS_BY_SECTOR = {
+  engenharia: 'Drawing Execution Advance%',
+  suprimento: 'Material Separation',
   pintura: 'Surface preparation and/or coating',
   solda: 'Full welding execution',
   producao: 'Spool Assemble and tack weld',
@@ -30,6 +32,10 @@ const COLUMN_ALIASES = {
   'Final Dimensional Inpection/3D (QC)': ['Final Dimensional Inpection/3D (QC)', 'Final Dimensional Inspection/3D (QC)', 'Final Dimensional Inspection 3D QC'],
   'Non Destructive Examination (QC)': ['Non Destructive Examination (QC)', 'NDE', 'END'],
   'Hydro Test Pressure (QC)': ['Hydro Test Pressure (QC)', 'Hydro Test', 'TH'],
+  'Drawing Execution Advance%': ['Drawing Execution Advance%', 'Drawing Execution Advance', 'Detalhamento', 'Emissão de detalhamento'],
+  'Procuremnt Status %': ['Procuremnt Status %', 'Procurement Status %', 'Procurement Status', 'Verificando estoque'],
+  'Material Release to Fabrication': ['Material Release to Fabrication', 'Material Release', 'Liberação de material'],
+  'Material Separation': ['Material Separation', 'Separação de material', 'Separacao de material'],
   'Surface preparation and/or coating': ['Surface preparation and/or coating', 'Surface Preparation Coating', 'Coating', 'Pintura'],
   'Spool Assemble and tack weld': ['Spool Assemble and tack weld', 'Spool Assemble', 'Tack weld', 'Pré Montagem', 'Pre Montagem'],
   'Full welding execution': ['Full welding execution', 'Welding Execution', 'Solda'],
@@ -62,6 +68,8 @@ function normalizeSectorValue(value) {
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
   if (['qualidade', 'inspecao', 'inspecao_qualidade', 'qc'].includes(normalized)) return 'inspecao';
+  if (['engenharia', 'engineering'].includes(normalized)) return 'engenharia';
+  if (['suprimento', 'suprimentos', 'supply', 'supply_chain', 'procurement'].includes(normalized)) return 'suprimento';
   if (['logistica', 'pendente_envio', 'envio', 'preparando_envio', 'em_tratativa'].includes(normalized)) return 'pendente_envio';
   if (['producao', 'caldeiraria', 'calderaria'].includes(normalized)) return normalized === 'caldeiraria' ? 'calderaria' : normalized;
   return normalized;
@@ -358,11 +366,29 @@ function resolveInspectionProgressColumn(sheet, row) {
   return columns.finalDimensional || columns.nde || columns.hydro || columns.finalInspection || null;
 }
 
+function resolveSupplyProgressColumn(sheet, row) {
+  const columns = {
+    procurement: findColumn(sheet, 'Procuremnt Status %'),
+    materialRelease: findColumn(sheet, 'Material Release to Fabrication'),
+    materialSeparation: findColumn(sheet, 'Material Separation'),
+  };
+  const materialSeparation = getCellPercent(row, columns.materialSeparation) ?? 0;
+  const procurement = getCellPercent(row, columns.procurement) ?? 0;
+  const materialRelease = getCellPercent(row, columns.materialRelease) ?? 0;
+
+  if (materialSeparation > 0 && materialSeparation < 100 && columns.materialSeparation) return columns.materialSeparation;
+  if ((procurement >= 100 || materialRelease >= 100) && columns.materialSeparation) return columns.materialSeparation;
+  if (procurement > 0 && procurement < 100 && columns.procurement) return columns.procurement;
+  if (materialRelease > 0 && materialRelease < 100 && columns.materialRelease) return columns.materialRelease;
+  return columns.procurement || columns.materialRelease || columns.materialSeparation || null;
+}
+
 function resolveProgressColumn(sheet, update, referenceRow) {
   const explicit = String(update?.trackingColumn || update?.progressColumn || '').trim();
   if (explicit) return findColumn(sheet, explicit);
   const sector = normalizeSectorValue(update?.sector);
   if (sector === 'inspecao') return resolveInspectionProgressColumn(sheet, referenceRow);
+  if (sector === 'suprimento') return resolveSupplyProgressColumn(sheet, referenceRow);
   const canonical = TRACKING_PROGRESS_BY_SECTOR[sector];
   return canonical ? findColumn(sheet, canonical) : null;
 }

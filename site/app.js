@@ -1,5 +1,6 @@
 const DEFAULT_POLL_MS = 10000;
 const ALERT_NOTIFICATION_COOLDOWN_MS = 4 * 60 * 60 * 1000;
+const PRESENCE_HEARTBEAT_MS = 30000;
 
 let adminResponsesPollTimer = null;
 
@@ -23,6 +24,7 @@ const state = {
   modalPendingOnly: false,
   rowClickTimer: null,
   pollTimer: null,
+  presenceHeartbeatTimer: null,
   user: null,
   githubSyncEnabled: false,
   manualAlerts: [],
@@ -31,6 +33,7 @@ const state = {
   adminActiveTab: "usuario",
   adminProjectPmAliasesDraft: [],
   adminProjectPmSearchQuery: "",
+  userPresence: [],
   alertResponses: [],
   selectedAlertForResponse: null,
   manualAlertSignature: "",
@@ -241,6 +244,8 @@ const adminUserFeedbackEl = document.getElementById("admin-user-feedback");
 const adminAlertFormEl = document.getElementById("admin-alert-form");
 const adminAlertFeedbackEl = document.getElementById("admin-alert-feedback");
 const adminUsersListEl = document.getElementById("admin-users-list");
+const adminPresenceSummaryEl = document.getElementById("admin-presence-summary");
+const adminPresenceListEl = document.getElementById("admin-presence-list");
 const adminAlertsListEl = document.getElementById("admin-alerts-list");
 const adminAlertSearchEl = document.getElementById("admin-alert-search");
 const githubSyncBadgeEl = document.getElementById("github-sync-badge");
@@ -1478,6 +1483,179 @@ function canViewMyProjectSignals(user = state.user) {
 const STAGE_WORKSPACE_SECTORS = ['engenharia', 'suprimento', 'pintura', 'inspecao', 'pendente_envio', 'producao', 'calderaria', 'solda'];
 const STAGE_PROGRESS_OPTIONS = [25, 50, 75, 100];
 
+function normalizeStageWorkspaceText(value) {
+  return normalizeText(value || '')
+    .replace(/[–—−]/g, '-')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseStageWorkspacePercent(value) {
+  if (value == null || value === '' || value === 'N/A') return null;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    return value >= 0 && value <= 1 ? value * 100 : value;
+  }
+  let raw = String(value || '').trim();
+  if (!raw || raw === 'N/A') return null;
+  raw = raw.replace('%', '').replace(/\s/g, '').replace(',', '.');
+  const parsed = Number(raw.replace(/[^\d.-]/g, ''));
+  if (!Number.isFinite(parsed)) return null;
+  return parsed >= 0 && parsed <= 1 ? parsed * 100 : parsed;
+}
+
+function hasStageWorkspaceValue(stageValues, key) {
+  const value = stageValues?.[key];
+  if (value == null) return false;
+  const text = String(value).trim();
+  return Boolean(text && text !== 'N/A' && text.toLowerCase() !== 'não' && text.toLowerCase() !== 'nao');
+}
+
+function getStageWorkspacePercent(stageValues, key) {
+  return parseStageWorkspacePercent(stageValues?.[key]) ?? 0;
+}
+
+function getSpoolStageLabel(project, spool) {
+  return spool?.currentStatus
+    || spool?.stage
+    || spool?.flow?.status
+    || project?.currentStage
+    || project?.statusSummary
+    || project?.flow?.status
+    || 'Etapa não identificada';
+}
+
+function getSpoolCompetenceSector(project, spool) {
+  const stageValues = spool?.stageValues || project?.stageValues || {};
+  const finished = Boolean(spool?.finished || spool?.projectFinishedFlag)
+    || normalizeStageWorkspaceText(spool?.flow?.status || spool?.currentStatus || spool?.stage).includes('finalizado');
+  if (finished) return '';
+
+  const coating = Math.max(
+    getStageWorkspacePercent(stageValues, 'Surface preparation and/or coating'),
+    getStageWorkspacePercent(stageValues, 'HDG / FBE.  (PAINT)'),
+    parseStageWorkspacePercent(spool?.coatingPercent) ?? 0
+  );
+  const finalInspection = getStageWorkspacePercent(stageValues, 'Final Inspection');
+  const packageDelivered = getStageWorkspacePercent(stageValues, 'Package and Delivered');
+  const th = getStageWorkspacePercent(stageValues, 'Hydro Test Pressure (QC)');
+  const nde = parseStageWorkspacePercent(stageValues?.['Non Destructive Examination (QC)']);
+  const finalDimensional = getStageWorkspacePercent(stageValues, 'Final Dimensional Inpection/3D (QC)');
+  const fullWelding = getStageWorkspacePercent(stageValues, 'Full welding execution');
+  const initialDimensional = getStageWorkspacePercent(stageValues, 'Initial Dimensional Inspection/3D');
+  const spoolAssemble = getStageWorkspacePercent(stageValues, 'Spool Assemble and tack weld');
+  const weldingPreparation = getStageWorkspacePercent(stageValues, 'Welding Preparation');
+  const withdrewMaterial = getStageWorkspacePercent(stageValues, 'Withdrew Material');
+  const materialSeparation = getStageWorkspacePercent(stageValues, 'Material Separation');
+  const procurement = Math.max(
+    getStageWorkspacePercent(stageValues, 'Procuremnt Status %'),
+    getStageWorkspacePercent(stageValues, 'Material Release to Fabrication')
+  );
+  const drawing = getStageWorkspacePercent(stageValues, 'Drawing Execution Advance%');
+  const fabricationStarted = Boolean(spool?.fabricationStartDate || hasStageWorkspaceValue(stageValues, 'Fabrication Start Date'));
+  const boilermakerDone = hasStageWorkspaceValue(stageValues, 'Boilermaker Finish Date');
+  const projectFinishDate = hasStageWorkspaceValue(stageValues, 'Project Finish Date');
+
+  if (projectFinishDate || packageDelivered >= 100) return '';
+  if (coating >= 100) return 'pendente_envio';
+  if (coating > 0 || th >= 100) return 'pintura';
+  if (fullWelding > 0 && fullWelding < 100) return 'solda';
+  if (th > 0 || (nde != null && nde > 0) || finalDimensional >= 100 || finalDimensional > 0 || fullWelding >= 100 || initialDimensional > 0 || boilermakerDone || spoolAssemble >= 100) {
+    if (initialDimensional >= 100 && fullWelding <= 0) return 'solda';
+    return 'inspecao';
+  }
+  if (fullWelding > 0 || initialDimensional >= 100) return 'solda';
+  if (spoolAssemble > 0 || weldingPreparation > 0 || weldingPreparation >= 100 || withdrewMaterial > 0) return 'calderaria';
+  if (fabricationStarted || materialSeparation >= 100) return 'producao';
+  if (materialSeparation > 0 || procurement > 0 || procurement >= 100 || drawing >= 100) return 'suprimento';
+  if (drawing > 0 || drawing >= 0) {
+    const textForDrawing = normalizeStageWorkspaceText([spool?.currentStatus, spool?.stage, spool?.flow?.status, project?.currentStage].filter(Boolean).join(' '));
+    if (textForDrawing.includes('detalhamento') || textForDrawing.includes('drawing') || !textForDrawing) return 'engenharia';
+  }
+
+  const text = normalizeStageWorkspaceText([
+    spool?.currentStatus,
+    spool?.stage,
+    spool?.flow?.status,
+    spool?.currentSector,
+    spool?.operationalSector,
+    spool?.flow?.sector,
+    project?.currentStage,
+    project?.sectorSummary,
+  ].filter(Boolean).join(' '));
+
+  if (text.includes('finalizado')) return '';
+  if (text.includes('package and delivered') || text.includes('final inspection') || text.includes('unitizacao') || text.includes('preparado para envio') || text.includes('logistica')) return 'pendente_envio';
+  if (text.includes('pintura') || text.includes('paint') || text.includes('coating') || text.includes('surface preparation') || text.includes('acabamento') || text.includes('intermediaria') || text === 'j f') return 'pintura';
+  if (text.includes('hydro') || text.includes(' th ') || text === 'th' || text.includes('dimensional') || text.includes('inspection') || text.includes('inspecao') || text.includes('qualidade') || text.includes('nde') || text.includes('end')) return 'inspecao';
+  if (text.includes('full welding') || text.includes('solda') || text === 'solda') return 'solda';
+  if (text.includes('pre montagem') || text.includes('spool assemble') || text.includes('tack weld') || text.includes('welding preparation') || text.includes('boilermaker') || text.includes('calderaria')) return 'calderaria';
+  if (text.includes('corte') || text.includes('limpeza') || text.includes('fabrication start') || text.includes('producao')) return 'producao';
+  if (text.includes('separacao de material') || text.includes('material separation') || text.includes('estoque') || text.includes('procure') || text.includes('suprimento')) return 'suprimento';
+  if (text.includes('detalhamento') || text.includes('drawing') || text.includes('engenharia')) return 'engenharia';
+
+  return normalizeSectorValue(spool?.currentSector || spool?.operationalSector || spool?.flow?.sector || project?.currentSector || project?.operationalSector || project?.sectorSummary);
+}
+
+function isSpoolReleasedForStageSector(project, spool, sector = getStageWorkspaceSector()) {
+  const currentSector = normalizeSectorValue(sector);
+  const competenceSector = getSpoolCompetenceSector(project, spool);
+  return Boolean(currentSector && competenceSector && currentSector === competenceSector);
+}
+
+function filterProjectForStageSector(project, sector = getStageWorkspaceSector()) {
+  const originalSpools = Array.isArray(project?.spools) ? project.spools : [];
+  const releasedSpools = originalSpools.filter((spool) => isSpoolReleasedForStageSector(project, spool, sector));
+  if (!releasedSpools.length) return null;
+  return {
+    ...project,
+    spools: releasedSpools,
+    stageWorkspaceTotalSpools: originalSpools.length,
+    stageWorkspaceReleasedSpools: releasedSpools.length,
+  };
+}
+
+function getStageWorkspaceRawProjectMatches() {
+  const query = String(state.stageUpdatesSearchQuery || '').trim();
+  const source = Array.isArray(state.projects) ? state.projects : [];
+  const matches = !query ? source : source.filter((project) => {
+    const projectValues = [
+      project.projectNumber,
+      project.projectDisplay,
+      project.projectPrefix,
+      project.client,
+      project.currentStage,
+      project.projectStatus,
+      project.jobProcessStatus,
+      project.projectType,
+      getProjectTypeLabel(project),
+      ...(project.spools || []).flatMap((spool) => [spool.iso, spool.description, spool.drawing, spool.currentStatus, spool.stage, spool.currentSector]),
+    ];
+    return matchesFlexibleSearch(projectValues, query);
+  });
+  return matches;
+}
+
+function getStageWorkspaceBlockedInfo() {
+  const sector = getStageWorkspaceSector();
+  const rawMatches = getStageWorkspaceRawProjectMatches();
+  const blocked = rawMatches
+    .map((project) => {
+      const spools = Array.isArray(project?.spools) ? project.spools : [];
+      const released = spools.filter((spool) => isSpoolReleasedForStageSector(project, spool, sector));
+      if (released.length) return null;
+      const first = spools[0] || null;
+      return {
+        project,
+        stage: first ? getSpoolStageLabel(project, first) : (project?.currentStage || 'Etapa não identificada'),
+        sector: first ? getSpoolCompetenceSector(project, first) : normalizeSectorValue(project?.currentSector || project?.operationalSector || project?.sectorSummary),
+      };
+    })
+    .filter(Boolean);
+  return { count: blocked.length, first: blocked[0] || null };
+}
+
 function getStageWorkspaceSector(user = state.user) {
   return normalizeSectorValue(user?.sector);
 }
@@ -1500,25 +1678,11 @@ function canValidateStageWorkspace(user = state.user) {
 }
 
 function stageWorkspaceSearchProjects() {
-  const query = String(state.stageUpdatesSearchQuery || '').trim();
-  const source = Array.isArray(state.projects) ? state.projects : [];
-  if (!query) return source.slice(0, 8);
-
-  return source.filter((project) => {
-    const projectValues = [
-      project.projectNumber,
-      project.projectDisplay,
-      project.projectPrefix,
-      project.client,
-      project.currentStage,
-      project.projectStatus,
-      project.jobProcessStatus,
-      project.projectType,
-      getProjectTypeLabel(project),
-      ...(project.spools || []).flatMap((spool) => [spool.iso, spool.description, spool.drawing]),
-    ];
-    return matchesFlexibleSearch(projectValues, query);
-  }).slice(0, 8);
+  const sector = getStageWorkspaceSector();
+  return getStageWorkspaceRawProjectMatches()
+    .map((project) => filterProjectForStageSector(project, sector))
+    .filter(Boolean)
+    .slice(0, 8);
 }
 
 function getStageUpdatesForCurrentSector(source = null, sector = getStageWorkspaceSector()) {
@@ -2799,9 +2963,86 @@ function renderStats() {
   setTags("stat-completed-tags", stats.completedTags);
 }
 
+
+function getMilestoneDateValueFromItem(item, keys) {
+  const itemKey = normalizeText(item?.key || '');
+  const itemLabel = normalizeText(item?.label || '');
+  for (const key of keys) {
+    const normalizedKey = normalizeText(key);
+    if (itemKey === normalizedKey || itemLabel === normalizedKey) {
+      const value = item?.value || item?.display || item?.date || '';
+      if (value && String(value).trim() && String(value).trim() !== 'N/A') return String(value).trim();
+    }
+  }
+  return '';
+}
+
+function getProjectShipmentDate(project) {
+  const keys = [
+    'Project Finish Date',
+    'Data de envio',
+    'Data Envio',
+    'Package and Delivered Date',
+    'Package Delivered Date',
+    'Delivery Date',
+    'Shipment Date',
+  ];
+
+  const directValues = [
+    project?.shipmentDate,
+    project?.shippingDate,
+    project?.sendDate,
+    project?.projectFinishDate,
+  ];
+  for (const value of directValues) {
+    if (value && String(value).trim() && String(value).trim() !== 'N/A') return String(value).trim();
+  }
+
+  const stageValues = project?.stageValues || {};
+  for (const key of keys) {
+    const value = stageValues[key];
+    if (value && String(value).trim() && String(value).trim() !== 'N/A') return String(value).trim();
+  }
+
+  const milestones = Array.isArray(project?.milestones) ? project.milestones : [];
+  for (const item of milestones) {
+    const value = getMilestoneDateValueFromItem(item, keys);
+    if (value) return value;
+  }
+
+  const spoolDates = [];
+  for (const spool of Array.isArray(project?.spools) ? project.spools : []) {
+    const spoolStageValues = spool?.stageValues || {};
+    let value = '';
+    for (const key of keys) {
+      const candidate = spoolStageValues[key];
+      if (candidate && String(candidate).trim() && String(candidate).trim() !== 'N/A') {
+        value = String(candidate).trim();
+        break;
+      }
+    }
+    if (!value) {
+      for (const item of Array.isArray(spool?.milestones) ? spool.milestones : []) {
+        value = getMilestoneDateValueFromItem(item, keys);
+        if (value) break;
+      }
+    }
+    if (!value) continue;
+    const parsed = parseDateObject(value);
+    spoolDates.push({ value, time: parsed ? parsed.getTime() : 0 });
+  }
+
+  if (spoolDates.length) {
+    spoolDates.sort((a, b) => b.time - a.time);
+    return spoolDates[0].value;
+  }
+
+  return '—';
+}
+
 function renderTable() {
   if (!state.filteredProjects.length) {
-    bodyEl.innerHTML = '<tr><td colspan="18" class="loading-cell">Nenhum projeto encontrado para a busca informada.</td></tr>';
+    bodyEl.innerHTML = '<tr><td colspan="19" class="loading-cell">Nenhum projeto encontrado para a busca informada.</td></tr>';
     searchCountEl.textContent = "0 resultado(s)";
     return;
   }
@@ -2850,6 +3091,7 @@ function renderTable() {
           <td>${stageMap["Welding Finish Date"] || "—"}</td>
           <td>${stageMap["Inspection Finish Date (QC)"] || "—"}</td>
           <td>${stageMap["TH Finish Date"] || "—"}</td>
+          <td>${getProjectShipmentDate(project)}</td>
           <td class="cell-finished cell-finished--${project.finished ? "yes" : "no"}">${completedSymbol}</td>
         </tr>
       `;
@@ -2889,6 +3131,7 @@ function renderSelectedProjectCard() {
         <div class="metric-chip"><span>Semana finalizado</span><strong>${project.weldingWeek || "—"}</strong></div>
         <div class="metric-chip"><span>Início planejado</span><strong>${project.plannedStartDate || "—"}</strong></div>
         <div class="metric-chip"><span>Término planejado</span><strong>${project.plannedFinishDate || "—"}</strong></div>
+        <div class="metric-chip"><span>Data de envio</span><strong>${getProjectShipmentDate(project)}</strong></div>
         <div class="metric-chip"><span>Peso total</span><strong>${formatNumber(project.kilos, 0)}kg</strong></div>
         <div class="metric-chip"><span>Área operacional</span><strong>${formatNumber(project.m2Painting, 3)}</strong></div>
         <div class="metric-chip"><span>% Individual</span><strong>${formatPercent(project.individualProgress)}</strong></div>
@@ -3338,7 +3581,7 @@ async function loadProjects() {
       return;
     }
 
-    bodyEl.innerHTML = `<tr><td colspan="18" class="loading-cell">${fallbackMessage}</td></tr>`;
+    bodyEl.innerHTML = `<tr><td colspan="19" class="loading-cell">${fallbackMessage}</td></tr>`;
     detailCardEl.innerHTML = `<div class="detail-placeholder">${fallbackMessage}</div>`;
   }
 }
@@ -3363,7 +3606,10 @@ function bindEvents() {
     attentionPopupActionEl.addEventListener('click', () => closeAttentionPopup({ openTarget: true }));
   }
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') showNextAttentionPopup();
+    if (document.visibilityState === 'visible') {
+      showNextAttentionPopup();
+      sendPresenceHeartbeat({ force: true });
+    }
   });
   if (sectorAlertsContentEl) {
     sectorAlertsContentEl.addEventListener('click', async (event) => {
@@ -4349,7 +4595,7 @@ function resetDashboardForLoggedOutState() {
   state.meta = null;
   state.alerts = [];
   state.selectedProjectId = null;
-  if (bodyEl) bodyEl.innerHTML = `<tr><td colspan="18" class="loading-cell">Faça login para visualizar os projetos.</td></tr>`;
+  if (bodyEl) bodyEl.innerHTML = `<tr><td colspan="19" class="loading-cell">Faça login para visualizar os projetos.</td></tr>`;
   if (detailCardEl) detailCardEl.innerHTML = `<div class="detail-placeholder">Painel protegido. Entre com seu usuário e senha para visualizar as informações.</div>`;
   if (searchCountEl) searchCountEl.textContent = '0 resultado(s)';
   if (sheetNameEl) sheetNameEl.textContent = 'Acesso restrito';
@@ -4374,6 +4620,7 @@ async function bootstrapSession() {
     state.githubSyncEnabled = Boolean(data.githubSyncEnabled);
     updateSessionUi();
     closeLoginModal();
+    startPresenceHeartbeat();
     syncPushSubscription(false).catch(() => {});
     return true;
   } catch {
@@ -4940,6 +5187,110 @@ function renderAdminAlertResponses() {
   `).join('');
 }
 
+
+function formatPresenceDate(value) {
+  if (!value) return 'Nunca registrado';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Data inválida';
+  return date.toLocaleString('pt-BR');
+}
+
+function formatPresenceElapsed(value) {
+  if (!value) return 'sem registro';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'sem registro';
+  const diffMs = Math.max(0, Date.now() - date.getTime());
+  const diffSeconds = Math.floor(diffMs / 1000);
+  if (diffSeconds < 45) return 'agora';
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  if (diffMinutes < 60) return `há ${diffMinutes} min`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `há ${diffHours} h`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `há ${diffDays} dia${diffDays > 1 ? 's' : ''}`;
+}
+
+function getPresenceViewName() {
+  if (adminModalEl && !adminModalEl.classList.contains('hidden')) return 'Painel admin';
+  if (stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) return canValidateStageWorkspace() ? 'Validação PCP' : 'Apontamentos';
+  if (sectorAlertsModalEl && !sectorAlertsModalEl.classList.contains('hidden')) return 'Meus alertas';
+  if (alertModalEl && !alertModalEl.classList.contains('hidden')) return 'Alertas de prazo';
+  if (modalEl && !modalEl.classList.contains('hidden')) return 'Detalhamento de projeto';
+  if (state.projectView === 'mine') return 'Meus projetos';
+  return 'Painel operacional';
+}
+
+async function sendPresenceHeartbeat({ force = false } = {}) {
+  if (!state.user) return;
+  if (!force && document.visibilityState === 'hidden') return;
+  try {
+    await fetch('/api/presence', {
+      method: 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        viewName: getPresenceViewName(),
+        viewUrl: `${window.location.pathname}${window.location.search}${window.location.hash}`,
+        viewTitle: document.title || 'STEP - Painel Operacional',
+      }),
+    });
+  } catch (error) {
+    console.warn('Falha ao atualizar presença do usuário:', error);
+  }
+}
+
+function startPresenceHeartbeat() {
+  window.clearInterval(state.presenceHeartbeatTimer);
+  if (!state.user) return;
+  sendPresenceHeartbeat({ force: true });
+  state.presenceHeartbeatTimer = window.setInterval(() => sendPresenceHeartbeat(), PRESENCE_HEARTBEAT_MS);
+}
+
+function stopPresenceHeartbeat() {
+  window.clearInterval(state.presenceHeartbeatTimer);
+  state.presenceHeartbeatTimer = null;
+}
+
+function renderAdminPresence(users = []) {
+  if (!adminPresenceSummaryEl || !adminPresenceListEl) return;
+  const list = Array.isArray(users) ? users : [];
+  const onlineUsers = list
+    .filter((user) => Boolean(user.online || user.presence?.online))
+    .sort((a, b) => new Date(b.lastSeenAt || b.presence?.lastSeenAt || 0) - new Date(a.lastSeenAt || a.presence?.lastSeenAt || 0));
+
+  adminPresenceSummaryEl.textContent = `${onlineUsers.length} online • ${list.length} usuário(s)`;
+
+  if (!onlineUsers.length) {
+    adminPresenceListEl.innerHTML = '<div class="empty-state">Nenhum usuário online agora.</div>';
+    return;
+  }
+
+  adminPresenceListEl.innerHTML = onlineUsers.map((user) => {
+    const presence = user.presence || {};
+    const lastSeenAt = user.lastSeenAt || presence.lastSeenAt;
+    const lastViewAt = user.lastViewAt || presence.lastViewAt || lastSeenAt;
+    const lastViewName = user.lastViewName || presence.lastViewName || 'Painel operacional';
+    const lastViewTitle = user.lastViewTitle || presence.lastViewTitle || '';
+    return `
+      <article class="presence-item presence-item--online">
+        <div class="presence-item-head">
+          <span class="presence-dot presence-dot--online"></span>
+          <strong>${escapeHtml(user.name || user.username || 'Usuário')}</strong>
+          <span class="presence-badge presence-badge--online">Online</span>
+        </div>
+        <div class="admin-list-item-meta">
+          <span>Login: ${escapeHtml(user.username || '')}</span>
+          <span>Setor: ${escapeHtml(sectorLabel(user.sector))}</span>
+          <span>Último sinal: ${escapeHtml(formatPresenceElapsed(lastSeenAt))}</span>
+          <span>Última visualização: ${escapeHtml(lastViewName)}${lastViewAt ? ` • ${escapeHtml(formatPresenceDate(lastViewAt))}` : ''}</span>
+          ${lastViewTitle && lastViewTitle !== lastViewName ? `<span>Tela: ${escapeHtml(lastViewTitle)}</span>` : ''}
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
 function resetAdminUserForm() {
   if (adminUserFormEl) adminUserFormEl.reset();
   if (adminUserIdEl) adminUserIdEl.value = "";
@@ -5008,9 +5359,21 @@ function renderAdminUsersList(users = []) {
   }
   adminUsersListEl.innerHTML = users.map((user) => {
     const isSelf = user.id === state.user?.id;
+    const presence = user.presence || {};
+    const online = Boolean(user.online || presence.online);
+    const lastSeenAt = user.lastSeenAt || presence.lastSeenAt;
+    const lastLoginAt = user.lastLoginAt || presence.lastLoginAt;
+    const lastViewAt = user.lastViewAt || presence.lastViewAt;
+    const lastViewName = user.lastViewName || presence.lastViewName || '';
     return `
-      <article class="admin-list-item">
-        <strong>${escapeHtml(user.name)}</strong>
+      <article class="admin-list-item ${online ? 'admin-list-item--online' : ''}">
+        <div class="admin-user-title-row">
+          <strong>${escapeHtml(user.name)}</strong>
+          <span class="presence-badge ${online ? 'presence-badge--online' : 'presence-badge--offline'}">
+            <span class="presence-dot ${online ? 'presence-dot--online' : 'presence-dot--offline'}"></span>
+            ${online ? 'Online agora' : 'Offline'}
+          </span>
+        </div>
         <div class="admin-list-item-meta">
           <span>Login: ${escapeHtml(user.username)}</span>
           <span>Perfil: ${escapeHtml(user.role === "admin" ? "Admin notificações" : "Setor")}</span>
@@ -5018,6 +5381,9 @@ function renderAdminUsersList(users = []) {
           <span>Recebe alertas de: ${escapeHtml(formatSectorList(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]))}</span>
           ${(userHasProjectsScope(user) && Array.isArray(user.projectPmAliases) && user.projectPmAliases.length) ? `<span>PMs adicionais: ${escapeHtml(user.projectPmAliases.join(', '))}</span>` : ''}
           <span>${user.active ? "Ativo" : "Inativo"}</span>
+          <span>Última atividade: ${escapeHtml(formatPresenceDate(lastSeenAt))}${lastSeenAt ? ` (${escapeHtml(formatPresenceElapsed(lastSeenAt))})` : ''}</span>
+          <span>Último login: ${escapeHtml(formatPresenceDate(lastLoginAt))}</span>
+          <span>Última visualização: ${escapeHtml(lastViewName || 'Sem registro')}${lastViewAt ? ` • ${escapeHtml(formatPresenceDate(lastViewAt))}` : ''}</span>
         </div>
         <div class="manual-alert-actions">
           <button class="ghost-button ghost-button--compact" type="button" data-user-edit="${escapeHtml(user.id)}">Editar</button>
@@ -5128,7 +5494,9 @@ async function loadAdminData() {
     state.githubSyncEnabled = Boolean(data.githubSyncEnabled ?? state.githubSyncEnabled);
     updateSessionUi();
     const remoteUsers = Array.isArray(data.users) ? data.users : [];
+    state.userPresence = Array.isArray(data.presence) ? data.presence : [];
     if (state.githubSyncEnabled) {
+      renderAdminPresence(remoteUsers);
       renderAdminUsersList(remoteUsers);
       return;
     }
@@ -5151,6 +5519,7 @@ async function loadAdminData() {
       seen.add(key);
       merged.push(user);
     }
+    renderAdminPresence(merged);
     renderAdminUsersList(merged);
   } catch (error) {
     const localUsers = readLocalUsers().map((user) => ({
@@ -5165,8 +5534,10 @@ async function loadAdminData() {
       createdAt: user.createdAt || null,
     }));
     if (localUsers.length) {
+      renderAdminPresence(localUsers);
       renderAdminUsersList(localUsers);
     } else {
+      renderAdminPresence([]);
       adminUsersListEl.innerHTML = `<div class="empty-state">${escapeHtml(error.message || "Falha ao carregar usuários.")}</div>`;
     }
   }
@@ -5185,7 +5556,7 @@ function openAdminModal() {
   window.clearInterval(adminResponsesPollTimer);
   adminResponsesPollTimer = window.setInterval(() => {
     if (!adminModalEl.classList.contains('hidden') && state.user?.role === 'admin') {
-      loadAlertResponses();
+      loadAdminData();
     }
   }, 10000);
 }
@@ -5244,6 +5615,7 @@ async function handleLoginSubmit(event) {
     if (state.user?.role === "admin") {
       await loadAdminData();
     }
+    startPresenceHeartbeat();
     startPolling();
   } catch (error) {
     loginFeedbackEl.textContent = error.message || "Falha ao autenticar.";
@@ -5269,6 +5641,7 @@ async function handleLogout() {
   state.attentionPopupCurrent = null;
   state.incomingAlertState = { manual: { initialized: false, ids: [] }, projectSignals: { initialized: false, ids: [] }, automatic: { initialized: false, ids: [] }, stageUpdates: { initialized: false, ids: [] } };
   window.clearInterval(state.pollTimer);
+  stopPresenceHeartbeat();
   updateSessionUi();
   resetDashboardForLoggedOutState();
   openLoginModal("Sessão encerrada. Faça login novamente para acessar o painel.");
@@ -5305,6 +5678,7 @@ function renderStageSectorWorkspace() {
   const sector = getStageWorkspaceSector();
   const stageLabel = getStageWorkspaceLabel(sector);
   const matchedProjects = stageWorkspaceSearchProjects();
+  const blockedInfo = getStageWorkspaceBlockedInfo();
   const myUpdates = getMyStageUpdates();
   const resolvedMine = myUpdates.filter((item) => isResolvedStageStatus(item.status)).slice(0, 10);
   const draftEntries = getStageDraftEntries(sector);
@@ -5339,13 +5713,13 @@ function renderStageSectorWorkspace() {
                     <strong>${escapeHtml(project.projectDisplay || project.projectNumber || 'Projeto')}</strong>
                     <div class="stage-update-meta">
                       <span class="stage-badge">${escapeHtml(project.client || 'Sem cliente')}</span>
-                      <span class="stage-badge">${spools.length} spool(s)</span>
+                      <span class="stage-badge">${spools.length} liberado(s)${Number(project.stageWorkspaceTotalSpools || spools.length) > spools.length ? ` de ${Number(project.stageWorkspaceTotalSpools || spools.length)} spool(s)` : ''}</span>
                     </div>
                   </div>
                 </div>
                 <div class="table-shell">
                   <table class="stage-inline-table">
-                    <thead><tr><th>Spool</th><th>Descrição</th><th>Andamento</th><th>Data conclusão</th><th>Obs.</th><th>Ação</th></tr></thead>
+                    <thead><tr><th>Spool</th><th>Descrição</th><th>Etapa atual</th><th>Andamento</th><th>Data conclusão</th><th>Obs.</th><th>Ação</th></tr></thead>
                     <tbody>
                       ${spools.map((spool) => {
                         const projectRowId = project.rowId || project.rowNumber;
@@ -5358,6 +5732,7 @@ function renderStageSectorWorkspace() {
                           <tr>
                             <td>${escapeHtml(spool.iso || '—')}</td>
                             <td>${escapeHtml(spool.description || '—')}</td>
+                            <td><span class="stage-badge stage-badge--sector">${escapeHtml(getSpoolStageLabel(project, spool))}</span></td>
                             <td>
                               <div class="stage-row-form" data-stage-update-form="true" data-project-row-id="${escapeHtml(String(projectRowId || ''))}" data-project-number="${escapeHtml(project.projectNumber || '')}" data-spool-iso="${escapeHtml(spool.iso || '')}" data-stage-sector="${escapeHtml(sector || '')}">
                                 <select name="progress" data-stage-progress="true" ${pending || isSubmitting ? 'disabled' : ''}>
@@ -5382,7 +5757,7 @@ function renderStageSectorWorkspace() {
                   </table>
                 </div>
               </article>`;
-          }).join('')}</div>` : `<div class="empty-state">Pesquise a BSP para visualizar os spools e lançar o avanço da sua etapa.</div>`}
+          }).join('')}</div>` : `<div class="empty-state">${blockedInfo.count ? `Esta BSP existe, mas nenhum spool está liberado para o setor ${escapeHtml(stageLabel)}. ${blockedInfo.first ? `Etapa atual encontrada: ${escapeHtml(blockedInfo.first.stage)} • Responsável: ${escapeHtml(sectorLabel(blockedInfo.first.sector))}.` : ''}` : 'Pesquise a BSP para visualizar somente os spools liberados para a sua etapa.'}</div>`}
         </section>
         <section class="admin-card admin-card--wide">
           <div class="admin-card-head"><h4>Meus lançamentos</h4></div>

@@ -130,7 +130,9 @@ function normalizeSectorValue(value) {
 
   if (!normalized) return '';
   if (['envio', 'pendenteenvio', 'pendente_envio', 'pendente_de_envio', 'pending_shipment', 'awaiting_shipment', 'logistica', 'logistics', 'expedicao', 'shipping'].includes(normalized)) return 'pendente_envio';
-  if (['inspecao', 'inspeção', 'inspection'].includes(normalized)) return 'inspecao';
+  if (['inspecao', 'inspeção', 'inspection', 'qualidade', 'quality', 'qc'].includes(normalized)) return 'inspecao';
+  if (['engenharia', 'engineering'].includes(normalized)) return 'engenharia';
+  if (['suprimento', 'suprimentos', 'supply', 'supply_chain', 'procurement'].includes(normalized)) return 'suprimento';
   if (['pintura', 'painting', 'coating'].includes(normalized)) return 'pintura';
   if (['producao', 'produção', 'production'].includes(normalized)) return 'producao';
   if (['calderaria', 'boilermaker', 'fabrication'].includes(normalized)) return 'calderaria';

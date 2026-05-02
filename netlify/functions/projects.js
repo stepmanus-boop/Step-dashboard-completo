@@ -1008,6 +1008,7 @@ function buildProject(summaryRow, childRows) {
     fabricationStartDate: formatDateValue(textValue(summaryRow, "Fabrication Start Date")),
     plannedStartDate: formatDateValue(textValue(summaryRow, "Start Date")),
     plannedFinishDate: formatDateValue(textValue(summaryRow, "Finish Date")),
+    shipmentDate: stageValues["Project Finish Date"] || formatDateValue(textValue(summaryRow, "Project Finish Date")) || "",
     client: textValue(summaryRow, "Client"),
     pm: textValue(summaryRow, "PM"),
     vessel: textValue(summaryRow, "Vessel"),

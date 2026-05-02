@@ -5,12 +5,14 @@ const { findProjectAndSpool, loadProjectPayload } = require('./_projectLookup');
 const { applyStageUpdatesToTracking, listHistoryDatePendencies } = require('./_smartsheetTracking');
 
 const DATA_PATH = 'data/stage-updates.json';
-const SUPPORTED_SECTORS = ['pintura', 'inspecao', 'pendente_envio', 'producao', 'calderaria', 'solda'];
+const SUPPORTED_SECTORS = ['engenharia', 'suprimento', 'pintura', 'inspecao', 'pendente_envio', 'producao', 'calderaria', 'solda'];
 const PROGRESS_OPTIONS = [25, 50, 75, 100];
 const PENDING_STATUSES = ['pending', 'pending_advance', 'pending_review'];
 const RESOLVED_STATUSES = ['resolved', 'resolved_advance', 'resolved_review'];
 
 const TRACKING_FIELDS_BY_SECTOR = {
+  engenharia: ['Drawing Execution Advance%'],
+  suprimento: ['Material Separation', 'Procuremnt Status %', 'Material Release to Fabrication'],
   pintura: ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)'],
   inspecao: ['Final Inspection', 'Hydro Test Pressure (QC)', 'Non Destructive Examination (QC)', 'Final Dimensional Inpection/3D (QC)', 'Initial Dimensional Inspection/3D'],
   pendente_envio: ['Package and Delivered', 'Final Inspection'],
@@ -49,6 +51,140 @@ function getTrackingProgressForSector(spool, sector) {
   }
   if (!values.length) return null;
   return Math.max(...values.map((value) => Math.max(0, Math.min(100, Number(value)))));
+}
+
+function normalizeStageWorkspaceText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[–—−]/g, '-')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeCompetenceSector(value) {
+  const normalized = normalizeSectorValue(value);
+  if (['qualidade', 'quality', 'qc'].includes(normalized)) return 'inspecao';
+  if (['logistica', 'logistics', 'expedicao', 'shipping'].includes(normalized)) return 'pendente_envio';
+  if (['engineering'].includes(normalized)) return 'engenharia';
+  if (['supply', 'supply_chain', 'procurement', 'suprimentos'].includes(normalized)) return 'suprimento';
+  return normalized;
+}
+
+function hasStageValue(stageValues, key) {
+  const value = stageValues?.[key];
+  if (value == null) return false;
+  const text = String(value).trim();
+  return Boolean(text && text !== 'N/A' && text.toLowerCase() !== 'não' && text.toLowerCase() !== 'nao');
+}
+
+function getStagePercent(stageValues, key) {
+  return parseTrackingPercent(stageValues?.[key]) ?? 0;
+}
+
+function getSpoolStageLabel(project, spool) {
+  return spool?.currentStatus
+    || spool?.stage
+    || spool?.flow?.status
+    || project?.currentStage
+    || project?.statusSummary
+    || project?.flow?.status
+    || 'Etapa não identificada';
+}
+
+function getSpoolCompetenceSector(project, spool) {
+  const stageValues = spool?.stageValues || project?.stageValues || {};
+  const finished = Boolean(spool?.finished || spool?.projectFinishedFlag)
+    || normalizeStageWorkspaceText(spool?.flow?.status || spool?.currentStatus || spool?.stage).includes('finalizado');
+  if (finished) return '';
+
+  const coating = Math.max(
+    getStagePercent(stageValues, 'Surface preparation and/or coating'),
+    getStagePercent(stageValues, 'HDG / FBE.  (PAINT)'),
+    parseTrackingPercent(spool?.coatingPercent) ?? 0
+  );
+  const packageDelivered = getStagePercent(stageValues, 'Package and Delivered');
+  const th = getStagePercent(stageValues, 'Hydro Test Pressure (QC)');
+  const nde = parseTrackingPercent(stageValues?.['Non Destructive Examination (QC)']);
+  const finalDimensional = getStagePercent(stageValues, 'Final Dimensional Inpection/3D (QC)');
+  const fullWelding = getStagePercent(stageValues, 'Full welding execution');
+  const initialDimensional = getStagePercent(stageValues, 'Initial Dimensional Inspection/3D');
+  const spoolAssemble = getStagePercent(stageValues, 'Spool Assemble and tack weld');
+  const weldingPreparation = getStagePercent(stageValues, 'Welding Preparation');
+  const withdrewMaterial = getStagePercent(stageValues, 'Withdrew Material');
+  const materialSeparation = getStagePercent(stageValues, 'Material Separation');
+  const procurement = Math.max(
+    getStagePercent(stageValues, 'Procuremnt Status %'),
+    getStagePercent(stageValues, 'Material Release to Fabrication')
+  );
+  const drawing = getStagePercent(stageValues, 'Drawing Execution Advance%');
+  const fabricationStarted = Boolean(spool?.fabricationStartDate || hasStageValue(stageValues, 'Fabrication Start Date'));
+  const boilermakerDone = hasStageValue(stageValues, 'Boilermaker Finish Date');
+  const projectFinishDate = hasStageValue(stageValues, 'Project Finish Date');
+
+  if (projectFinishDate || packageDelivered >= 100) return '';
+  if (coating >= 100) return 'pendente_envio';
+  if (coating > 0 || th >= 100) return 'pintura';
+  if (fullWelding > 0 && fullWelding < 100) return 'solda';
+  if (th > 0 || (nde != null && nde > 0) || finalDimensional >= 100 || finalDimensional > 0 || fullWelding >= 100 || initialDimensional > 0 || boilermakerDone || spoolAssemble >= 100) {
+    if (initialDimensional >= 100 && fullWelding <= 0) return 'solda';
+    return 'inspecao';
+  }
+  if (fullWelding > 0 || initialDimensional >= 100) return 'solda';
+  if (spoolAssemble > 0 || weldingPreparation > 0 || weldingPreparation >= 100 || withdrewMaterial > 0) return 'calderaria';
+  if (fabricationStarted || materialSeparation >= 100) return 'producao';
+  if (materialSeparation > 0 || procurement > 0 || procurement >= 100 || drawing >= 100) return 'suprimento';
+
+  const text = normalizeStageWorkspaceText([
+    spool?.currentStatus,
+    spool?.stage,
+    spool?.flow?.status,
+    spool?.currentSector,
+    spool?.operationalSector,
+    spool?.flow?.sector,
+    project?.currentStage,
+    project?.sectorSummary,
+  ].filter(Boolean).join(' '));
+
+  if (text.includes('finalizado')) return '';
+  if (text.includes('package and delivered') || text.includes('final inspection') || text.includes('unitizacao') || text.includes('preparado para envio') || text.includes('logistica')) return 'pendente_envio';
+  if (text.includes('pintura') || text.includes('paint') || text.includes('coating') || text.includes('surface preparation') || text.includes('acabamento') || text.includes('intermediaria') || text === 'j f') return 'pintura';
+  if (text.includes('hydro') || text.includes(' th ') || text === 'th' || text.includes('dimensional') || text.includes('inspection') || text.includes('inspecao') || text.includes('qualidade') || text.includes('nde') || text.includes('end')) return 'inspecao';
+  if (text.includes('full welding') || text.includes('solda') || text === 'solda') return 'solda';
+  if (text.includes('pre montagem') || text.includes('spool assemble') || text.includes('tack weld') || text.includes('welding preparation') || text.includes('boilermaker') || text.includes('calderaria')) return 'calderaria';
+  if (text.includes('corte') || text.includes('limpeza') || text.includes('fabrication start') || text.includes('producao')) return 'producao';
+  if (text.includes('separacao de material') || text.includes('material separation') || text.includes('estoque') || text.includes('procure') || text.includes('suprimento')) return 'suprimento';
+  if (text.includes('detalhamento') || text.includes('drawing') || text.includes('engenharia')) return 'engenharia';
+
+  return normalizeCompetenceSector(spool?.currentSector || spool?.operationalSector || spool?.flow?.sector || project?.currentSector || project?.operationalSector || project?.sectorSummary || 'engenharia');
+}
+
+function ensureSpoolReleasedForSector(project, spool, sector) {
+  const actorSector = normalizeCompetenceSector(sector);
+  const competenceSector = getSpoolCompetenceSector(project, spool);
+  if (!competenceSector || competenceSector !== actorSector) {
+    const err = new Error(`Este spool ainda não está liberado para apontamento do setor ${sectorLabel(actorSector)}. Etapa atual: ${getSpoolStageLabel(project, spool)}. Setor responsável: ${sectorLabel(competenceSector) || 'não identificado'}.`);
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function sectorLabel(value) {
+  const normalized = normalizeCompetenceSector(value);
+  const labels = {
+    engenharia: 'Engenharia',
+    suprimento: 'Suprimento',
+    pintura: 'Pintura',
+    inspecao: 'Qualidade',
+    pendente_envio: 'Logística',
+    producao: 'Produção',
+    calderaria: 'Calderaria',
+    solda: 'Solda',
+    pcp: 'PCP',
+  };
+  return labels[normalized] || value || '';
 }
 
 function findProjectInPayload(projects, projectRowId) {
@@ -222,6 +358,7 @@ async function createSingleUpdate(payload, session, existingUpdates = null) {
     err.statusCode = 404;
     throw err;
   }
+  ensureSpoolReleasedForSector(project, spool, sector);
   const trackingProgress = getTrackingProgressForSector(spool, sector);
   const trackingMatched = trackingProgress != null && trackingProgress >= progress;
   const updates = existingUpdates || await listUpdates();

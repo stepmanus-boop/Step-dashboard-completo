@@ -55,6 +55,37 @@ function mapUser(row) {
   };
 }
 
+
+const PRESENCE_ONLINE_WINDOW_MS = Number(process.env.PRESENCE_ONLINE_WINDOW_MS || 2 * 60 * 1000);
+
+function mapPresence(row) {
+  if (!row) return null;
+  const lastSeenAt = row.last_seen_at || null;
+  const lastSeenTime = lastSeenAt ? new Date(lastSeenAt).getTime() : 0;
+  const isFresh = Boolean(lastSeenTime && (Date.now() - lastSeenTime) <= PRESENCE_ONLINE_WINDOW_MS);
+  const online = row.status === 'online' && isFresh;
+  return {
+    userId: row.user_id,
+    username: row.username || '',
+    name: row.name || '',
+    role: row.role === 'admin' ? 'admin' : 'sector',
+    sector: normalizeSectorValue(row.sector || ''),
+    alertSectors: normalizeSectorList(row.sector || '', Array.isArray(row.alert_sectors) ? row.alert_sectors : []),
+    status: online ? 'online' : 'offline',
+    online,
+    lastSeenAt,
+    lastLoginAt: row.last_login_at || null,
+    lastLogoutAt: row.last_logout_at || null,
+    lastViewAt: row.last_view_at || null,
+    lastViewName: row.last_view_name || '',
+    lastViewUrl: row.last_view_url || '',
+    lastViewTitle: row.last_view_title || '',
+    userAgent: row.user_agent || '',
+    ipAddress: row.ip_address || '',
+    updatedAt: row.updated_at || null,
+  };
+}
+
 function mapAlert(row) {
   if (!row) return null;
   return {
@@ -182,6 +213,84 @@ async function updateUser(userId, updates) {
     body: JSON.stringify(payload),
   });
   return mapUser(Array.isArray(rows) ? rows[0] : null);
+}
+
+
+async function listUserPresence() {
+  try {
+    const rows = await supabaseFetch('/rest/v1/user_presence?select=*&order=last_seen_at.desc.nullslast');
+    return (Array.isArray(rows) ? rows : []).map(mapPresence).filter(Boolean);
+  } catch (error) {
+    if (String(error.message || '').includes('user_presence')) return [];
+    throw error;
+  }
+}
+
+async function upsertUserPresence(input = {}) {
+  const now = input.now || new Date().toISOString();
+  const payload = {
+    user_id: String(input.userId || '').trim(),
+    username: input.username || '',
+    name: input.name || '',
+    role: input.role === 'admin' ? 'admin' : 'sector',
+    sector: normalizeSectorValue(input.sector || ''),
+    alert_sectors: normalizeSectorList(input.sector || '', Array.isArray(input.alertSectors) ? input.alertSectors : []),
+    status: input.status === 'offline' ? 'offline' : 'online',
+    last_seen_at: input.status === 'offline' ? (input.lastSeenAt || now) : now,
+    updated_at: now,
+    user_agent: String(input.userAgent || '').slice(0, 500),
+    ip_address: String(input.ipAddress || '').slice(0, 120),
+  };
+
+  if (input.markLogin) payload.last_login_at = now;
+  if (input.status === 'offline') payload.last_logout_at = now;
+
+  if ('lastViewName' in input) payload.last_view_name = String(input.lastViewName || '').slice(0, 160);
+  if ('lastViewUrl' in input) payload.last_view_url = String(input.lastViewUrl || '').slice(0, 700);
+  if ('lastViewTitle' in input) payload.last_view_title = String(input.lastViewTitle || '').slice(0, 200);
+  if (input.lastViewName || input.lastViewUrl || input.lastViewTitle) payload.last_view_at = now;
+
+  if (!payload.user_id) return null;
+
+  try {
+    const rows = await supabaseFetch('/rest/v1/user_presence?on_conflict=user_id&select=*', {
+      method: 'POST',
+      headers: getSupabaseHeaders('resolution=merge-duplicates,return=representation'),
+      body: JSON.stringify(payload),
+    });
+    return mapPresence(Array.isArray(rows) ? rows[0] : null);
+  } catch (error) {
+    if (String(error.message || '').includes('user_presence')) return null;
+    throw error;
+  }
+}
+
+async function markUserPresenceOffline(userId, input = {}) {
+  const q = encodeURIComponent(String(userId || '').trim());
+  if (!q) return null;
+  const now = new Date().toISOString();
+  const payload = {
+    status: 'offline',
+    last_seen_at: now,
+    last_logout_at: now,
+    updated_at: now,
+  };
+  if (input.lastViewName) payload.last_view_name = String(input.lastViewName || '').slice(0, 160);
+  if (input.lastViewUrl) payload.last_view_url = String(input.lastViewUrl || '').slice(0, 700);
+  if (input.lastViewTitle) payload.last_view_title = String(input.lastViewTitle || '').slice(0, 200);
+  if (input.lastViewName || input.lastViewUrl || input.lastViewTitle) payload.last_view_at = now;
+
+  try {
+    const rows = await supabaseFetch(`/rest/v1/user_presence?user_id=eq.${q}&select=*`, {
+      method: 'PATCH',
+      headers: getSupabaseHeaders('return=representation'),
+      body: JSON.stringify(payload),
+    });
+    return mapPresence(Array.isArray(rows) ? rows[0] : null);
+  } catch (error) {
+    if (String(error.message || '').includes('user_presence')) return null;
+    throw error;
+  }
 }
 
 async function listManualAlerts() {
@@ -407,6 +516,9 @@ module.exports = {
   insertUser,
   updateUser,
   listManualAlerts,
+  markUserPresenceOffline,
+  upsertUserPresence,
+  listUserPresence,
   createManualAlert,
   listAcknowledgements,
   addAcknowledgement,
@@ -420,6 +532,7 @@ module.exports = {
   mapAck,
   mapResponse,
   mapStageUpdate,
+  mapPresence,
   hashPassword,
   normalizeSectorList,
   normalizeText,

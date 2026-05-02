@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const { jsonResponse, requireAdmin, hashPassword, normalizeText, normalizeSectorList, normalizeSectorValue } = require('./_auth');
-const { listUsers, insertUser, updateUser, isSupabaseConfigured } = require('./_supabase');
+const { listUsers, insertUser, updateUser, isSupabaseConfigured, listUserPresence } = require('./_supabase');
 
 function normalizeProjectPmAliases(input) {
   const values = Array.isArray(input) ? input : String(input || '').split(/[\n;,|]+/);
@@ -32,20 +32,35 @@ exports.handler = async (event) => {
 
   if (event.httpMethod === 'GET') {
     const users = await listUsers();
+    const presenceRows = await listUserPresence();
+    const presenceByUserId = new Map(presenceRows.map((item) => [String(item.userId || ''), item]));
     return jsonResponse(200, {
       ok: true,
       githubSyncEnabled: true,
-      users: users.map((user) => ({
-        id: user.id,
-        name: user.name,
-        username: user.username,
-        role: user.role,
-        sector: user.sector,
-        alertSectors: normalizeSectorList('', user.alertSectors),
-        projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
-        active: Boolean(user.active),
-        createdAt: user.createdAt || null,
-      })),
+      presence: presenceRows,
+      users: users.map((user) => {
+        const presence = presenceByUserId.get(String(user.id || '')) || null;
+        return {
+          id: user.id,
+          name: user.name,
+          username: user.username,
+          role: user.role,
+          sector: user.sector,
+          alertSectors: normalizeSectorList('', user.alertSectors),
+          projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
+          active: Boolean(user.active),
+          createdAt: user.createdAt || null,
+          presence,
+          online: Boolean(presence?.online),
+          lastSeenAt: presence?.lastSeenAt || null,
+          lastLoginAt: presence?.lastLoginAt || null,
+          lastLogoutAt: presence?.lastLogoutAt || null,
+          lastViewAt: presence?.lastViewAt || null,
+          lastViewName: presence?.lastViewName || '',
+          lastViewUrl: presence?.lastViewUrl || '',
+          lastViewTitle: presence?.lastViewTitle || '',
+        };
+      }),
     });
   }
 
