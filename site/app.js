@@ -2138,7 +2138,7 @@ function enrichProjects(projects) {
   });
 }
 
-const PROJECT_STATUS_FILTER_OPTIONS = ["Preparado para envio", "Aguardando envio", "Em produção", "Em tratativa", "Finalizado", "Não iniciado"];
+const PROJECT_STATUS_FILTER_OPTIONS = ["Aguardando envio", "Em produção", "Em tratativa", "Finalizado", "Não iniciado"];
 
 function normalizeStatusFilterValue(value) {
   return normalizeText(String(value || '').trim());
@@ -2218,7 +2218,7 @@ function getProjectStatusFilterLabel(project) {
     return 'Finalizado';
   }
   if (presentationText.includes('preparado para envio') || presentationText.includes('preparando para envio')) {
-    return 'Preparado para envio';
+    return 'Em tratativa';
   }
   if (uiState === 'awaiting_shipment' || presentationText.includes('aguardando envio')) {
     return 'Aguardando envio';
