@@ -298,7 +298,7 @@ function makeFlow(status, sector, percent = 0, stageStatus = null, state = null)
   let flowState = state;
   if (!flowState) {
     if (status === "Finalizado") flowState = "completed";
-    else if (normalizedSector === "Logística" && status === "Preparado para envio") flowState = "awaiting_shipment";
+    else if (normalizedSector === "Logística" && ["Preparado para envio", "Aguardando envio"].includes(status)) flowState = "awaiting_shipment";
     else if (["Qualidade"].includes(normalizedSector)) flowState = "in_inspection";
     else if (["Produção", "Pintura", "Engenharia", "Suprimento"].includes(normalizedSector)) flowState = "in_production";
     else flowState = "not_started";
@@ -337,6 +337,9 @@ function deriveOperationalStage(stageValues, fabricationStartDate, coatingPercen
   if (coatingCompleted && finalInspectionCompleted && packageDelivered >= 100) {
     return makeFlow("Preparado para envio", "Logística", packageDelivered, "completed", "awaiting_shipment");
   }
+  if (coatingCompleted && finalInspectionCompleted && packageDelivered >= 25) {
+    return makeFlow("Aguardando envio", "Logística", packageDelivered, null, "awaiting_shipment");
+  }
   if (coatingCompleted && finalInspectionCompleted && packageDelivered > 0) {
     return makeFlow("Preparado para envio", "Logística", packageDelivered, null, "awaiting_shipment");
   }
@@ -344,7 +347,7 @@ function deriveOperationalStage(stageValues, fabricationStartDate, coatingPercen
     return makeFlow("Preparado para envio", "Logística", finalInspection, "waiting", "awaiting_shipment");
   }
   if (coatingCompleted && finalInspectionStarted) {
-    return makeFlow("Unitização e Inspeção", "Logística", finalInspection, null, "awaiting_shipment");
+    return makeFlow("Unitização e Inspeção", "Logística", finalInspection, null, "preparing_shipment");
   }
   if (coatingCompleted) {
     return makeFlow("Unitização e Inspeção", "Logística", coating, "waiting", "awaiting_shipment");
@@ -407,7 +410,7 @@ function getFlowSortWeight(flow) {
   if (status.includes("acabamento")) return 114;
   if (status === "concluido") return 115;
   if (status.includes("unitizacao e inspecao") || status.includes("unitizacao")) return 120;
-  if (status.includes("preparado para envio") || status.includes("preparando para envio")) return 130;
+  if (status.includes("preparado para envio") || status.includes("preparando para envio") || status.includes("aguardando envio")) return 130;
 
   if (sector === "engenharia") return 10;
   if (sector === "suprimento") return 20;
@@ -1420,7 +1423,11 @@ exports.handler = async (event) => {
 
   try {
     const payload = await buildPayload();
-    return jsonResponse(200, payload);
+    return jsonResponse(200, payload, {
+      headers: {
+        'cache-control': 'private, max-age=60, stale-while-revalidate=120',
+      },
+    });
   } catch (error) {
     return jsonResponse(500, { ok: false, error: error.message });
   }

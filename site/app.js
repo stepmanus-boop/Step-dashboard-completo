@@ -1,6 +1,11 @@
-const DEFAULT_POLL_MS = 10000;
+const PROJECTS_REFRESH_MS = 180000;
+const PROJECTS_CACHE_TTL_MS = 120000;
+const ALERTS_REFRESH_MS = 60000;
+const PRESENCE_HEARTBEAT_MS = 90000;
+const AUTH_REFRESH_MS = 300000;
+const ADMIN_REFRESH_MS = 60000;
 const ALERT_NOTIFICATION_COOLDOWN_MS = 4 * 60 * 60 * 1000;
-const PRESENCE_HEARTBEAT_MS = 30000;
+const PROJECTS_CACHE_KEY = 'step_dashboard_projects_cache_v2';
 
 let adminResponsesPollTimer = null;
 
@@ -25,6 +30,15 @@ const state = {
   rowClickTimer: null,
   pollTimer: null,
   presenceHeartbeatTimer: null,
+  loadingProjectsRequest: null,
+  lastProjectsFetchAt: 0,
+  lastManualAlertsFetchAt: 0,
+  lastAlertResponsesFetchAt: 0,
+  lastStageUpdatesFetchAt: 0,
+  lastAdminDataFetchAt: 0,
+  lastAuthRefreshAt: 0,
+  projectsLoadedFromCache: false,
+  economicMode: true,
   user: null,
   githubSyncEnabled: false,
   manualAlerts: [],
@@ -68,6 +82,7 @@ const bodyEl = document.getElementById("projects-body");
 const detailCardEl = document.getElementById("detail-card");
 const sheetNameEl = document.getElementById("sheet-name");
 const lastSyncEl = document.getElementById("last-sync");
+const refreshProjectsButtonEl = document.getElementById("refresh-projects-button");
 const footerVersionEl = document.getElementById("footer-version");
 const searchInputEl = document.getElementById("project-search");
 const clearSearchEl = document.getElementById("clear-search");
@@ -1868,15 +1883,64 @@ function hasPreparingShipmentWindow(project) {
   return spoolMatches || projectMatches;
 }
 
+function getLogisticsProgressSnapshot(source) {
+  const stageValues = source?.stageValues || {};
+  const coating = Number(stageValues['Surface preparation and/or coating'] ?? NaN);
+  const finalInspection = Number(stageValues['Final Inspection'] ?? NaN);
+  const packageDelivered = Number(stageValues['Package and Delivered'] ?? stageValues['Unitização e envio'] ?? NaN);
+  return {
+    coating,
+    finalInspection,
+    packageDelivered,
+    hasCoating: Number.isFinite(coating),
+    hasFinalInspection: Number.isFinite(finalInspection),
+    hasPackageDelivered: Number.isFinite(packageDelivered),
+  };
+}
+
+function isUnitizationInTratativaSnapshot(snapshot) {
+  return Boolean(snapshot?.hasCoating)
+    && snapshot.coating >= 100
+    && Boolean(snapshot?.hasFinalInspection)
+    && snapshot.finalInspection >= 25
+    && snapshot.finalInspection < 100;
+}
+
+function isAwaitingShipmentSnapshot(snapshot) {
+  return Boolean(snapshot?.hasCoating)
+    && snapshot.coating >= 100
+    && Boolean(snapshot?.hasFinalInspection)
+    && snapshot.finalInspection >= 100
+    && Boolean(snapshot?.hasPackageDelivered)
+    && snapshot.packageDelivered >= 25
+    && snapshot.packageDelivered < 100;
+}
+
+function projectHasLogisticsWindow(project, predicate) {
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  const openSpools = spools.filter((spool) => spool?.flow?.state !== 'completed' && spool?.flow?.status !== 'Finalizado');
+  const sourceSpools = openSpools.length ? openSpools : spools;
+  if (sourceSpools.length) {
+    return sourceSpools.some((spool) => predicate(getLogisticsProgressSnapshot(spool)));
+  }
+  return predicate(getLogisticsProgressSnapshot(project));
+}
+
+function projectHasUnitizationInTratativa(project) {
+  return projectHasLogisticsWindow(project, isUnitizationInTratativaSnapshot);
+}
+
+function projectHasAwaitingShipmentPackage(project) {
+  return projectHasLogisticsWindow(project, isAwaitingShipmentSnapshot);
+}
+
 function isPreparedShipmentSpool(spool) {
-  const coating = Number(spool?.stageValues?.['Surface preparation and/or coating'] ?? NaN);
-  const finalInspection = Number(spool?.stageValues?.['Final Inspection'] ?? NaN);
-  const packageDelivered = Number(spool?.stageValues?.['Package and Delivered'] ?? spool?.stageValues?.['Unitização e envio'] ?? NaN);
-  return Number.isFinite(coating)
-    && coating >= 100
-    && Number.isFinite(finalInspection)
-    && finalInspection >= 100
-    && (!Number.isFinite(packageDelivered) || packageDelivered < 100);
+  const snapshot = getLogisticsProgressSnapshot(spool);
+  return snapshot.hasCoating
+    && snapshot.coating >= 100
+    && snapshot.hasFinalInspection
+    && snapshot.finalInspection >= 100
+    && (!snapshot.hasPackageDelivered || snapshot.packageDelivered < 25);
 }
 
 function isProjectPreparedForShipment(project) {
@@ -1892,7 +1956,7 @@ function isProjectPreparedForShipment(project) {
     && projectCoating >= 100
     && Number.isFinite(projectFinalInspection)
     && projectFinalInspection >= 100
-    && (!Number.isFinite(projectPackageDelivered) || projectPackageDelivered < 100);
+    && (!Number.isFinite(projectPackageDelivered) || projectPackageDelivered < 25);
 }
 
 function getPreparedShipmentTags(project) {
@@ -1907,6 +1971,10 @@ function getPreparedShipmentTags(project) {
 }
 
 function getProjectStatusPresentation(project) {
+  if (projectHasAwaitingShipmentPackage(project) && project?.uiState !== 'completed') {
+    return { text: 'Aguardando envio', state: 'awaiting_shipment' };
+  }
+
   const preparedForShipment = isProjectPreparedForShipment(project);
   if (preparedForShipment && project?.uiState !== 'completed') {
     return { text: 'Preparado para envio', state: 'preparing_shipment' };
@@ -2211,17 +2279,17 @@ function getProjectStatusFilterLabel(project) {
   const currentStageText = normalizeText(project?.currentStage || '');
   const uiState = String(project?.uiState || '').trim();
 
-  if (presentationText.includes('tratativa') || projectStatusText.includes('tratativa') || currentStageText.includes('tratativa')) {
-    return 'Em tratativa';
-  }
   if (uiState === 'completed' || presentationText.includes('finalizado')) {
     return 'Finalizado';
   }
-  if (presentationText.includes('preparado para envio') || presentationText.includes('preparando para envio')) {
+  if (projectHasAwaitingShipmentPackage(project) || uiState === 'awaiting_shipment' || presentationText.includes('aguardando envio')) {
+    return 'Aguardando envio';
+  }
+  if (projectHasUnitizationInTratativa(project) || presentationText.includes('tratativa') || projectStatusText.includes('tratativa') || currentStageText.includes('tratativa')) {
     return 'Em tratativa';
   }
-  if (uiState === 'awaiting_shipment' || presentationText.includes('aguardando envio')) {
-    return 'Aguardando envio';
+  if (presentationText.includes('preparado para envio') || presentationText.includes('preparando para envio')) {
+    return 'Em tratativa';
   }
   if (uiState === 'not_started' || presentationText.includes('nao iniciado') || presentationText.includes('não iniciado') || presentationText.includes('em espera')) {
     return 'Não iniciado';
@@ -3513,6 +3581,81 @@ function closeAlertModal() {
   }
 }
 
+
+function isPageHidden() {
+  return document.visibilityState === 'hidden' || document.hidden === true;
+}
+
+function isStageUpdatesWorkspaceOpen() {
+  return Boolean(stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden'));
+}
+
+function shouldSkipBackgroundRequest(options = {}) {
+  return !options.force && isPageHidden();
+}
+
+function readProjectsCache() {
+  try {
+    const raw = window.localStorage.getItem(PROJECTS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || !parsed.payload) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeProjectsCache(payload) {
+  try {
+    window.localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify({
+      savedAt: Date.now(),
+      payload,
+    }));
+  } catch {
+    // Cache local é apenas otimização. Se o navegador bloquear, o app continua funcionando.
+  }
+}
+
+function clearProjectsCache() {
+  try {
+    window.localStorage.removeItem(PROJECTS_CACHE_KEY);
+  } catch {}
+}
+
+function isProjectsCacheFresh(cacheEntry) {
+  const savedAt = Number(cacheEntry?.savedAt || 0);
+  return savedAt > 0 && Date.now() - savedAt <= PROJECTS_CACHE_TTL_MS;
+}
+
+function applyProjectsPayload(data, options = {}) {
+  state.projects = enrichProjects(data.projects || []);
+  renderAdminProjectPmAliasOptions();
+  renderProjectViewTabs();
+  state.stats = data.stats || null;
+  state.meta = data.meta || null;
+  state.alerts = data.alerts || [];
+  state.projectsLoadedFromCache = Boolean(options.fromCache);
+  buildDemandOptions();
+  buildProjectTypeOptions();
+  buildWeekOptions();
+
+  if (!state.selectedProjectId && state.projects.length) {
+    state.selectedProjectId = state.projects[0].rowId;
+  }
+
+  applyFilter();
+  renderStats();
+  renderTable();
+  renderSelectedProjectCard();
+  renderAlertBadge();
+  updateMeta();
+  renderAlertModal();
+  if (state.user && sectorAlertsModalEl && !sectorAlertsModalEl.classList.contains('hidden')) {
+    renderManualAlerts();
+  }
+}
+
 function updateMeta() {
   if (!state.meta) return;
   sheetNameEl.textContent = state.meta.sheetName || "Smartsheet";
@@ -3520,82 +3663,113 @@ function updateMeta() {
   footerVersionEl.textContent = `Versão da sheet: ${state.meta.version}`;
 }
 
-async function loadProjects() {
-  try {
-    const response = await fetch("/api/projects", { cache: "no-store", credentials: "same-origin" });
-    let data = null;
+async function loadProjects(options = {}) {
+  const force = Boolean(options.force);
+  const background = Boolean(options.background);
 
-    try {
-      data = await response.json();
-    } catch (parseError) {
-      throw new Error("Falha ao atualizar dados da planilha.");
-    }
-
-    if (response.status === 401) {
-      state.user = null;
-      updateSessionUi();
-      resetDashboardForLoggedOutState();
-      openLoginModal(data?.error || "Faça login para visualizar o painel.");
-      return;
-    }
-
-    if (!response.ok || !data.ok) {
-      throw new Error(data?.error || "Falha ao carregar projetos.");
-    }
-
-    state.projects = enrichProjects(data.projects || []);
-    renderAdminProjectPmAliasOptions();
-    renderProjectViewTabs();
-    state.stats = data.stats || null;
-    state.meta = data.meta || null;
-    state.alerts = data.alerts || [];
-    buildDemandOptions();
-    buildProjectTypeOptions();
-    buildWeekOptions();
-
-    if (!state.selectedProjectId && state.projects.length) {
-      state.selectedProjectId = state.projects[0].rowId;
-    }
-
-    applyFilter();
-    renderStats();
-    renderTable();
-    renderSelectedProjectCard();
-    renderAlertBadge();
-    updateMeta();
-    // Mantém os alertas carregados e o contador atualizado, mas não bloqueia a tela automaticamente.
-    // O usuário abre os prazos manualmente pelo botão "Alertas de prazo".
-    renderAlertModal();
-    if (state.user && sectorAlertsModalEl && !sectorAlertsModalEl.classList.contains("hidden")) {
-      renderManualAlerts();
-    }
-  } catch (error) {
-    const fallbackMessage = error?.message || "Falha ao atualizar dados da planilha.";
-
-    if (state.projects.length) {
-      const staleSuffix = state.meta?.lastSync
-        ? ` | exibindo última atualização válida: ${new Date(state.meta.lastSync).toLocaleString("pt-BR")}`
-        : "";
-      lastSyncEl.textContent = `Conexão instável com a planilha${staleSuffix}`;
-      console.warn("Falha temporária ao atualizar projetos:", fallbackMessage);
-      return;
-    }
-
-    bodyEl.innerHTML = `<tr><td colspan="19" class="loading-cell">${fallbackMessage}</td></tr>`;
-    detailCardEl.innerHTML = `<div class="detail-placeholder">${fallbackMessage}</div>`;
+  if (!state.user) {
+    resetDashboardForLoggedOutState();
+    return;
   }
+
+  if (background && shouldSkipBackgroundRequest(options)) return;
+
+  const cached = readProjectsCache();
+  if (!force && cached?.payload) {
+    applyProjectsPayload(cached.payload, { fromCache: true });
+    if (isProjectsCacheFresh(cached)) {
+      state.lastProjectsFetchAt = Date.now();
+      if (lastSyncEl && state.meta?.lastSync) {
+        lastSyncEl.textContent = `Última atualização: ${new Date(state.meta.lastSync).toLocaleString("pt-BR")} • cache econômico`;
+      }
+      return;
+    }
+  }
+
+  if (!force && state.loadingProjectsRequest) {
+    return state.loadingProjectsRequest;
+  }
+
+  const request = (async () => {
+    try {
+      if (refreshProjectsButtonEl) {
+        refreshProjectsButtonEl.disabled = true;
+        refreshProjectsButtonEl.textContent = force ? 'Atualizando...' : 'Sincronizando...';
+      }
+      const response = await fetch("/api/projects", { cache: "no-store", credentials: "same-origin" });
+      let data = null;
+
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        throw new Error("Falha ao atualizar dados da planilha.");
+      }
+
+      if (response.status === 401) {
+        state.user = null;
+        clearProjectsCache();
+        updateSessionUi();
+        resetDashboardForLoggedOutState();
+        openLoginModal(data?.error || "Faça login para visualizar o painel.");
+        return;
+      }
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data?.error || "Falha ao carregar projetos.");
+      }
+
+      state.lastProjectsFetchAt = Date.now();
+      writeProjectsCache(data);
+      applyProjectsPayload(data, { fromCache: false });
+    } catch (error) {
+      const fallbackMessage = error?.message || "Falha ao atualizar dados da planilha.";
+
+      if (state.projects.length) {
+        const staleSuffix = state.meta?.lastSync
+          ? ` | exibindo última atualização válida: ${new Date(state.meta.lastSync).toLocaleString("pt-BR")}`
+          : "";
+        lastSyncEl.textContent = `Conexão instável com a planilha${staleSuffix}`;
+        console.warn("Falha temporária ao atualizar projetos:", fallbackMessage);
+        return;
+      }
+
+      bodyEl.innerHTML = `<tr><td colspan="19" class="loading-cell">${fallbackMessage}</td></tr>`;
+      detailCardEl.innerHTML = `<div class="detail-placeholder">${fallbackMessage}</div>`;
+    } finally {
+      state.loadingProjectsRequest = null;
+      if (refreshProjectsButtonEl) {
+        refreshProjectsButtonEl.disabled = false;
+        refreshProjectsButtonEl.textContent = 'Atualizar agora';
+      }
+    }
+  })();
+
+  state.loadingProjectsRequest = request;
+  return request;
 }
 
 function startPolling() {
   window.clearInterval(state.pollTimer);
   state.pollTimer = window.setInterval(async () => {
-    await loadProjects();
-    if (state.user) {
-      await loadManualAlerts();
-      await loadAlertResponses();
-      await loadStageUpdates();
+    if (!state.user || isPageHidden()) return;
+
+    const now = Date.now();
+    if (now - state.lastProjectsFetchAt >= PROJECTS_REFRESH_MS) {
+      await loadProjects({ background: true });
     }
-  }, DEFAULT_POLL_MS);
+
+    if (now - state.lastManualAlertsFetchAt >= ALERTS_REFRESH_MS) {
+      await loadManualAlerts({ background: true });
+    }
+
+    if (now - state.lastAlertResponsesFetchAt >= ALERTS_REFRESH_MS && !adminModalEl?.classList.contains('hidden')) {
+      await loadAlertResponses({ background: true });
+    }
+
+    if (isStageUpdatesWorkspaceOpen() && now - state.lastStageUpdatesFetchAt >= ALERTS_REFRESH_MS) {
+      await loadStageUpdates({ background: true });
+    }
+  }, 15000);
 }
 
 function bindEvents() {
@@ -3609,8 +3783,19 @@ function bindEvents() {
     if (document.visibilityState === 'visible') {
       showNextAttentionPopup();
       sendPresenceHeartbeat({ force: true });
+      if (state.user) {
+        loadProjects({ background: true }).catch(() => {});
+        loadManualAlerts({ background: true }).catch(() => {});
+        if (isStageUpdatesWorkspaceOpen()) loadStageUpdates({ background: true }).catch(() => {});
+      }
     }
   });
+  if (refreshProjectsButtonEl) {
+    refreshProjectsButtonEl.addEventListener('click', () => {
+      clearProjectsCache();
+      loadProjects({ force: true }).catch((error) => window.alert(error?.message || 'Falha ao atualizar agora.'));
+    });
+  }
   if (sectorAlertsContentEl) {
     sectorAlertsContentEl.addEventListener('click', async (event) => {
       const button = event.target.closest('[data-enable-push]');
@@ -4868,14 +5053,18 @@ function renderProjectUserSignals(targetEl = sectorAlertsContentEl) {
   `;
 }
 
-async function loadManualAlerts() {
+async function loadManualAlerts(options = {}) {
   if (!state.user) return;
+  if (options.background && shouldSkipBackgroundRequest(options)) return;
+  const now = Date.now();
+  if (!options.force && options.background && now - state.lastManualAlertsFetchAt < ALERTS_REFRESH_MS) return;
   try {
     const response = await fetch(`/api/sector-alerts?t=${Date.now()}`, { credentials: "same-origin", cache: "no-store" });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) {
       throw new Error(data?.error || "Falha ao carregar alertas operacionais.");
     }
+    state.lastManualAlertsFetchAt = Date.now();
     state.githubSyncEnabled = Boolean(data.githubSyncEnabled ?? state.githubSyncEnabled);
     state.manualAlerts = data.alerts || [];
     state.projectSignals = data.projectSignals || [];
@@ -5141,15 +5330,19 @@ async function handleAlertResponseSubmit(event) {
   }
 }
 
-async function loadAlertResponses() {
+async function loadAlertResponses(options = {}) {
   if (!state.user) {
     state.alertResponses = [];
     return;
   }
+  if (options.background && shouldSkipBackgroundRequest(options)) return;
+  const now = Date.now();
+  if (!options.force && options.background && now - state.lastAlertResponsesFetchAt < ALERTS_REFRESH_MS) return;
   try {
     const response = await fetch('/api/alert-responses', { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao carregar respostas das sinalizações.');
+    state.lastAlertResponsesFetchAt = Date.now();
     state.alertResponses = Array.isArray(data.responses) ? data.responses : [];
     if (state.user?.role === 'admin') {
       renderAdminAlertResponses();
@@ -5483,14 +5676,18 @@ function renderAdminAlertsList() {
   }).join("");
 }
 
-async function loadAdminData() {
+async function loadAdminData(options = {}) {
   if (state.user?.role !== "admin") return;
+  if (options.background && shouldSkipBackgroundRequest(options)) return;
+  const now = Date.now();
+  if (!options.force && options.background && now - state.lastAdminDataFetchAt < ADMIN_REFRESH_MS) return;
   try {
     const response = await fetch("/api/admin-users", { credentials: "same-origin", cache: "no-store" });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) {
       throw new Error(data?.error || "Falha ao carregar usuários.");
     }
+    state.lastAdminDataFetchAt = Date.now();
     state.githubSyncEnabled = Boolean(data.githubSyncEnabled ?? state.githubSyncEnabled);
     updateSessionUi();
     const remoteUsers = Array.isArray(data.users) ? data.users : [];
@@ -5552,13 +5749,13 @@ function openAdminModal() {
   adminModalEl.classList.remove("hidden");
   adminModalEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("modal-open");
-  loadAdminData();
+  loadAdminData({ force: true });
   window.clearInterval(adminResponsesPollTimer);
   adminResponsesPollTimer = window.setInterval(() => {
-    if (!adminModalEl.classList.contains('hidden') && state.user?.role === 'admin') {
-      loadAdminData();
+    if (!adminModalEl.classList.contains('hidden') && state.user?.role === 'admin' && !isPageHidden()) {
+      loadAdminData({ background: true });
     }
-  }, 10000);
+  }, ADMIN_REFRESH_MS);
 }
 
 function closeAdminModal() {
@@ -5625,6 +5822,13 @@ async function handleLoginSubmit(event) {
 async function handleLogout() {
   await fetch("/api/auth-logout", { credentials: "same-origin" });
   state.user = null;
+  clearProjectsCache();
+  state.loadingProjectsRequest = null;
+  state.lastProjectsFetchAt = 0;
+  state.lastManualAlertsFetchAt = 0;
+  state.lastAlertResponsesFetchAt = 0;
+  state.lastStageUpdatesFetchAt = 0;
+  state.lastAdminDataFetchAt = 0;
   state.manualAlerts = [];
   state.projectSignals = [];
   state.alertResponses = [];
@@ -5650,15 +5854,22 @@ async function handleLogout() {
 
 
 
-async function loadStageUpdates() {
+async function loadStageUpdates(options = {}) {
   if (!state.user) {
     state.stageUpdates = [];
     return;
   }
+  if (!options.force && !isStageUpdatesWorkspaceOpen()) {
+    return;
+  }
+  if (options.background && shouldSkipBackgroundRequest(options)) return;
+  const now = Date.now();
+  if (!options.force && options.background && now - state.lastStageUpdatesFetchAt < ALERTS_REFRESH_MS) return;
   try {
     const response = await fetch('/api/stage-updates', { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao carregar apontamentos setoriais.');
+    state.lastStageUpdatesFetchAt = Date.now();
     state.stageUpdates = Array.isArray(data.updates) ? data.updates : [];
     if (normalizeSectorValue(state.user?.sector) === 'pcp') {
       const pendingForPcp = state.stageUpdates.filter((item) => isPendingStageStatus(item?.status));

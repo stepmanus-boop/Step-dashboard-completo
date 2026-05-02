@@ -265,7 +265,21 @@ body.modal-open { overflow: hidden; }
 }
 .panel-head h2 { margin: 0; font-size: 22px; }
 .panel-head p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
-.panel-meta { text-align: right; display: grid; gap: 4px; color: var(--muted); font-size: 11px; }
+.panel-meta { text-align: right; display: grid; gap: 4px; color: var(--muted); font-size: 11px; justify-items: end; }
+.mini-action-button {
+  border: 1px solid rgba(0, 210, 255, 0.35);
+  background: rgba(0, 210, 255, 0.08);
+  color: var(--cyan);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.mini-action-button:hover { background: rgba(0, 210, 255, 0.16); }
+.mini-action-button:disabled { opacity: .55; cursor: wait; }
 .panel-head--detail { border-bottom: 1px solid rgba(85, 145, 255, 0.12); }
 .autoplay-pill {
   padding: 7px 12px;
