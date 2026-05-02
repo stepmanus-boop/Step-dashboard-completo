@@ -3680,3 +3680,122 @@ button.alert-badge {
     max-height: 250px;
   }
 }
+
+
+/* Ajuste final solicitado: modal quase em tela cheia, melhor aproveitamento lateral,
+   alertas visíveis novamente e tabela com cerca de 7 ISOs visíveis com rolagem interna. */
+#project-modal {
+  place-items: stretch;
+  padding: 10px;
+}
+
+#project-modal .modal-dialog {
+  width: calc(100vw - 20px);
+  max-width: none;
+  height: calc(100dvh - 20px);
+  max-height: calc(100dvh - 20px);
+  margin: 0 auto;
+}
+
+#project-modal .modal-head {
+  padding: 12px 16px 8px;
+}
+
+#project-modal .modal-content {
+  padding: 10px 14px 14px;
+  gap: 8px;
+  height: auto;
+  max-height: none;
+  grid-template-rows: auto auto minmax(110px, 140px) minmax(240px, 1fr);
+}
+
+#project-modal .modal-summary-grid {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+#project-modal .project-signals-section {
+  display: block;
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 140px;
+  min-height: 110px;
+  overflow: hidden;
+}
+
+#project-modal .project-signals-head {
+  margin-bottom: 6px;
+  align-items: center;
+}
+
+#project-modal .project-signals-list {
+  max-height: 94px;
+  overflow: auto;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+#project-modal .project-signal-item {
+  padding: 8px 10px;
+}
+
+#project-modal .project-signal-item p {
+  max-height: none;
+  overflow: visible;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+#project-modal .modal-table-wrap {
+  width: 100%;
+  height: auto;
+  min-height: 240px;
+  max-height: calc(100dvh - 470px);
+  overflow: auto;
+}
+
+#project-modal .modal-table tbody td,
+#project-modal .modal-table thead th {
+  white-space: nowrap;
+}
+
+@media (max-width: 1450px) {
+  #project-modal .modal-summary-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1100px) {
+  #project-modal {
+    padding: 6px;
+  }
+
+  #project-modal .modal-dialog {
+    width: calc(100vw - 12px);
+    height: calc(100dvh - 12px);
+    max-height: calc(100dvh - 12px);
+  }
+
+  #project-modal .modal-content {
+    grid-template-rows: auto auto minmax(110px, 150px) minmax(240px, 1fr);
+  }
+
+  #project-modal .modal-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-height: 820px) {
+  #project-modal .modal-content {
+    grid-template-rows: auto auto minmax(96px, 120px) minmax(210px, 1fr);
+  }
+
+  #project-modal .project-signals-section {
+    min-height: 96px;
+    max-height: 120px;
+  }
+
+  #project-modal .project-signals-list {
+    max-height: 74px;
+  }
+}
