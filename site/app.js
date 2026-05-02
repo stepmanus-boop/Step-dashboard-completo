@@ -61,6 +61,8 @@ const state = {
   stageSubmittingKeys: {},
   stageDrafts: {},
   stageBulkSubmitting: false,
+  stagePcpPointingMode: false,
+  pcpStageSelectedSector: '',
   stageBatchValidationMode: false,
   stageSelectedIds: [],
   stageDatePendencies: [],
@@ -1496,6 +1498,24 @@ function canViewMyProjectSignals(user = state.user) {
 
 
 const STAGE_WORKSPACE_SECTORS = ['engenharia', 'suprimento', 'pintura', 'inspecao', 'pendente_envio', 'producao', 'calderaria', 'solda'];
+
+function isPcpStageUser(user = state.user) {
+  return Boolean(user && normalizeSectorValue(user.sector) === 'pcp');
+}
+
+function getStageSectorOptionsHtml(selected = '') {
+  const current = normalizeSectorValue(selected);
+  return STAGE_WORKSPACE_SECTORS.map((sector) => `<option value="${escapeHtml(sector)}" ${current === sector ? 'selected' : ''}>${escapeHtml(sectorLabel(sector))}</option>`).join('');
+}
+
+function ensurePcpStageSectorDefault() {
+  if (!isPcpStageUser()) return '';
+  const current = normalizeSectorValue(state.pcpStageSelectedSector);
+  if (STAGE_WORKSPACE_SECTORS.includes(current)) return current;
+  state.pcpStageSelectedSector = 'solda';
+  return state.pcpStageSelectedSector;
+}
+
 const STAGE_PROGRESS_OPTIONS = [25, 50, 75, 100];
 
 function normalizeStageWorkspaceText(value) {
@@ -1672,7 +1692,12 @@ function getStageWorkspaceBlockedInfo() {
 }
 
 function getStageWorkspaceSector(user = state.user) {
-  return normalizeSectorValue(user?.sector);
+  const ownSector = normalizeSectorValue(user?.sector);
+  if (ownSector === 'pcp' && state.stagePcpPointingMode) {
+    const selected = normalizeSectorValue(state.pcpStageSelectedSector);
+    return STAGE_WORKSPACE_SECTORS.includes(selected) ? selected : '';
+  }
+  return ownSector;
 }
 
 function getStageWorkspaceLabel(sector = getStageWorkspaceSector()) {
@@ -2797,7 +2822,7 @@ function updatePrimaryUserActionUi() {
   if (openStageUpdatesEl) {
     const canOpen = canOpenStageWorkspace();
     openStageUpdatesEl.classList.toggle('hidden', !canOpen);
-    openStageUpdatesEl.textContent = canValidateStageWorkspace() ? 'Validação PCP' : 'Apontamentos';
+    openStageUpdatesEl.textContent = canValidateStageWorkspace() ? 'Validação PCP / Apontamentos' : 'Apontamentos';
     openStageUpdatesEl.title = canValidateStageWorkspace()
       ? 'Validar apontamentos enviados pelos setores e consultar o histórico'
       : 'Informar o avanço da sua etapa por spool';
@@ -4247,6 +4272,8 @@ if (openStageUpdatesEl) {
       return;
     }
     state.stageUpdatesSearchQuery = '';
+    state.stagePcpPointingMode = false;
+    if (isPcpStageUser()) ensurePcpStageSectorDefault();
     syncStageDraftsForCurrentSector();
 
     if (canValidateStageWorkspace()) {
@@ -4279,6 +4306,28 @@ if (stageUpdatesModalEl) {
   stageUpdatesModalEl.addEventListener('click', (event) => {
     if (event.target.matches('[data-close-stage-updates="true"]')) {
       closeStageUpdatesModal();
+      return;
+    }
+    const openPcpPointingButton = event.target.closest('[data-stage-open-pcp-pointing="true"]');
+    if (openPcpPointingButton) {
+      const selectEl = stageUpdatesModalEl.querySelector('[data-pcp-stage-sector-select="true"]');
+      const selectedSector = normalizeSectorValue(selectEl?.value || state.pcpStageSelectedSector || '');
+      if (!STAGE_WORKSPACE_SECTORS.includes(selectedSector)) {
+        window.alert('Selecione o setor que o PCP irá apontar.');
+        return;
+      }
+      state.pcpStageSelectedSector = selectedSector;
+      state.stagePcpPointingMode = true;
+      state.stageUpdatesSearchQuery = '';
+      syncStageDraftsForCurrentSector();
+      renderStageUpdatesModal();
+      return;
+    }
+    if (event.target.closest('[data-stage-back-validation="true"]')) {
+      state.stagePcpPointingMode = false;
+      state.stageUpdatesSearchQuery = '';
+      syncStageDraftsForCurrentSector();
+      renderStageUpdatesModal();
       return;
     }
     const masterCheck = event.target.closest('[data-stage-master-check="true"]');
@@ -4387,6 +4436,27 @@ if (stageUpdatesModalEl) {
     if (!formEl) return;
     const actionType = actionButton.matches('[data-stage-review="true"]') ? 'review' : 'advance';
     handleStageWorkspaceSubmit(formEl, actionType);
+  });
+  stageUpdatesModalEl.addEventListener('change', (event) => {
+    const pcpSectorEl = event.target.closest('[data-pcp-stage-sector-switch="true"]');
+    if (pcpSectorEl) {
+      const selectedSector = normalizeSectorValue(pcpSectorEl.value || '');
+      if (STAGE_WORKSPACE_SECTORS.includes(selectedSector)) {
+        state.pcpStageSelectedSector = selectedSector;
+        state.stagePcpPointingMode = true;
+        state.stageUpdatesSearchQuery = '';
+        syncStageDraftsForCurrentSector();
+        renderStageUpdatesModal();
+      }
+      return;
+    }
+    const pcpSelectEl = event.target.closest('[data-pcp-stage-sector-select="true"]');
+    if (pcpSelectEl) {
+      const selectedSector = normalizeSectorValue(pcpSelectEl.value || '');
+      if (STAGE_WORKSPACE_SECTORS.includes(selectedSector)) {
+        state.pcpStageSelectedSector = selectedSector;
+      }
+    }
   });
   stageUpdatesModalEl.addEventListener('input', (event) => {
     const searchEl = event.target.closest('[data-stage-search="true"]');
@@ -5888,6 +5958,21 @@ function renderStageSectorWorkspace() {
   if (!stageUpdatesContentEl) return;
   const sector = getStageWorkspaceSector();
   const stageLabel = getStageWorkspaceLabel(sector);
+  const isPcpPointing = isPcpStageUser() && state.stagePcpPointingMode;
+  if (isPcpPointing && !sector) {
+    stageUpdatesContentEl.innerHTML = `
+      <div class="stage-workspace-shell">
+        <section class="admin-card admin-card--wide">
+          <div class="admin-card-head"><h4>Modo PCP de apontamento</h4></div>
+          <label class="stack-field">
+            <span>Apontar como setor</span>
+            <select data-pcp-stage-sector-switch="true"><option value="">Selecione o setor</option>${getStageSectorOptionsHtml(state.pcpStageSelectedSector)}</select>
+          </label>
+          <div class="stage-row-actions"><button class="ghost-button" type="button" data-stage-back-validation="true">Voltar para Validação PCP</button></div>
+        </section>
+      </div>`;
+    return;
+  }
   const matchedProjects = stageWorkspaceSearchProjects();
   const blockedInfo = getStageWorkspaceBlockedInfo();
   const myUpdates = getMyStageUpdates();
@@ -5896,13 +5981,30 @@ function renderStageSectorWorkspace() {
   const readyDrafts = getReadyStageDraftEntries(sector);
   stageUpdatesContentEl.innerHTML = `
     <div class="stage-workspace-shell">
+      ${isPcpPointing ? `
+      <section class="admin-card admin-card--wide stage-pcp-pointing-card">
+        <div class="admin-card-head">
+          <h4>Modo PCP de apontamento</h4>
+          <span class="stage-badge stage-badge--sector">Apontando como ${escapeHtml(stageLabel)}</span>
+        </div>
+        <div class="stage-toolbar">
+          <label class="stack-field">
+            <span>Apontar como setor</span>
+            <select data-pcp-stage-sector-switch="true">${getStageSectorOptionsHtml(sector)}</select>
+          </label>
+          <div class="stage-row-actions">
+            <button class="ghost-button" type="button" data-stage-back-validation="true">Voltar para Validação PCP</button>
+          </div>
+        </div>
+        <div class="stage-validation-note">O PCP está lançando apontamentos em nome do setor selecionado. A lista continua respeitando a competência da etapa atual do spool.</div>
+      </section>` : ''}
       <section class="admin-card admin-card--wide">
         <div class="stage-toolbar">
           <label class="stack-field">
             <span>Buscar BSP / cliente</span>
             <input type="text" data-stage-search="true" value="${escapeHtml(state.stageUpdatesSearchQuery || '')}" placeholder="Ex.: BSP 25-732-03 ou BSP2573203" autocomplete="off" inputmode="search" />
           </label>
-          <div class="stage-muted">Etapa atual do seu login: <strong>${escapeHtml(stageLabel)}</strong></div>
+          <div class="stage-muted">${isPcpPointing ? 'Fila selecionada pelo PCP' : 'Etapa atual do seu login'}: <strong>${escapeHtml(stageLabel)}</strong></div>
         </div>
         <div class="stage-bulk-bar">
           <div class="stage-muted">Rascunhos salvos: <strong>${draftEntries.length}</strong> • Prontos para envio: <strong>${readyDrafts.length}</strong></div>
@@ -6011,6 +6113,7 @@ function openStageValidationWorkspaceInline() {
   if (!canValidateStageWorkspace()) return;
 
   state.stageUpdatesSearchQuery = '';
+  state.stagePcpPointingMode = false;
   syncStageDraftsForCurrentSector();
 
   // Mantém a Validação PCP na aba atual.
@@ -6244,6 +6347,24 @@ function renderStageValidationWorkspace() {
         </div>
       </section>
 
+      ${isPcpStageUser() ? `
+      <section class="admin-card admin-card--wide stage-pcp-pointing-card">
+        <div class="admin-card-head">
+          <h4>Apontamento pelo PCP</h4>
+          <div class="stage-muted">Use quando o PCP precisar apontar demandas de setores como Solda, Pintura, Produção ou Logística.</div>
+        </div>
+        <div class="stage-toolbar">
+          <label class="stack-field">
+            <span>Apontar como setor</span>
+            <select data-pcp-stage-sector-select="true">${getStageSectorOptionsHtml(ensurePcpStageSectorDefault())}</select>
+          </label>
+          <div class="stage-row-actions">
+            <button class="primary-button" type="button" data-stage-open-pcp-pointing="true">Abrir fila para apontamento</button>
+          </div>
+        </div>
+        <div class="stage-validation-note">Após selecionar o setor, o app mostrará somente os spools liberados para aquela competência. O apontamento será registrado pelo usuário PCP em nome do setor escolhido.</div>
+      </section>` : ''}
+
       <section class="admin-card admin-card--wide">
         <div class="admin-card-head">
           <h4>Validação PCP dos apontamentos</h4>
@@ -6274,6 +6395,10 @@ function renderStageValidationWorkspace() {
 
 function renderStageUpdatesModal() {
   if (!stageUpdatesContentEl) return;
+  if (isPcpStageUser() && state.stagePcpPointingMode) {
+    renderStageSectorWorkspace();
+    return;
+  }
   if (canValidateStageWorkspace()) {
     renderStageValidationWorkspace();
     return;
@@ -6285,10 +6410,15 @@ function openStageUpdatesModal(options = {}) {
   if (!stageUpdatesModalEl) return;
   const titleEl = document.getElementById('stage-updates-title');
   const subtitleEl = document.getElementById('stage-updates-subtitle');
-  if (titleEl) titleEl.textContent = canValidateStageWorkspace() ? 'Validação PCP dos apontamentos' : `Apontamentos da etapa • ${getStageWorkspaceLabel()}`;
-  if (subtitleEl) subtitleEl.textContent = canValidateStageWorkspace()
-    ? 'Conclua os registros validados para que saiam da fila e permaneçam no histórico.'
-    : 'Cada setor informa somente a sua própria etapa por spool. O PCP valida e mantém o histórico.';
+  const isPcpPointing = isPcpStageUser() && state.stagePcpPointingMode;
+  if (titleEl) titleEl.textContent = isPcpPointing
+    ? `Apontamento PCP • ${getStageWorkspaceLabel()}`
+    : (canValidateStageWorkspace() ? 'Validação PCP dos apontamentos' : `Apontamentos da etapa • ${getStageWorkspaceLabel()}`);
+  if (subtitleEl) subtitleEl.textContent = isPcpPointing
+    ? 'PCP apontando em nome do setor selecionado, respeitando a competência da etapa atual.'
+    : (canValidateStageWorkspace()
+      ? 'Conclua os registros validados para que saiam da fila e permaneçam no histórico.'
+      : 'Cada setor informa somente a sua própria etapa por spool. O PCP valida e mantém o histórico.');
 
   if (options.loading && stageUpdatesContentEl) {
     stageUpdatesContentEl.innerHTML = `

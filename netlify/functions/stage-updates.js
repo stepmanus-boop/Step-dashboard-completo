@@ -283,13 +283,25 @@ function canValidate(session) {
   return session?.role === 'admin' || sector === 'pcp';
 }
 
+function isPcpUser(session) {
+  return Boolean(session && normalizeSectorValue(session.sector) === 'pcp');
+}
+
 function canCreate(session) {
   const sector = normalizeSectorValue(session?.sector);
-  return SUPPORTED_SECTORS.includes(sector);
+  return SUPPORTED_SECTORS.includes(sector) || isPcpUser(session) || session?.role === 'admin';
 }
 
 function getActorSector(session) {
   return normalizeSectorValue(session?.sector);
+}
+
+function getRequestedStageSector(payload, session) {
+  const actorSector = getActorSector(session);
+  const requested = normalizeSectorValue(payload?.sector || payload?.targetSector || '');
+  if (session?.role === 'admin') return normalizeCompetenceSector(requested || actorSector);
+  if (isPcpUser(session)) return normalizeCompetenceSector(requested);
+  return normalizeCompetenceSector(actorSector);
 }
 
 async function listUpdates() {
@@ -342,12 +354,14 @@ async function createSingleUpdate(payload, session, existingUpdates = null) {
   const completionDate = String(payload.completionDate || '').trim();
   const note = String(payload.note || '').trim();
   const actionType = String(payload.actionType || 'advance').trim().toLowerCase() === 'review' ? 'review' : 'advance';
-  const sector = session.role === 'admin'
-    ? normalizeSectorValue(payload.sector || session.sector)
-    : getActorSector(session);
+  const actorSector = getActorSector(session);
+  const sector = getRequestedStageSector(payload, session);
+  const pcpDelegated = isPcpUser(session) && SUPPORTED_SECTORS.includes(sector);
 
   if (!projectRowId || !spoolIso || !SUPPORTED_SECTORS.includes(sector)) {
-    throw new Error('Informe BSP, spool e uma etapa válida.');
+    throw new Error(pcpDelegated || isPcpUser(session)
+      ? 'Selecione o setor que o PCP irá apontar.'
+      : 'Informe BSP, spool e uma etapa válida.');
   }
   if (!PROGRESS_OPTIONS.includes(progress)) {
     throw new Error('Selecione um avanço válido: 25%, 50%, 75% ou 100%.');
@@ -374,6 +388,12 @@ async function createSingleUpdate(payload, session, existingUpdates = null) {
     throw err;
   }
   const now = new Date().toISOString();
+  const pcpDelegationNote = pcpDelegated
+    ? `Apontamento realizado pelo PCP ${session.name || session.username || 'usuário'} em nome do setor ${sectorLabel(sector)}.`
+    : '';
+  const finalNote = pcpDelegationNote
+    ? `${pcpDelegationNote}${note ? `\n${note}` : ''}`
+    : note;
   const record = {
     id: `stg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     projectRowId,
@@ -385,7 +405,7 @@ async function createSingleUpdate(payload, session, existingUpdates = null) {
     sector,
     progress,
     completionDate: completionDate || (progress === 100 ? now.slice(0, 10) : ''),
-    note,
+    note: finalNote,
     status: actionType === 'review' ? 'pending_review' : 'pending_advance',
     trackingCheckedAt: now,
     trackingProgress: trackingProgress == null ? null : Number(trackingProgress.toFixed(2)),
@@ -573,6 +593,7 @@ exports.handler = async (event) => {
         permissions: {
           canCreate: canCreate(session),
           canValidate: canValidate(session),
+          canPcpPointAsSector: isPcpUser(session),
           sector: getActorSector(session),
         },
         progressOptions: PROGRESS_OPTIONS,
@@ -580,7 +601,7 @@ exports.handler = async (event) => {
     }
 
     if (event.httpMethod === 'POST') {
-      if (!canCreate(session) && session.role !== 'admin') {
+      if (!canCreate(session)) {
         return jsonResponse(403, { ok: false, error: 'Seu perfil não pode lançar apontamentos setoriais.' });
       }
       const body = JSON.parse(event.body || '{}');
