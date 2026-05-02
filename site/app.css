@@ -3799,3 +3799,54 @@ button.alert-badge {
     max-height: 74px;
   }
 }
+
+
+/* Ajuste solicitado: reduzir ainda mais a área da tabela de ISOs e devolver espaço
+   para a parte superior (resumo + sinalizações). */
+#project-modal .modal-content {
+  grid-template-rows: auto auto minmax(160px, 220px) minmax(150px, 220px);
+}
+
+#project-modal .project-signals-section {
+  max-height: 220px;
+  min-height: 160px;
+}
+
+#project-modal .project-signals-list {
+  max-height: 170px;
+}
+
+#project-modal .project-signal-item {
+  padding: 9px 10px;
+}
+
+#project-modal .project-signal-item p {
+  -webkit-line-clamp: 3;
+}
+
+#project-modal .modal-table-wrap {
+  min-height: 150px;
+  max-height: 220px;
+  height: 220px;
+}
+
+@media (max-height: 820px) {
+  #project-modal .modal-content {
+    grid-template-rows: auto auto minmax(130px, 180px) minmax(130px, 190px);
+  }
+
+  #project-modal .project-signals-section {
+    min-height: 130px;
+    max-height: 180px;
+  }
+
+  #project-modal .project-signals-list {
+    max-height: 130px;
+  }
+
+  #project-modal .modal-table-wrap {
+    min-height: 130px;
+    max-height: 190px;
+    height: 190px;
+  }
+}
