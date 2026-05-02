@@ -3976,3 +3976,39 @@ button.alert-badge {
     max-height: 104px;
   }
 }
+
+
+/* Ajuste solicitado: manter a caixa original da marca e aumentar apenas a logo. */
+.topbar {
+  grid-template-columns: 240px minmax(0, 1fr) 560px;
+}
+
+.brand-card {
+  min-height: 80px;
+  padding: 2px 6px;
+  overflow: hidden;
+}
+
+.brand-logo {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+  transform: scale(1.42);
+  transform-origin: center center;
+}
+
+@media (min-width: 1400px) {
+  .topbar {
+    grid-template-columns: 240px minmax(0, 1fr) 560px;
+  }
+
+  .brand-card {
+    min-height: 80px;
+  }
+
+  .brand-logo {
+    transform: scale(1.5);
+  }
+}
