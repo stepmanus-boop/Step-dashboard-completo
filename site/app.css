@@ -3850,3 +3850,101 @@ button.alert-badge {
     height: 190px;
   }
 }
+
+
+/* Ajuste solicitado: manter o popup em tela cheia, ampliar a área das sinalizações
+   para exibir o conteúdo completo e melhorar a apresentação dos blocos de datas. */
+#project-modal .modal-content {
+  grid-template-rows: auto auto minmax(220px, 320px) minmax(130px, 180px);
+}
+
+/* As datas estavam curtas; agora os chips podem quebrar em mais de uma linha
+   e ocupar a largura disponível de forma mais equilibrada. */
+#project-modal .modal-milestones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: none;
+  overflow: visible;
+  padding-bottom: 0;
+}
+
+#project-modal .milestone-chip {
+  flex: 1 1 170px;
+  min-width: 170px;
+  max-width: 100%;
+  padding: 8px 10px;
+}
+
+#project-modal .milestone-chip span {
+  font-size: 9px;
+  line-height: 1.15;
+}
+
+#project-modal .milestone-chip strong {
+  font-size: 13px;
+  line-height: 1.15;
+}
+
+/* Sinalizações maiores e sem cortar o texto principal. */
+#project-modal .project-signals-section {
+  min-height: 220px;
+  max-height: 320px;
+  overflow: hidden;
+}
+
+#project-modal .project-signals-list {
+  max-height: 260px;
+  overflow: auto;
+  gap: 8px;
+}
+
+#project-modal .project-signal-item {
+  padding: 10px 12px;
+}
+
+#project-modal .project-signal-item p {
+  max-height: none;
+  overflow: visible;
+  display: block;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: initial;
+}
+
+#project-modal .project-signal-item .manual-alert-actions,
+#project-modal .project-signal-item .response-thread {
+  display: flex;
+}
+
+/* A tabela continua menor, com rolagem interna, para sobrar espaço acima. */
+#project-modal .modal-table-wrap {
+  min-height: 130px;
+  max-height: 180px;
+  height: 180px;
+}
+
+@media (max-height: 820px) {
+  #project-modal .modal-content {
+    grid-template-rows: auto auto minmax(180px, 250px) minmax(120px, 160px);
+  }
+
+  #project-modal .project-signals-section {
+    min-height: 180px;
+    max-height: 250px;
+  }
+
+  #project-modal .project-signals-list {
+    max-height: 190px;
+  }
+
+  #project-modal .modal-table-wrap {
+    min-height: 120px;
+    max-height: 160px;
+    height: 160px;
+  }
+
+  #project-modal .milestone-chip {
+    flex-basis: 150px;
+    min-width: 150px;
+  }
+}
