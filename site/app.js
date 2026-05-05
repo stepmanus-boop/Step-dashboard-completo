@@ -13,6 +13,7 @@ const state = {
   projects: [],
   filteredProjects: [],
   projectView: 'all',
+  projectDrill: { open: false, selectedClientKey: '', selectedVesselKey: '' },
   sectorScopedView: false,
   stats: null,
   meta: null,
@@ -102,6 +103,14 @@ const statusFilterBoxEl = document.getElementById("status-filter-box");
 const searchCountEl = document.getElementById("search-count");
 const tableShellEl = document.getElementById("table-shell");
 const projectViewTabsEl = document.getElementById("project-view-tabs");
+const totalProjectsCardEl = document.getElementById("total-projects-card");
+const projectDrillPanelEl = document.getElementById("project-drill-panel");
+const projectDrillTitleEl = document.getElementById("project-drill-title");
+const projectDrillSubtitleEl = document.getElementById("project-drill-subtitle");
+const projectDrillBreadcrumbEl = document.getElementById("project-drill-breadcrumb");
+const projectDrillContentEl = document.getElementById("project-drill-content");
+const projectDrillBackEl = document.getElementById("project-drill-back");
+const projectDrillCloseEl = document.getElementById("project-drill-close");
 const modalEl = document.getElementById("project-modal");
 const modalContentEl = document.getElementById("modal-content");
 const modalTitleEl = document.getElementById("modal-title");
@@ -851,6 +860,7 @@ function normalizeSectorValue(value) {
     .replace(/__+/g, '_');
 
   if (!normalized) return "";
+  if (["enviado", "sent", "shipped", "delivered_final"].includes(normalized)) return "enviado";
   if (["envio", "pendenteenvio", "pendente_envio", "pendente_de_envio", "pending_shipment", "awaiting_shipment", "logistica", "logistica_", "logistics", "expedicao", "shipping"].includes(normalized)) return "pendente_envio";
   if (["inspecao", "inspection", "qualidade", "quality"].includes(normalized)) return "inspecao";
   if (["engenharia", "engineering"].includes(normalized)) return "engenharia";
@@ -1123,6 +1133,7 @@ function sectorLabel(value) {
   if (normalized === "engenharia") return "Engenharia";
   if (normalized === "suprimento") return "Suprimento";
   if (normalized === "pendente_envio") return "Logística";
+  if (normalized === "enviado") return "Enviado";
   if (normalized === "producao") return "Produção";
   if (normalized === "calderaria") return "Calderaria";
   if (normalized === "solda") return "Solda";
@@ -1831,7 +1842,7 @@ function getStageWorkspaceBlockedInfo() {
       const first = spools[0] || null;
       return {
         project,
-        stage: first ? getSpoolStageLabel(project, first) : (project?.currentStage || 'Etapa não identificada'),
+        stage: first ? getSpoolStageLabel(project, first) : (getProjectCurrentStageDisplay(project) || 'Etapa não identificada'),
         sector: first ? getSpoolCompetenceSector(project, first) : normalizeSectorValue(project?.currentSector || project?.operationalSector || project?.sectorSummary),
       };
     })
@@ -2172,8 +2183,31 @@ function getProjectStatusPresentation(project) {
   };
 }
 
+function isProjectFinalizedForDisplay(project) {
+  const statusText = normalizeText([
+    project?.statusSummary,
+    project?.currentStatus,
+    project?.currentStage,
+    project?.projectStatus,
+    project?.flow?.status,
+  ].filter(Boolean).join(' '));
+  return Boolean(
+    project?.finished
+    || project?.uiState === 'completed'
+    || project?.operationalState === 'completed'
+    || project?.flow?.state === 'completed'
+    || statusText.includes('finalizado')
+  );
+}
+
 function getProjectSectorSummary(project) {
+  if (isProjectFinalizedForDisplay(project)) return 'Enviado';
   return project?.sectorSummary || project?.currentStageGroup || project?.currentSector || project?.operationalSector || '';
+}
+
+function getProjectCurrentStageDisplay(project) {
+  if (isProjectFinalizedForDisplay(project)) return 'Enviado';
+  return project?.currentStageGroup || getProjectSectorSummary(project) || simplifyCurrentStage(project);
 }
 
 function getFlowSectorKey(flow = {}) {
@@ -2232,9 +2266,12 @@ function simplifyCurrentStage(project) {
   const sector = normalizeText(project?.operationalSector || "");
   const stage = normalizeText(project?.currentStage || "");
 
+  if (uiState === "completed" || stage.includes("finalizado")) {
+    return "Enviado";
+  }
+
   if (
     uiState === "awaiting_shipment" ||
-    uiState === "completed" ||
     stage.includes("final inspection") ||
     stage.includes("unitizacao") ||
     stage.includes("unitizacao e envio") ||
@@ -2490,7 +2527,7 @@ function buildDemandOptions() {
   const options = Array.from(
     new Set(
       state.projects
-        .map((project) => project.currentStageGroup || simplifyCurrentStage(project))
+        .map((project) => getProjectCurrentStageDisplay(project))
         .filter(Boolean)
         .filter((option) => !hiddenDemandOptions.has(normalizeText(option)))
     )
@@ -3054,7 +3091,7 @@ function applyFilter() {
     .filter((project) => {
       const matchesQuery = !query || project._searchText.includes(query);
       const matchesDemand = !demand
-        || normalizeText(project.currentStageGroup || simplifyCurrentStage(project)).includes(demand)
+        || normalizeText(getProjectCurrentStageDisplay(project)).includes(demand)
         || normalizeText(project.currentStage).includes(demand)
         || normalizeText(translateProjectStatus(project.projectStatus, project.uiState)).includes(demand);
       const matchesProjectType = !selectedProjectType || normalizeText(getProjectTypeLabel(project)) === selectedProjectType;
@@ -3157,6 +3194,258 @@ function formatBacklogItemText(project) {
   return `${formatNumber(count)} ${count === 1 ? "produto em produção" : "produtos em produção"}`;
 }
 
+function getProjectDrillSource() {
+  const source = getStatsProjectsSource();
+  return Array.isArray(source) ? source : [];
+}
+
+function getProjectDrillClientLabel(project) {
+  const label = getProjectClientLabel(project);
+  return label && label !== '—' ? label : 'Cliente não informado';
+}
+
+function getProjectDrillVesselLabel(project) {
+  const label = getProjectVesselLabel(project);
+  return label && label !== '—' ? label : 'Unidade não informada';
+}
+
+function createProjectDrillKey(label) {
+  return normalizeText(label || 'nao informado') || 'nao informado';
+}
+
+function getProjectDrillClientGroups(projects = getProjectDrillSource()) {
+  const groups = new Map();
+
+  projects.forEach((project) => {
+    const label = getProjectDrillClientLabel(project);
+    const key = createProjectDrillKey(label);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        label,
+        count: 0,
+        projects: [],
+        totalWeightKg: 0,
+        weldedWeightKg: 0,
+        vesselCount: 0,
+      });
+    }
+
+    const group = groups.get(key);
+    group.count += 1;
+    group.projects.push(project);
+    group.totalWeightKg += Number(project.kilos || 0);
+    group.weldedWeightKg += Number(project.weldedWeightKg || 0);
+  });
+
+  groups.forEach((group) => {
+    const vesselKeys = new Set(group.projects.map((project) => createProjectDrillKey(getProjectDrillVesselLabel(project))));
+    group.vesselCount = vesselKeys.size;
+  });
+
+  return Array.from(groups.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'pt-BR'));
+}
+
+function getProjectDrillSelectedClientGroup() {
+  const groups = getProjectDrillClientGroups();
+  if (!state.projectDrill.selectedClientKey) return null;
+  return groups.find((group) => group.key === state.projectDrill.selectedClientKey) || null;
+}
+
+function getProjectDrillVesselGroups(clientGroup) {
+  const projects = Array.isArray(clientGroup?.projects) ? clientGroup.projects : [];
+  const groups = new Map();
+
+  projects.forEach((project) => {
+    const label = getProjectDrillVesselLabel(project);
+    const key = createProjectDrillKey(label);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        label,
+        count: 0,
+        projects: [],
+        totalWeightKg: 0,
+        weldedWeightKg: 0,
+      });
+    }
+
+    const group = groups.get(key);
+    group.count += 1;
+    group.projects.push(project);
+    group.totalWeightKg += Number(project.kilos || 0);
+    group.weldedWeightKg += Number(project.weldedWeightKg || 0);
+  });
+
+  return Array.from(groups.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'pt-BR'));
+}
+
+function getProjectDrillSelectedVesselGroup(clientGroup) {
+  const vesselGroups = getProjectDrillVesselGroups(clientGroup);
+  if (!state.projectDrill.selectedVesselKey) return null;
+  return vesselGroups.find((group) => group.key === state.projectDrill.selectedVesselKey) || null;
+}
+
+function setProjectDrillLevel({ clientKey = '', vesselKey = '' } = {}) {
+  state.projectDrill.selectedClientKey = clientKey;
+  state.projectDrill.selectedVesselKey = vesselKey;
+  renderProjectDrillPanel();
+}
+
+function closeProjectDrillPanel() {
+  state.projectDrill.open = false;
+  state.projectDrill.selectedClientKey = '';
+  state.projectDrill.selectedVesselKey = '';
+  if (totalProjectsCardEl) totalProjectsCardEl.setAttribute('aria-expanded', 'false');
+  renderProjectDrillPanel();
+}
+
+function openProjectDrillPanel() {
+  state.projectDrill.open = true;
+  state.projectDrill.selectedClientKey = '';
+  state.projectDrill.selectedVesselKey = '';
+  if (totalProjectsCardEl) totalProjectsCardEl.setAttribute('aria-expanded', 'true');
+  renderProjectDrillPanel();
+  if (projectDrillPanelEl) {
+    projectDrillPanelEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+function renderProjectDrillPanel() {
+  if (!projectDrillPanelEl || !projectDrillContentEl) return;
+
+  if (!state.projectDrill.open) {
+    projectDrillPanelEl.classList.add('hidden');
+    if (projectDrillContentEl) projectDrillContentEl.innerHTML = '';
+    return;
+  }
+
+  const clientGroups = getProjectDrillClientGroups();
+  const clientGroup = getProjectDrillSelectedClientGroup();
+
+  if (state.projectDrill.selectedClientKey && !clientGroup) {
+    state.projectDrill.selectedClientKey = '';
+    state.projectDrill.selectedVesselKey = '';
+  }
+
+  const refreshedClientGroup = getProjectDrillSelectedClientGroup();
+  const vesselGroup = refreshedClientGroup ? getProjectDrillSelectedVesselGroup(refreshedClientGroup) : null;
+
+  if (state.projectDrill.selectedVesselKey && !vesselGroup) {
+    state.projectDrill.selectedVesselKey = '';
+  }
+
+  const activeClientGroup = getProjectDrillSelectedClientGroup();
+  const activeVesselGroup = activeClientGroup ? getProjectDrillSelectedVesselGroup(activeClientGroup) : null;
+  const showingClients = !activeClientGroup;
+  const showingVessels = activeClientGroup && !activeVesselGroup;
+  const showingBsps = activeClientGroup && activeVesselGroup;
+
+  projectDrillPanelEl.classList.remove('hidden');
+  if (totalProjectsCardEl) totalProjectsCardEl.setAttribute('aria-expanded', 'true');
+
+  if (projectDrillBackEl) projectDrillBackEl.classList.toggle('hidden', showingClients);
+
+  if (projectDrillBreadcrumbEl) {
+    if (showingClients) {
+      projectDrillBreadcrumbEl.classList.add('hidden');
+      projectDrillBreadcrumbEl.innerHTML = '';
+    } else {
+      projectDrillBreadcrumbEl.classList.remove('hidden');
+      const crumbs = [
+        '<button type="button" class="project-drill-crumb" data-drill-client="">Clientes</button>',
+        `<button type="button" class="project-drill-crumb" data-drill-client="${escapeHtml(activeClientGroup.key)}">${escapeHtml(activeClientGroup.label)}</button>`,
+      ];
+      if (activeVesselGroup) {
+        crumbs.push(`<span>${escapeHtml(activeVesselGroup.label)}</span>`);
+      }
+      projectDrillBreadcrumbEl.innerHTML = crumbs.join('<span class="project-drill-separator">›</span>');
+    }
+  }
+
+  if (showingClients) {
+    if (projectDrillTitleEl) projectDrillTitleEl.textContent = 'Projetos por cliente';
+    if (projectDrillSubtitleEl) projectDrillSubtitleEl.textContent = 'Selecione um cliente para abrir as unidades/obras vinculadas a ele.';
+    if (!clientGroups.length) {
+      projectDrillContentEl.innerHTML = '<div class="project-drill-empty">Nenhum projeto disponível para detalhar.</div>';
+      return;
+    }
+
+    projectDrillContentEl.innerHTML = `
+      <div class="project-drill-grid project-drill-grid--clients">
+        ${clientGroups.map((group) => `
+          <button type="button" class="project-drill-card" data-drill-client="${escapeHtml(group.key)}">
+            <span class="project-drill-label">${escapeHtml(group.label)}</span>
+            <strong>${formatNumber(group.count)}</strong>
+            <small>${formatNumber(group.vesselCount)} unidade(s) • ${formatNumber(group.totalWeightKg, 0)} kg programado</small>
+          </button>
+        `).join('')}
+      </div>
+    `;
+    return;
+  }
+
+  if (showingVessels) {
+    const vesselGroups = getProjectDrillVesselGroups(activeClientGroup);
+    if (projectDrillTitleEl) projectDrillTitleEl.textContent = `Unidades / obras de ${activeClientGroup.label}`;
+    if (projectDrillSubtitleEl) projectDrillSubtitleEl.textContent = 'Clique em uma unidade para visualizar as BSPs vinculadas.';
+    projectDrillContentEl.innerHTML = `
+      <div class="project-drill-grid project-drill-grid--vessels">
+        ${vesselGroups.map((group) => `
+          <button type="button" class="project-drill-card project-drill-card--vessel" data-drill-vessel="${escapeHtml(group.key)}">
+            <span class="project-drill-label">${escapeHtml(group.label)}</span>
+            <strong>${formatNumber(group.count)}</strong>
+            <small>BSP(s) • ${formatNumber(group.weldedWeightKg, 0)} kg soldado</small>
+          </button>
+        `).join('')}
+      </div>
+    `;
+    return;
+  }
+
+  if (showingBsps) {
+    const projects = [...activeVesselGroup.projects].sort(compareProjectsByPlannedFinishDate);
+    if (projectDrillTitleEl) projectDrillTitleEl.textContent = `${activeClientGroup.label} • ${activeVesselGroup.label}`;
+    if (projectDrillSubtitleEl) projectDrillSubtitleEl.textContent = `${formatNumber(projects.length)} BSP(s) vinculada(s) a esta unidade/obra. Dê 2 cliques na BSP para abrir o detalhamento completo.`;
+
+    projectDrillContentEl.innerHTML = `
+      <div class="project-drill-table-shell">
+        <table class="project-drill-table">
+          <thead>
+            <tr>
+              <th>BSP / Projeto</th>
+              <th>Tipo</th>
+              <th>Etapa atual</th>
+              <th>Status</th>
+              <th>Itens</th>
+              <th>Término planejado</th>
+              <th>Data de envio</th>
+              <th>% Geral</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${projects.map((project) => {
+              const statusPresentation = getProjectStatusPresentation(project);
+              return `
+                <tr data-drill-project-id="${project.rowId}">
+                  <td>${escapeHtml(project.projectDisplay || '—')}</td>
+                  <td><span class="type-pill">${escapeHtml(getProjectTypeLabel(project))}</span></td>
+                  <td>${escapeHtml(getProjectCurrentStageDisplay(project))}</td>
+                  <td><span class="cell-status cell-status--${statusPresentation.state}">${escapeHtml(statusPresentation.text)}</span></td>
+                  <td>${formatNumber(getProjectItemCount(project))}</td>
+                  <td>${escapeHtml(project.plannedFinishDate || '—')}</td>
+                  <td>${escapeHtml(getProjectShipmentDate(project))}</td>
+                  <td>${formatPercent(project.overallProgress)}</td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+}
+
 function renderStats() {
   const stats = buildClientStats(getStatsProjectsSource());
   state.visibleStats = stats;
@@ -3207,6 +3496,8 @@ function renderStats() {
   const completedEl = document.getElementById("stat-completed");
   if (completedEl) completedEl.textContent = formatNumber(stats.completed);
   setTags("stat-completed-tags", stats.completedTags);
+
+  renderProjectDrillPanel();
 }
 
 
@@ -3358,7 +3649,7 @@ function buildFilteredProjectsExportRows() {
     const spools = getDisplaySpoolsForProject(project);
     const exportItems = spools.length ? spools : [null];
     const statusPresentation = getProjectStatusPresentation(project);
-    const projectStage = project.currentStageGroup || simplifyCurrentStage(project);
+    const projectStage = getProjectCurrentStageDisplay(project);
     const projectSector = sectorLabel(getProjectSectorForScopedView(project)) || sectorLabel(getFlowSectorKey(project?.flow || {})) || '—';
 
     for (const spool of exportItems) {
@@ -3541,7 +3832,7 @@ function renderTable() {
           <td>
             <span class="stage-pill">
               <span class="stage-dot stage-dot--${stageStatusClass(project.currentStageStatus)}"></span>
-              <span class="stage-text">${project.currentStageGroup || simplifyCurrentStage(project)}</span>
+              <span class="stage-text">${getProjectCurrentStageDisplay(project)}</span>
             </span>
           </td>
           <td>${formatPercent(project.individualProgress)}</td>
@@ -3619,7 +3910,7 @@ function renderSelectedProjectCard() {
         </div>
         <div class="stage-pill">
           <span class="stage-dot stage-dot--${stageStatusClass(project.currentStageStatus)}"></span>
-          <span class="stage-name">${project.currentStageGroup || simplifyCurrentStage(project)}</span>
+          <span class="stage-name">${getProjectCurrentStageDisplay(project)}</span>
         </div>
       </div>
 
@@ -4321,6 +4612,80 @@ function bindEvents() {
       renderTable();
       renderSelectedProjectCard();
       tableShellEl.scrollTop = 0;
+    });
+  }
+
+  if (totalProjectsCardEl) {
+    const openTotalProjectsDrill = () => openProjectDrillPanel();
+    totalProjectsCardEl.addEventListener("click", openTotalProjectsDrill);
+    totalProjectsCardEl.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openTotalProjectsDrill();
+      }
+    });
+  }
+
+  if (projectDrillCloseEl) {
+    projectDrillCloseEl.addEventListener("click", closeProjectDrillPanel);
+  }
+
+  if (projectDrillBackEl) {
+    projectDrillBackEl.addEventListener("click", () => {
+      if (state.projectDrill.selectedVesselKey) {
+        state.projectDrill.selectedVesselKey = '';
+      } else if (state.projectDrill.selectedClientKey) {
+        state.projectDrill.selectedClientKey = '';
+      }
+      renderProjectDrillPanel();
+    });
+  }
+
+  if (projectDrillContentEl) {
+    projectDrillContentEl.addEventListener("click", (event) => {
+      const clientButton = event.target.closest("[data-drill-client]");
+      if (clientButton) {
+        const clientKey = clientButton.dataset.drillClient || '';
+        setProjectDrillLevel({ clientKey, vesselKey: '' });
+        return;
+      }
+
+      const vesselButton = event.target.closest("[data-drill-vessel]");
+      if (vesselButton) {
+        const vesselKey = vesselButton.dataset.drillVessel || '';
+        setProjectDrillLevel({ clientKey: state.projectDrill.selectedClientKey, vesselKey });
+        return;
+      }
+
+      const projectRow = event.target.closest("tr[data-drill-project-id]");
+      if (projectRow) {
+        const projectId = Number(projectRow.dataset.drillProjectId);
+        const project = state.projects.find((item) => item.rowId === projectId);
+        if (!project) return;
+        state.selectedProjectId = projectId;
+        renderTable();
+        projectRow.classList.add("project-drill-row-selected");
+      }
+    });
+
+    projectDrillContentEl.addEventListener("dblclick", (event) => {
+      const projectRow = event.target.closest("tr[data-drill-project-id]");
+      if (!projectRow) return;
+      const projectId = Number(projectRow.dataset.drillProjectId);
+      const project = state.projects.find((item) => item.rowId === projectId);
+      if (!project) return;
+      state.selectedProjectId = projectId;
+      renderTable();
+      openProjectModal(project);
+    });
+  }
+
+  if (projectDrillBreadcrumbEl) {
+    projectDrillBreadcrumbEl.addEventListener("click", (event) => {
+      const clientButton = event.target.closest("[data-drill-client]");
+      if (!clientButton) return;
+      const clientKey = clientButton.dataset.drillClient || '';
+      setProjectDrillLevel({ clientKey, vesselKey: '' });
     });
   }
 

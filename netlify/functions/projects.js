@@ -328,7 +328,7 @@ function deriveOperationalStage(stageValues, fabricationStartDate, coatingPercen
   const normalizedProjectStatus = String(projectStatus || "").trim().toUpperCase().replace(/\s+/g, " ");
   const isHold = ["ON HOLD", "HOLD", "PAUSED", "EM ESPERA"].includes(normalizedProjectStatus);
 
-  if (finished || projectFinished || projectFinishDate) return makeFlow("Finalizado", "Logística", 100, "completed", "completed");
+  if (finished || projectFinished || projectFinishDate) return makeFlow("Finalizado", "Enviado", 100, "completed", "completed");
 
   const coatingCompleted = coating >= 100;
   const finalInspectionStarted = finalInspection > 0;
@@ -462,13 +462,13 @@ function summarizeFlowItems(items, fallbackFlow, fallbackQuantity = 1) {
     return clean.map((row) => `${row.label}: ${row.count}`).join(" • ");
   };
   const flow = allFinished
-    ? makeFlow("Finalizado", "Logística", 100, "completed", "completed")
+    ? makeFlow("Finalizado", "Enviado", 100, "completed", "completed")
     : primary;
   return {
     flow,
     allFinished,
     statusSummary: allFinished ? "Finalizado" : formatBreakdown(activeStatusBreakdown, primary.status),
-    sectorSummary: allFinished ? "Logística" : formatBreakdown(activeSectorBreakdown.filter((row) => row.label !== "Logística" || primary.sector === "Logística"), primary.sector),
+    sectorSummary: allFinished ? "Enviado" : formatBreakdown(activeSectorBreakdown.filter((row) => row.label !== "Logística" || primary.sector === "Logística"), primary.sector),
     statusBreakdown,
     sectorBreakdown,
   };

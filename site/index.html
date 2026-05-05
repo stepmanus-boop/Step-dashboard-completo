@@ -74,9 +74,10 @@
       </header>
 
       <section class="summary-row summary-row--nine">
-        <article class="summary-card">
+        <article class="summary-card summary-card--clickable" id="total-projects-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir a visão por cliente, unidade e BSP">
           <span class="summary-label">Total de projetos</span>
           <strong id="stat-projects">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
         </article>
         <article class="summary-card">
           <span class="summary-label">Peso total Programado</span>
@@ -125,6 +126,22 @@
           <span class="summary-label">(M²) Programada</span>
           <strong id="stat-painting-m2">-- m²</strong>
         </article>
+      </section>
+
+      <section id="project-drill-panel" class="project-drill-panel hidden" aria-live="polite">
+        <div class="project-drill-head">
+          <div>
+            <span class="project-drill-kicker">Visão por cliente</span>
+            <h2 id="project-drill-title">Projetos por cliente</h2>
+            <p id="project-drill-subtitle">Clique em um cliente para visualizar as unidades/obras. Depois clique em uma unidade para listar as BSPs.</p>
+          </div>
+          <div class="project-drill-actions">
+            <button id="project-drill-back" class="mini-action-button hidden" type="button">Voltar</button>
+            <button id="project-drill-close" class="mini-action-button" type="button">Fechar</button>
+          </div>
+        </div>
+        <div id="project-drill-breadcrumb" class="project-drill-breadcrumb hidden"></div>
+        <div id="project-drill-content" class="project-drill-content"></div>
       </section>
 
       <main class="content-grid">
