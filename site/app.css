@@ -4076,3 +4076,34 @@ button.alert-badge {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+
+/* Exportação do detalhamento filtrado */
+.export-excel-button {
+  border: 1px solid rgba(71, 218, 117, 0.35);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(35, 162, 88, 0.22), rgba(22, 110, 63, 0.22));
+  color: #dfffea;
+  font-weight: 800;
+  letter-spacing: .01em;
+  padding: 11px 14px;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+  white-space: nowrap;
+}
+
+.export-excel-button:hover:not(:disabled) {
+  border-color: rgba(71, 218, 117, 0.65);
+  background: linear-gradient(180deg, rgba(35, 162, 88, 0.34), rgba(22, 110, 63, 0.3));
+}
+
+.export-excel-button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+@media (max-width: 1280px) {
+  .export-excel-button {
+    width: 100%;
+  }
+}

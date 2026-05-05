@@ -92,6 +92,7 @@ const refreshProjectsButtonEl = document.getElementById("refresh-projects-button
 const footerVersionEl = document.getElementById("footer-version");
 const searchInputEl = document.getElementById("project-search");
 const clearSearchEl = document.getElementById("clear-search");
+const exportFilteredProjectsEl = document.getElementById("export-filtered-projects");
 const demandFilterEl = document.getElementById("demand-filter");
 const projectTypeFilterEl = document.getElementById("project-type-filter");
 const weekFilterEl = document.getElementById("week-filter");
@@ -3282,17 +3283,230 @@ function getProjectShipmentDate(project) {
     return spoolDates[0].value;
   }
 
+
   return '—';
+}
+
+function sanitizeFilenamePart(value) {
+  return normalizeText(value || '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'todos';
+}
+
+function excelXmlEscape(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ' ');
+}
+
+function excelCell(value, type = 'String') {
+  if (type === 'Number') {
+    const number = Number(value);
+    const safeNumber = Number.isFinite(number) ? number : 0;
+    return `<Cell><Data ss:Type="Number">${safeNumber}</Data></Cell>`;
+  }
+  return `<Cell><Data ss:Type="String">${excelXmlEscape(value == null || value === '' ? '—' : value)}</Data></Cell>`;
+}
+
+function buildFilteredProjectsExportRows() {
+  const projects = Array.isArray(state.filteredProjects) ? state.filteredProjects : [];
+  const stageOrder = Array.isArray(state.meta?.stageOrder) ? state.meta.stageOrder : [];
+  const stageColumns = stageOrder.map((stage) => ({
+    key: stage.key,
+    label: stage.label || stage.key,
+    type: stage.type || 'text',
+  }));
+
+  const baseHeaders = [
+    'Projeto',
+    'Tipo',
+    'Cliente',
+    'Unidade / Vessel',
+    'PM',
+    'Status do projeto',
+    'Demanda atual',
+    'Setor responsável',
+    'Término planejado',
+    'Data de envio',
+    'Qtd. itens do projeto',
+    'Item / ISO / Spool',
+    'Descrição do item',
+    'Observação',
+    '% individual projeto',
+    '% geral projeto',
+    '% item',
+    'Peso total projeto (kg)',
+    'Peso soldado projeto (kg)',
+    'Peso item (kg)',
+    'Peso soldado item (kg)',
+    'Área operacional projeto (m²)',
+    'Área item (m²)',
+    'Semana solda',
+    'Etapa item',
+    'Setor item',
+    'Finalizado?',
+  ];
+  const headers = [...baseHeaders, ...stageColumns.map((stage) => stage.label)];
+  const rows = [];
+
+  for (const project of projects) {
+    const spools = getDisplaySpoolsForProject(project);
+    const exportItems = spools.length ? spools : [null];
+    const statusPresentation = getProjectStatusPresentation(project);
+    const projectStage = project.currentStageGroup || simplifyCurrentStage(project);
+    const projectSector = sectorLabel(getProjectSectorForScopedView(project)) || sectorLabel(getFlowSectorKey(project?.flow || {})) || '—';
+
+    for (const spool of exportItems) {
+      const spoolStage = spool ? getSpoolStageLabel(project, spool) : projectStage;
+      const spoolSector = spool
+        ? (spool.currentSector || spool.operationalSector || sectorLabel(getSpoolCompetenceSector(project, spool)) || sectorLabel(getFlowSectorKey(spool.flow || {})) || projectSector)
+        : projectSector;
+      const itemFinished = spool ? Boolean(spool.finished || spool.uiState === 'completed') : Boolean(project.finished || project.uiState === 'completed');
+      const baseValues = [
+        project.projectDisplay || project.projectNumber || '—',
+        getProjectTypeLabel(project),
+        getProjectClientLabel(project),
+        getProjectVesselLabel(project),
+        project.pm || '—',
+        statusPresentation.text,
+        projectStage,
+        projectSector,
+        project.plannedFinishDate || '—',
+        getProjectShipmentDate(project),
+        getProjectItemCount(project),
+        spool ? (spool.iso || spool.drawing || '—') : 'Projeto sem itens internos detalhados',
+        spool ? (spool.description || '—') : (project.description || '—'),
+        spool ? (spool.observations || '—') : (project.observations || '—'),
+        formatPercent(project.individualProgress),
+        formatPercent(project.overallProgress),
+        spool ? formatPercent(spool.individualProgress ?? spool.overallProgress ?? spool.progress ?? '') : '—',
+        formatNumber(project.kilos, 2),
+        formatNumber(project.weldedWeightKg, 2),
+        spool ? formatNumber(spool.kilos, 2) : '—',
+        spool ? formatNumber(spool.weldedWeightKg, 2) : '—',
+        formatNumber(project.m2Painting, 3),
+        spool ? formatNumber(spool.m2Painting, 3) : '—',
+        spool ? (spool.weldingWeek || project.weldingWeek || '—') : (project.weldingWeek || '—'),
+        spoolStage,
+        spoolSector,
+        itemFinished ? 'Sim' : 'Não',
+      ];
+      const stageValues = spool?.stageValues || project.stageValues || {};
+      const dynamicValues = stageColumns.map((stage) => {
+        const value = stageValues[stage.key];
+        if (value == null || value === '') return '—';
+        return stage.type === 'percent' ? formatPercent(value) : String(value);
+      });
+      rows.push([...baseValues, ...dynamicValues]);
+    }
+  }
+
+  return { headers, rows };
+}
+
+function getActiveExportFilterLabel() {
+  const pieces = [];
+  if (state.projectView === 'mine') pieces.push('meus-projetos');
+  if (state.sectorScopedView) pieces.push(`setor-${sectorLabel(getPrimaryUserSector()).toLowerCase()}`);
+  if (state.demandFilter) pieces.push(`demanda-${state.demandFilter}`);
+  if (state.projectTypeFilter) pieces.push(`tipo-${state.projectTypeFilter}`);
+  if (state.weekFilter) pieces.push(`semana-${state.weekFilter}`);
+  if (Array.isArray(state.statusFilters) && state.statusFilters.length) pieces.push(`status-${state.statusFilters.join('-')}`);
+  if (state.searchQuery) pieces.push(`busca-${state.searchQuery}`);
+  return pieces.length ? pieces.map(sanitizeFilenamePart).filter(Boolean).join('_') : 'todos-os-projetos';
+}
+
+function updateExportFilteredProjectsButton() {
+  if (!exportFilteredProjectsEl) return;
+  const count = Array.isArray(state.filteredProjects) ? state.filteredProjects.length : 0;
+  exportFilteredProjectsEl.disabled = count <= 0;
+  exportFilteredProjectsEl.textContent = count > 0 ? `Baixar Excel (${formatNumber(count)})` : 'Baixar Excel';
+  exportFilteredProjectsEl.title = count > 0
+    ? `Baixar o detalhamento dos ${formatNumber(count)} projeto(s) filtrado(s)`
+    : 'Nenhum projeto filtrado para exportar';
+}
+
+function downloadFilteredProjectsExcel() {
+  const projects = Array.isArray(state.filteredProjects) ? state.filteredProjects : [];
+  if (!projects.length) {
+    window.alert('Nenhum projeto filtrado para exportar.');
+    return;
+  }
+
+  const { headers, rows } = buildFilteredProjectsExportRows();
+  const generatedAt = new Date().toLocaleString('pt-BR');
+  const title = 'Detalhamento de projetos filtrados';
+  const filterLabel = getActiveExportFilterLabel();
+
+  const headerRow = `<Row>${headers.map((header) => excelCell(header)).join('')}</Row>`;
+  const dataRows = rows.map((row) => `<Row>${row.map((cell) => excelCell(cell)).join('')}</Row>`).join('');
+  const columnDefs = headers.map(() => '<Column ss:AutoFitWidth="1" ss:Width="135"/>').join('');
+
+  const workbook = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+  <Title>${excelXmlEscape(title)}</Title>
+  <Author>STEP Dashboard</Author>
+  <Created>${new Date().toISOString()}</Created>
+ </DocumentProperties>
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center"/><Font ss:FontName="Arial" ss:Size="10"/></Style>
+  <Style ss:ID="Title"><Font ss:Bold="1" ss:Size="13"/><Interior ss:Color="#D9EAF7" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Header"><Font ss:Bold="1"/><Interior ss:Color="#C6E0B4" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/></Borders></Style>
+ </Styles>
+ <Worksheet ss:Name="Detalhamento">
+  <Table>
+   ${columnDefs}
+   <Row ss:StyleID="Title"><Cell ss:MergeAcross="5"><Data ss:Type="String">${excelXmlEscape(title)}</Data></Cell></Row>
+   <Row><Cell><Data ss:Type="String">Gerado em</Data></Cell><Cell><Data ss:Type="String">${excelXmlEscape(generatedAt)}</Data></Cell></Row>
+   <Row><Cell><Data ss:Type="String">Projetos filtrados</Data></Cell><Cell><Data ss:Type="String">${excelXmlEscape(formatNumber(projects.length))}</Data></Cell></Row>
+   <Row><Cell><Data ss:Type="String">Linhas detalhadas</Data></Cell><Cell><Data ss:Type="String">${excelXmlEscape(formatNumber(rows.length))}</Data></Cell></Row>
+   <Row></Row>
+   ${headerRow.replace('<Row>', '<Row ss:StyleID="Header">')}
+   ${dataRows}
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>6</SplitHorizontal>
+   <TopRowBottomPane>6</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+</Workbook>`;
+
+  const blob = new Blob(['\ufeff', workbook], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+  const link = document.createElement('a');
+  const filename = `detalhamento_${filterLabel}_${new Date().toISOString().slice(0, 10)}.xls`;
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  window.setTimeout(() => {
+    URL.revokeObjectURL(link.href);
+    link.remove();
+  }, 0);
 }
 
 function renderTable() {
   if (!state.filteredProjects.length) {
     bodyEl.innerHTML = '<tr><td colspan="21" class="loading-cell">Nenhum projeto encontrado para a busca informada.</td></tr>';
     searchCountEl.textContent = "0 resultado(s)";
+    updateExportFilteredProjectsButton();
     return;
   }
 
   searchCountEl.textContent = `${state.filteredProjects.length} resultado(s)`;
+  updateExportFilteredProjectsButton();
 
   bodyEl.innerHTML = state.filteredProjects
     .map((project) => {
@@ -3988,6 +4202,10 @@ function bindEvents() {
       loadProjects({ force: true }).catch((error) => window.alert(error?.message || 'Falha ao atualizar agora.'));
     });
   }
+  if (exportFilteredProjectsEl) {
+    exportFilteredProjectsEl.addEventListener('click', downloadFilteredProjectsExcel);
+  }
+
   if (sectorAlertsContentEl) {
     sectorAlertsContentEl.addEventListener('click', async (event) => {
       const button = event.target.closest('[data-enable-push]');
@@ -5036,6 +5254,7 @@ function resetDashboardForLoggedOutState() {
   if (bodyEl) bodyEl.innerHTML = `<tr><td colspan="21" class="loading-cell">Faça login para visualizar os projetos.</td></tr>`;
   if (detailCardEl) detailCardEl.innerHTML = `<div class="detail-placeholder">Painel protegido. Entre com seu usuário e senha para visualizar as informações.</div>`;
   if (searchCountEl) searchCountEl.textContent = '0 resultado(s)';
+  updateExportFilteredProjectsButton();
   if (sheetNameEl) sheetNameEl.textContent = 'Acesso restrito';
   if (lastSyncEl) lastSyncEl.textContent = 'Faça login para carregar os dados.';
   if (alertBadgeCountEl) alertBadgeCountEl.textContent = '0';
