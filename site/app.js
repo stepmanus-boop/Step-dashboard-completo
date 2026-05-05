@@ -2405,7 +2405,9 @@ function enrichProjects(projects) {
       project.projectType,
       getProjectTypeLabel(project),
       project.client,
-      ...(project.spools || []).flatMap((spool) => [spool.iso, spool.description, spool.drawing]),
+      project.vessel,
+      project.observations,
+      ...(project.spools || []).flatMap((spool) => [spool.iso, spool.description, spool.drawing, spool.observations]),
     ];
 
     return {
@@ -2602,8 +2604,17 @@ function projectMatchesWeekFilter(project, weekLabel = state.weekFilter) {
   return String(project?.weldingWeek || '').trim() === normalizedWeek;
 }
 
+function hasActiveProjectTableFilters() {
+  const hasQuery = Boolean(normalizeText(state.searchQuery).trim());
+  const hasDemand = Boolean(normalizeText(state.demandFilter).trim());
+  const hasType = Boolean(normalizeText(state.projectTypeFilter).trim());
+  const hasWeek = Boolean(String(state.weekFilter || '').trim());
+  const hasStatus = !areAllStatusFiltersSelected();
+  return hasQuery || hasDemand || hasType || hasWeek || hasStatus;
+}
+
 function getStatsProjectsSource() {
-  if (Array.isArray(state.filteredProjects) && state.filteredProjects.length) return state.filteredProjects;
+  if (Array.isArray(state.filteredProjects) && hasActiveProjectTableFilters()) return state.filteredProjects;
   const source = getVisibleProjectsSource();
   return source.filter((project) => projectMatchesWeekFilter(project));
 }
@@ -2616,15 +2627,68 @@ function isProjectStatusOnHold(projectStatus) {
     || compact === "pausado"
     || compact === "paused"
     || compact === "emespera"
+    || normalized.includes("on hold")
+    || normalized.includes("em hold")
+    || normalized.includes("projeto em hold")
+    || normalized.includes("hold conforme")
     || normalized.includes("hold")
     || normalized.includes("em espera")
     || normalized.includes("pausado")
-    || normalized.includes("paused");
+    || normalized.includes("paused")
+    || normalized.includes("paralisado")
+    || normalized.includes("suspenso");
+}
+
+function getProjectHoldContextTexts(project) {
+  if (!project) return [];
+  const texts = [
+    project.projectStatus,
+    project.status,
+    project.jobProcessStatus,
+    project.currentStage,
+    project.currentStageGroup,
+    project.currentStatus,
+    project.statusSummary,
+    project.sectorSummary,
+    project.operationalState,
+    project.observations,
+    project.note,
+    project.notes,
+    project.summaryDrawing,
+  ];
+
+  if (project.stageValues && typeof project.stageValues === 'object') {
+    texts.push(...Object.values(project.stageValues));
+  }
+
+  if (Array.isArray(project.spools)) {
+    project.spools.forEach((spool) => {
+      texts.push(
+        spool?.observations,
+        spool?.currentStatus,
+        spool?.stage,
+        spool?.stageStatus,
+        spool?.operationalState,
+        spool?.drawing,
+        spool?.description
+      );
+      if (spool?.stageValues && typeof spool.stageValues === 'object') {
+        texts.push(...Object.values(spool.stageValues));
+      }
+    });
+  }
+
+  return texts.filter((value) => value != null && String(value).trim() !== '');
+}
+
+function isProjectOnHold(project) {
+  return getProjectHoldContextTexts(project).some((value) => isProjectStatusOnHold(value));
 }
 
 function buildClientStats(projects) {
+  const activeProjects = (Array.isArray(projects) ? projects : []).filter((project) => !isProjectOnHold(project));
   const stats = {
-    totalProjects: projects.length,
+    totalProjects: activeProjects.length,
     totalSpools: 0,
     totalWeightKg: 0,
     totalWeldedWeightKg: 0,
@@ -2657,14 +2721,15 @@ function buildClientStats(projects) {
       ? spools.filter((spool) => spool.flow?.state !== 'completed' && spool.flow?.status !== 'Finalizado').reduce((total, spool) => total + Number(spool.m2Painting || 0), 0)
       : 0;
     stats.totalPaintingM2 += project.finished ? 0 : (openPaintingM2 > 0 ? openPaintingM2 : Number(project.m2Painting || 0));
-    progressAccumulator += Number(project.overallProgress || 0);
-
-    const isHoldProject = isProjectStatusOnHold(project?.projectStatus);
+    const isHoldProject = isProjectOnHold(project);
 
     if (isHoldProject) {
       stats.notStartedHold += 1;
       stats.notStartedHoldTags += tags;
+      continue;
     }
+
+    progressAccumulator += Number(project.overallProgress || 0);
 
     if (project.finished || project.uiState === 'completed') {
       stats.completed += 1;
@@ -2702,7 +2767,7 @@ function buildClientStats(projects) {
     }
   }
 
-  stats.averageOverallProgress = projects.length ? progressAccumulator / projects.length : 0;
+  stats.averageOverallProgress = activeProjects.length ? progressAccumulator / activeProjects.length : 0;
   return stats;
 }
 
@@ -3149,32 +3214,11 @@ function incrementTrailingNumberLabel(value, index) {
   return `${text} - Item ${nextNumber}`;
 }
 
-function createVirtualSpoolFromGroupedRow(spool, index, project) {
-  const base = { ...(spool || {}) };
-  const iso = incrementTrailingNumberLabel(base.iso || base.drawing || project?.projectDisplay || 'Item', index);
-  const drawing = incrementTrailingNumberLabel(base.drawing || base.iso || project?.projectDisplay || 'Item', index);
-  return {
-    ...base,
-    rowId: `${base.rowId || project?.rowId || 'virtual'}::item-${index}`,
-    rowNumber: Number(base.rowNumber || 0) + (index / 1000),
-    iso,
-    drawing,
-    isVirtualQuantityItem: index > 1,
-    observations: index > 1
-      ? (base.observations ? `${base.observations} | ` : '') + 'Item detalhado pela quantidade informada na BSP.'
-      : base.observations,
-  };
-}
-
 function getDisplaySpoolsForProject(project, sourceSpools = null) {
   const spools = Array.isArray(sourceSpools) ? sourceSpools : (Array.isArray(project?.spools) ? project.spools : []);
-  const declaredCount = Number(project?.quantitySpools || 0);
-
-  if (declaredCount > spools.length && spools.length === 1) {
-    return Array.from({ length: declaredCount }, (_, index) => createVirtualSpoolFromGroupedRow(spools[0], index + 1, project));
-  }
-
-  return spools;
+  // Regra operacional: exibir/exportar somente itens realmente cadastrados no Tracking.
+  // Mesmo que a BSP tenha uma quantidade informada, o sistema não deve criar ISO/SPOOL virtual.
+  return spools.filter((spool) => spool && !spool.isVirtualQuantityItem);
 }
 
 function getPendingSpools(project) {
@@ -3196,7 +3240,7 @@ function formatBacklogItemText(project) {
 
 function getProjectDrillSource() {
   const source = getStatsProjectsSource();
-  return Array.isArray(source) ? source : [];
+  return Array.isArray(source) ? source.filter((project) => !isProjectOnHold(project)) : [];
 }
 
 function getProjectDrillClientLabel(project) {

@@ -1005,6 +1005,7 @@ function buildProject(summaryRow, childRows) {
     individualProgress,
     overallProgress,
     projectStatus,
+    observations: textValue(summaryRow, "OBSERVATIONS"),
     jobProcessStatus: textValue(summaryRow, "Job Process Status") || progress.currentStage.label,
     summaryDrawing: textValue(summaryRow, "Drawing"),
     projectType: textValue(summaryRow, "Project Type"),
@@ -1217,15 +1218,68 @@ function isProjectStatusOnHold(projectStatus) {
     || compact === "PAUSADO"
     || compact === "PAUSED"
     || compact === "EMESPERA"
+    || normalized.includes("ON HOLD")
+    || normalized.includes("EM HOLD")
+    || normalized.includes("PROJETO EM HOLD")
+    || normalized.includes("HOLD CONFORME")
     || normalized.includes("HOLD")
     || normalized.includes("EM ESPERA")
     || normalized.includes("PAUSADO")
-    || normalized.includes("PAUSED");
+    || normalized.includes("PAUSED")
+    || normalized.includes("PARALISADO")
+    || normalized.includes("SUSPENSO");
+}
+
+function getProjectHoldContextTexts(project) {
+  if (!project) return [];
+  const texts = [
+    project.projectStatus,
+    project.status,
+    project.jobProcessStatus,
+    project.currentStage,
+    project.currentStageGroup,
+    project.currentStatus,
+    project.statusSummary,
+    project.sectorSummary,
+    project.operationalState,
+    project.observations,
+    project.note,
+    project.notes,
+    project.summaryDrawing,
+  ];
+
+  if (project.stageValues && typeof project.stageValues === "object") {
+    texts.push(...Object.values(project.stageValues));
+  }
+
+  if (Array.isArray(project.spools)) {
+    project.spools.forEach((spool) => {
+      texts.push(
+        spool?.observations,
+        spool?.currentStatus,
+        spool?.stage,
+        spool?.stageStatus,
+        spool?.operationalState,
+        spool?.drawing,
+        spool?.description
+      );
+      if (spool?.stageValues && typeof spool.stageValues === "object") {
+        texts.push(...Object.values(spool.stageValues));
+      }
+    });
+  }
+
+  return texts.filter((value) => value != null && String(value).trim() !== "");
+}
+
+function isProjectOnHold(project) {
+  return getProjectHoldContextTexts(project).some((value) => isProjectStatusOnHold(value));
 }
 
 function buildStats(projects) {
+  const activeProjects = (Array.isArray(projects) ? projects : []).filter((project) => !isProjectOnHold(project));
   const stats = {
-    totalProjects: projects.length,
+    totalProjects: activeProjects.length,
     totalSpools: 0,
     totalWeightKg: 0,
     totalWeldedWeightKg: 0,
@@ -1259,14 +1313,15 @@ function buildStats(projects) {
       ? spools.filter((spool) => spool.flow?.state !== "completed" && spool.flow?.status !== "Finalizado").reduce((total, spool) => total + Number(spool.m2Painting || 0), 0)
       : 0;
     stats.totalPaintingM2 += project.finished ? 0 : (openPaintingM2 > 0 ? openPaintingM2 : Number(project.m2Painting || 0));
-    progressAccumulator += project.overallProgress || 0;
-
-    const isOnHold = isProjectStatusOnHold(project?.projectStatus);
+    const isOnHold = isProjectOnHold(project);
 
     if (isOnHold) {
       stats.notStartedHold += 1;
       stats.notStartedHoldTags += tags;
+      continue;
     }
+
+    progressAccumulator += project.overallProgress || 0;
 
     if (project.finished) {
       stats.completed += 1;
@@ -1292,7 +1347,7 @@ function buildStats(projects) {
     }
   }
 
-  stats.averageOverallProgress = projects.length ? progressAccumulator / projects.length : 0;
+  stats.averageOverallProgress = activeProjects.length ? progressAccumulator / activeProjects.length : 0;
   return stats;
 }
 
