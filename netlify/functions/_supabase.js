@@ -49,6 +49,7 @@ function mapUser(row) {
     sector: normalizeSectorValue(row.sector || (row.role === 'admin' ? 'all' : '')), 
     alertSectors: normalizeSectorList(row.sector || '', Array.isArray(row.alert_sectors) ? row.alert_sectors : []),
     projectPmAliases: Array.isArray(row.project_pm_aliases) ? row.project_pm_aliases.filter(Boolean) : [],
+    qualityCompetencies: Array.isArray(row.quality_competencies) ? row.quality_competencies.filter(Boolean) : [],
     active: row.active !== false,
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null,
@@ -186,6 +187,7 @@ async function insertUser(input) {
     sector: input.sector,
     alert_sectors: input.alertSectors || [],
     project_pm_aliases: Array.isArray(input.projectPmAliases) ? input.projectPmAliases : [],
+    quality_competencies: Array.isArray(input.qualityCompetencies) ? input.qualityCompetencies : [],
     active: input.active !== false,
   };
   const rows = await supabaseFetch('/rest/v1/users?select=*', {
@@ -206,6 +208,7 @@ async function updateUser(userId, updates) {
   if ('sector' in updates) payload.sector = updates.sector;
   if ('alertSectors' in updates) payload.alert_sectors = updates.alertSectors || [];
   if ('projectPmAliases' in updates) payload.project_pm_aliases = Array.isArray(updates.projectPmAliases) ? updates.projectPmAliases : [];
+  if ('qualityCompetencies' in updates) payload.quality_competencies = Array.isArray(updates.qualityCompetencies) ? updates.qualityCompetencies : [];
   if ('active' in updates) payload.active = updates.active !== false;
   const rows = await supabaseFetch(`/rest/v1/users?id=eq.${q}&select=*`, {
     method: 'PATCH',

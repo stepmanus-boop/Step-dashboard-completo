@@ -22,6 +22,40 @@ function isProjectsUser(role, sector, alertSectors = []) {
   return normalizeSectorValue(sector) === 'projetos' || normalizeSectorList('', alertSectors).includes('projetos');
 }
 
+function normalizeQualityCompetencies(input) {
+  const rawValues = Array.isArray(input) ? input : String(input || '').split(/[\n;,|]+/);
+  const allowed = new Set(['dimensional_inicial', 'dimensional_final', 'nde', 'th', 'final_inspection_qc']);
+  const aliases = {
+    inicial: 'dimensional_inicial',
+    dimensional_inicial: 'dimensional_inicial',
+    initial_dimensional: 'dimensional_inicial',
+    dimensional_final: 'dimensional_final',
+    final_dimensional: 'dimensional_final',
+    nde: 'nde',
+    end: 'nde',
+    th: 'th',
+    hydro: 'th',
+    hydro_test: 'th',
+    final_inspection: 'final_inspection_qc',
+    final_inspection_qc: 'final_inspection_qc',
+  };
+  const seen = new Set();
+  const values = [];
+  for (const value of rawValues) {
+    const key = normalizeText(value).replace(/[\s-]+/g, '_').replace(/__+/g, '_');
+    const normalized = aliases[key] || key;
+    if (!allowed.has(normalized) || seen.has(normalized)) continue;
+    seen.add(normalized);
+    values.push(normalized);
+  }
+  return values;
+}
+
+function isQualityUser(role, sector, alertSectors = []) {
+  if (role === 'admin') return false;
+  return normalizeSectorValue(sector) === 'inspecao' || normalizeSectorList('', alertSectors).includes('inspecao');
+}
+
 exports.handler = async (event) => {
   const admin = requireAdmin(event);
   if (!admin.ok) return admin.response;
@@ -48,6 +82,7 @@ exports.handler = async (event) => {
           sector: user.sector,
           alertSectors: normalizeSectorList('', user.alertSectors),
           projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
+          qualityCompetencies: Array.isArray(user.qualityCompetencies) ? user.qualityCompetencies : [],
           active: Boolean(user.active),
           createdAt: user.createdAt || null,
           presence,
@@ -85,6 +120,7 @@ exports.handler = async (event) => {
       const sector = role === 'admin' ? 'all' : normalizeSectorValue(body.sector);
       const alertSectors = role === 'admin' ? [] : normalizeSectorList('', body.alertSectors);
       const projectPmAliases = isProjectsUser(role, sector, alertSectors) ? normalizeProjectPmAliases(body.projectPmAliases) : [];
+      const qualityCompetencies = isQualityUser(role, sector, alertSectors) ? normalizeQualityCompetencies(body.qualityCompetencies) : [];
 
       if (!name || !username) {
         return jsonResponse(400, { ok: false, error: 'Preencha nome e usuário.' });
@@ -108,6 +144,7 @@ exports.handler = async (event) => {
         sector,
         alertSectors: role === 'admin' ? [] : alertSectors,
         projectPmAliases,
+        qualityCompetencies,
         active: body.active === false ? false : true,
         ...(password ? { passwordHash: hashPassword(password) } : {}),
       });
@@ -139,6 +176,7 @@ exports.handler = async (event) => {
         sector: nextRole === 'admin' ? 'all' : (current.sector && current.sector !== 'all' ? current.sector : ''),
         alertSectors: nextRole === 'admin' ? [] : normalizeSectorList('', current.alertSectors),
         projectPmAliases: nextRole === 'admin' ? [] : (isProjectsUser(nextRole, current.sector, current.alertSectors) ? normalizeProjectPmAliases(current.projectPmAliases) : []),
+        qualityCompetencies: nextRole === 'admin' ? [] : (isQualityUser(nextRole, current.sector, current.alertSectors) ? normalizeQualityCompetencies(current.qualityCompetencies) : []),
       });
       return jsonResponse(200, { ok: true, user: saved });
     } catch (error) {
@@ -159,6 +197,7 @@ exports.handler = async (event) => {
     const sector = role === 'admin' ? 'all' : normalizeSectorValue(body.sector);
     const alertSectors = role === 'admin' ? [] : normalizeSectorList('', body.alertSectors);
     const projectPmAliases = isProjectsUser(role, sector, alertSectors) ? normalizeProjectPmAliases(body.projectPmAliases) : [];
+    const qualityCompetencies = isQualityUser(role, sector, alertSectors) ? normalizeQualityCompetencies(body.qualityCompetencies) : [];
 
     if (!name || !username || !password) {
       return jsonResponse(400, { ok: false, error: 'Preencha nome, usuário e senha.' });
@@ -182,6 +221,7 @@ exports.handler = async (event) => {
       sector,
       alertSectors,
       projectPmAliases,
+      qualityCompetencies,
       active: true,
     });
 

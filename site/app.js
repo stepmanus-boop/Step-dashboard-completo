@@ -47,6 +47,7 @@ const state = {
   adminActiveTab: "usuario",
   adminProjectPmAliasesDraft: [],
   adminProjectPmSearchQuery: "",
+  adminQualityCompetenciesDraft: [],
   userPresence: [],
   alertResponses: [],
   selectedAlertForResponse: null,
@@ -832,6 +833,14 @@ const AVAILABLE_SECTORS = [
   { value: "projetos", label: "Projetos" },
 ];
 
+const QUALITY_COMPETENCY_OPTIONS = [
+  { value: "dimensional_inicial", label: "Inspeção Dimensional Inicial" },
+  { value: "dimensional_final", label: "Inspeção Dimensional Final" },
+  { value: "nde", label: "END / NDE" },
+  { value: "th", label: "TH" },
+  { value: "final_inspection_qc", label: "Final Inspection QC" },
+];
+
 function normalizeSectorValue(value) {
   const normalized = normalizeText(value)
     .replace(/[\s-]+/g, '_')
@@ -1014,6 +1023,93 @@ function updateAdminProjectPmAliasesVisibility() {
     if (searchInput) searchInput.value = '';
   }
   renderAdminProjectPmAliasOptions();
+  updateAdminQualityCompetenciesVisibility();
+}
+
+
+function normalizeQualityCompetencies(input = []) {
+  const rawValues = Array.isArray(input) ? input : String(input || '').split(/[\n;,|]+/);
+  const allowed = new Set(QUALITY_COMPETENCY_OPTIONS.map((item) => item.value));
+  const aliases = {
+    inicial: 'dimensional_inicial',
+    dimensional_inicial: 'dimensional_inicial',
+    initial_dimensional: 'dimensional_inicial',
+    initial_dimensional_inspection: 'dimensional_inicial',
+    dimensional_final: 'dimensional_final',
+    final_dimensional: 'dimensional_final',
+    final_dimensional_inspection: 'dimensional_final',
+    nde: 'nde',
+    end: 'nde',
+    non_destructive: 'nde',
+    non_destructive_examination: 'nde',
+    th: 'th',
+    hydro: 'th',
+    hydro_test: 'th',
+    teste_hidrostatico: 'th',
+    final_inspection: 'final_inspection_qc',
+    final_inspection_qc: 'final_inspection_qc',
+    inspection_finish_qc: 'final_inspection_qc',
+  };
+  const seen = new Set();
+  const values = [];
+  for (const value of rawValues) {
+    const key = normalizeText(value).replace(/[\s-]+/g, '_').replace(/__+/g, '_');
+    const normalized = aliases[key] || key;
+    if (!allowed.has(normalized) || seen.has(normalized)) continue;
+    seen.add(normalized);
+    values.push(normalized);
+  }
+  return values;
+}
+
+function qualityCompetencyLabel(value) {
+  const normalized = normalizeQualityCompetencies([value])[0] || String(value || '');
+  return QUALITY_COMPETENCY_OPTIONS.find((item) => item.value === normalized)?.label || value || '—';
+}
+
+function userHasQualityScope(user = state.user) {
+  if (!user || user.role === 'admin') return false;
+  return normalizeSectorValue(user.sector) === 'inspecao' || getUserAlertSectors(user).includes('inspecao');
+}
+
+function adminUserFormHasQualityScope() {
+  const role = document.getElementById('admin-user-role')?.value || 'sector';
+  if (role === 'admin') return false;
+  const sector = normalizeSectorValue(document.getElementById('admin-user-sector')?.value || '');
+  return sector === 'inspecao' || getSelectedAdminAlertSectors().includes('inspecao');
+}
+
+function getAdminQualityCompetencies() {
+  return normalizeQualityCompetencies(state.adminQualityCompetenciesDraft || []);
+}
+
+function setAdminQualityCompetencies(values = []) {
+  state.adminQualityCompetenciesDraft = normalizeQualityCompetencies(values);
+  const selected = new Set(state.adminQualityCompetenciesDraft);
+  document.querySelectorAll('[data-admin-quality-competency-option]').forEach((input) => {
+    input.checked = selected.has(input.value);
+  });
+  updateAdminQualityCompetenciesVisibility();
+}
+
+function updateAdminQualityCompetenciesVisibility() {
+  const field = document.getElementById('admin-user-quality-competencies-field');
+  if (!field) return;
+  const show = adminUserFormHasQualityScope();
+  field.classList.toggle('hidden', !show);
+  document.querySelectorAll('[data-admin-quality-competency-option]').forEach((input) => {
+    input.disabled = !show;
+  });
+  if (!show) state.adminQualityCompetenciesDraft = [];
+}
+
+function toggleAdminQualityCompetency(value, checked) {
+  const current = getAdminQualityCompetencies();
+  const normalized = normalizeQualityCompetencies([value])[0];
+  if (!normalized) return;
+  state.adminQualityCompetenciesDraft = checked
+    ? normalizeQualityCompetencies([...current, normalized])
+    : current.filter((item) => item !== normalized);
 }
 
 function sectorLabel(value) {
@@ -1402,6 +1498,14 @@ function projectDisplayWithClient(project) {
   return clientName ? `${projectName} - ${clientName}` : (projectName || '—');
 }
 
+function getProjectClientLabel(project) {
+  return String(project?.client || '').trim() || '—';
+}
+
+function getProjectVesselLabel(project) {
+  return String(project?.vessel || project?.unit || project?.unidade || '').trim() || '—';
+}
+
 function getProjectSignalMatchKey(project) {
   return normalizeText(project?.projectNumber || project?.projectDisplay || '').trim();
 }
@@ -1561,6 +1665,44 @@ function getSpoolStageLabel(project, spool) {
     || 'Etapa não identificada';
 }
 
+
+function getSpoolQualityCompetence(project, spool) {
+  const stageValues = spool?.stageValues || project?.stageValues || {};
+  const text = normalizeStageWorkspaceText([
+    spool?.currentStatus,
+    spool?.stage,
+    spool?.flow?.status,
+    spool?.currentSector,
+    spool?.operationalSector,
+    spool?.flow?.sector,
+    project?.currentStage,
+    project?.sectorSummary,
+  ].filter(Boolean).join(' '));
+
+  const th = getStageWorkspacePercent(stageValues, 'Hydro Test Pressure (QC)');
+  const nde = parseStageWorkspacePercent(stageValues?.['Non Destructive Examination (QC)']);
+  const finalDimensional = getStageWorkspacePercent(stageValues, 'Final Dimensional Inpection/3D (QC)');
+  const initialDimensional = getStageWorkspacePercent(stageValues, 'Initial Dimensional Inspection/3D');
+  const finalInspection = getStageWorkspacePercent(stageValues, 'Final Inspection');
+
+  if (text.includes('hydro') || text.includes('teste hidrostatico') || /\bth\b/.test(text) || text.includes('aguardando em th') || (th > 0 && th < 100)) return 'th';
+  if (text.includes('nde') || /\bend\b/.test(text) || text.includes('non destructive') || (nde != null && nde > 0 && nde < 100)) return 'nde';
+  if (text.includes('final dimensional') || text.includes('final dimensional inspection') || text.includes('final dimensional inpection') || finalDimensional > 0) return 'dimensional_final';
+  if (text.includes('initial dimensional') || text.includes('inspecao dimensional inicial') || initialDimensional > 0) return 'dimensional_inicial';
+  if (text.includes('final inspection') || text.includes('inspection finish') || finalInspection > 0) return 'final_inspection_qc';
+
+  return 'dimensional_final';
+}
+
+function isQualityCompetenceAllowedForUser(project, spool, user = state.user) {
+  if (!user || user.role === 'admin') return true;
+  if (normalizeSectorValue(user.sector) === 'pcp') return true;
+  const competencies = normalizeQualityCompetencies(user.qualityCompetencies || []);
+  if (!competencies.length) return true;
+  const competence = getSpoolQualityCompetence(project, spool);
+  return !competence || competencies.includes(competence);
+}
+
 function getSpoolCompetenceSector(project, spool) {
   const stageValues = spool?.stageValues || project?.stageValues || {};
   const finished = Boolean(spool?.finished || spool?.projectFinishedFlag)
@@ -1623,7 +1765,7 @@ function getSpoolCompetenceSector(project, spool) {
   if (text.includes('finalizado')) return '';
   if (text.includes('package and delivered') || text.includes('final inspection') || text.includes('unitizacao') || text.includes('preparado para envio') || text.includes('logistica')) return 'pendente_envio';
   if (text.includes('pintura') || text.includes('paint') || text.includes('coating') || text.includes('surface preparation') || text.includes('acabamento') || text.includes('intermediaria') || text === 'j f') return 'pintura';
-  if (text.includes('hydro') || text.includes(' th ') || text === 'th' || text.includes('dimensional') || text.includes('inspection') || text.includes('inspecao') || text.includes('qualidade') || text.includes('nde') || text.includes('end')) return 'inspecao';
+  if (text.includes('hydro') || /\bth\b/.test(text) || text.includes('dimensional') || text.includes('inspection') || text.includes('inspecao') || text.includes('qualidade') || text.includes('nde') || text.includes('end')) return 'inspecao';
   if (text.includes('full welding') || text.includes('solda') || text === 'solda') return 'solda';
   if (text.includes('pre montagem') || text.includes('spool assemble') || text.includes('tack weld') || text.includes('welding preparation') || text.includes('boilermaker') || text.includes('calderaria')) return 'calderaria';
   if (text.includes('corte') || text.includes('limpeza') || text.includes('fabrication start') || text.includes('producao')) return 'producao';
@@ -1636,7 +1778,9 @@ function getSpoolCompetenceSector(project, spool) {
 function isSpoolReleasedForStageSector(project, spool, sector = getStageWorkspaceSector()) {
   const currentSector = normalizeSectorValue(sector);
   const competenceSector = getSpoolCompetenceSector(project, spool);
-  return Boolean(currentSector && competenceSector && currentSector === competenceSector);
+  if (!currentSector || !competenceSector || currentSector !== competenceSector) return false;
+  if (currentSector === 'inspecao') return isQualityCompetenceAllowedForUser(project, spool);
+  return true;
 }
 
 function filterProjectForStageSector(project, sector = getStageWorkspaceSector()) {
@@ -2560,6 +2704,11 @@ function userHasProjectsScope(user = state.user) {
   return getUserAlertSectors(user).includes("projetos") || normalizeSectorValue(user.sector) === "projetos";
 }
 
+function formatQualityCompetencies(values = []) {
+  const normalized = normalizeQualityCompetencies(values);
+  return normalized.length ? normalized.map(qualityCompetencyLabel).join(', ') : 'Todas as competências da Qualidade';
+}
+
 function shouldUseSectorScopedToggle(user = state.user) {
   if (!user || user.role === 'admin') return false;
   const primarySector = getPrimaryUserSector(user);
@@ -3135,7 +3284,7 @@ function getProjectShipmentDate(project) {
 
 function renderTable() {
   if (!state.filteredProjects.length) {
-    bodyEl.innerHTML = '<tr><td colspan="19" class="loading-cell">Nenhum projeto encontrado para a busca informada.</td></tr>';
+    bodyEl.innerHTML = '<tr><td colspan="21" class="loading-cell">Nenhum projeto encontrado para a busca informada.</td></tr>';
     searchCountEl.textContent = "0 resultado(s)";
     return;
   }
@@ -3164,6 +3313,8 @@ function renderTable() {
         <tr class="${rowClass}" data-project-id="${project.rowId}">
           <td>${project.projectDisplay || "—"}</td>
           <td><span class="type-pill">${getProjectTypeLabel(project)}</span></td>
+          <td class="project-client-cell" title="${escapeHtml(getProjectClientLabel(project))}">${escapeHtml(getProjectClientLabel(project))}</td>
+          <td class="project-vessel-cell" title="${escapeHtml(getProjectVesselLabel(project))}">${escapeHtml(getProjectVesselLabel(project))}</td>
           <td>${project.plannedFinishDate || "—"}</td>
           <td>${formatNumber(getProjectItemCount(project))}</td>
           <td>${formatNumber(project.weldedWeightKg, 0)}</td>
@@ -3216,7 +3367,8 @@ function renderSelectedProjectCard() {
       <div class="detail-grid compact-grid">
         <div class="metric-chip"><span>Qtd. itens</span><strong>${formatNumber(getProjectItemCount(project))}</strong></div>
         <div class="metric-chip"><span>Tipo</span><strong>${getProjectTypeLabel(project)}</strong></div>
-        <div class="metric-chip"><span>Cliente</span><strong>${project.client || "—"}</strong></div>
+        <div class="metric-chip"><span>Cliente</span><strong>${getProjectClientLabel(project)}</strong></div>
+        <div class="metric-chip"><span>Unidade</span><strong>${getProjectVesselLabel(project)}</strong></div>
         <div class="metric-chip"><span>Peso total soldado</span><strong>${formatNumber(project.weldedWeightKg, 0)} kg</strong></div>
         <button class="metric-chip metric-chip--button" type="button" id="open-backlog-project">
           <span>Backlog KG</span><strong>${formatNumber(getBacklogKg(project), 0)} kg</strong><small>${formatBacklogItemText(project)}</small>
@@ -3320,7 +3472,8 @@ function renderModal(project) {
     <section class="modal-summary-grid">
       <article class="metric-chip"><span>Qtd. itens</span><strong>${formatNumber(getProjectItemCount(project))}</strong></article>
       <article class="metric-chip"><span>Tipo</span><strong>${getProjectTypeLabel(project)}</strong></article>
-      <article class="metric-chip"><span>Cliente</span><strong>${project.client || "—"}</strong></article>
+      <article class="metric-chip"><span>Cliente</span><strong>${getProjectClientLabel(project)}</strong></article>
+      <article class="metric-chip"><span>Unidade</span><strong>${getProjectVesselLabel(project)}</strong></article>
       <article class="metric-chip"><span>Peso total soldado</span><strong>${formatNumber(project.weldedWeightKg, 0)} kg</strong></article>
       <article class="metric-chip metric-chip--button" id="modal-open-backlog" role="button" tabindex="0"><span>Backlog KG</span><strong>${formatNumber(getBacklogKg(project), 0)} kg</strong><small>${formatBacklogItemText(project)}</small></article>
       <article class="metric-chip"><span>Semana finalizado</span><strong>${project.weldingWeek || "—"}</strong></article>
@@ -3758,7 +3911,7 @@ async function loadProjects(options = {}) {
         return;
       }
 
-      bodyEl.innerHTML = `<tr><td colspan="19" class="loading-cell">${fallbackMessage}</td></tr>`;
+      bodyEl.innerHTML = `<tr><td colspan="21" class="loading-cell">${fallbackMessage}</td></tr>`;
       detailCardEl.innerHTML = `<div class="detail-placeholder">${fallbackMessage}</div>`;
     } finally {
       state.loadingProjectsRequest = null;
@@ -4106,6 +4259,7 @@ const adminUserRoleEl = document.getElementById("admin-user-role");
 const adminUserProjectPmsFieldEl = document.getElementById("admin-user-project-pms-field");
 const adminUserProjectPmsSearchEl = document.getElementById("admin-user-project-pms-search");
 const adminUserProjectPmsOptionsEl = document.getElementById("admin-user-project-pms-options");
+const adminUserQualityCompetenciesFieldEl = document.getElementById("admin-user-quality-competencies-field");
 if (adminUserSectorEl) {
   adminUserSectorEl.addEventListener("change", (event) => {
     const next = normalizeSectorValue(event.target.value);
@@ -4146,7 +4300,14 @@ if (adminUserProjectPmsOptionsEl) {
   });
 }
 
+document.querySelectorAll('[data-admin-quality-competency-option]').forEach((input) => {
+  input.addEventListener('change', (event) => {
+    toggleAdminQualityCompetency(event.target.value, event.target.checked);
+  });
+});
+
 updateAdminProjectPmAliasesVisibility();
+updateAdminQualityCompetenciesVisibility();
 
 if (loginModalEl) {
   loginModalEl.addEventListener("click", (event) => {
@@ -4850,7 +5011,7 @@ function resetDashboardForLoggedOutState() {
   state.meta = null;
   state.alerts = [];
   state.selectedProjectId = null;
-  if (bodyEl) bodyEl.innerHTML = `<tr><td colspan="19" class="loading-cell">Faça login para visualizar os projetos.</td></tr>`;
+  if (bodyEl) bodyEl.innerHTML = `<tr><td colspan="21" class="loading-cell">Faça login para visualizar os projetos.</td></tr>`;
   if (detailCardEl) detailCardEl.innerHTML = `<div class="detail-placeholder">Painel protegido. Entre com seu usuário e senha para visualizar as informações.</div>`;
   if (searchCountEl) searchCountEl.textContent = '0 resultado(s)';
   if (sheetNameEl) sheetNameEl.textContent = 'Acesso restrito';
@@ -5564,7 +5725,9 @@ function resetAdminUserForm() {
   const projectPmSearchEl = document.getElementById("admin-user-project-pms-search");
   if (projectPmSearchEl) projectPmSearchEl.value = "";
   setAdminProjectPmAliases([]);
+  setAdminQualityCompetencies([]);
   updateAdminProjectPmAliasesVisibility();
+  updateAdminQualityCompetenciesVisibility();
 }
 
 function startEditUser(userId) {
@@ -5581,7 +5744,9 @@ function startEditUser(userId) {
   const projectPmSearchEl = document.getElementById("admin-user-project-pms-search");
   if (projectPmSearchEl) projectPmSearchEl.value = "";
   setAdminProjectPmAliases(user.projectPmAliases || []);
+  setAdminQualityCompetencies(user.qualityCompetencies || []);
   updateAdminProjectPmAliasesVisibility();
+  updateAdminQualityCompetenciesVisibility();
   if (adminUserIdEl) adminUserIdEl.value = user.id || "";
   if (adminUserCancelEditEl) adminUserCancelEditEl.classList.remove("hidden");
   if (adminUserSubmitLabelEl) adminUserSubmitLabelEl.textContent = "Salvar usuário";
@@ -5643,6 +5808,7 @@ function renderAdminUsersList(users = []) {
           <span>Setor principal: ${escapeHtml(sectorLabel(user.sector))}</span>
           <span>Recebe alertas de: ${escapeHtml(formatSectorList(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]))}</span>
           ${(userHasProjectsScope(user) && Array.isArray(user.projectPmAliases) && user.projectPmAliases.length) ? `<span>PMs adicionais: ${escapeHtml(user.projectPmAliases.join(', '))}</span>` : ''}
+          ${userHasQualityScope(user) ? `<span>Competências da Qualidade: ${escapeHtml(formatQualityCompetencies(user.qualityCompetencies || []))}</span>` : ''}
           <span>${user.active ? "Ativo" : "Inativo"}</span>
           <span>Última atividade: ${escapeHtml(formatPresenceDate(lastSeenAt))}${lastSeenAt ? ` (${escapeHtml(formatPresenceElapsed(lastSeenAt))})` : ''}</span>
           <span>Último login: ${escapeHtml(formatPresenceDate(lastLoginAt))}</span>
@@ -5775,6 +5941,7 @@ async function loadAdminData(options = {}) {
       sector: user.sector,
       alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector],
       projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
+      qualityCompetencies: Array.isArray(user.qualityCompetencies) ? user.qualityCompetencies : [],
       active: user.active !== false,
       createdAt: user.createdAt || null,
     }));
@@ -5797,6 +5964,7 @@ async function loadAdminData(options = {}) {
       sector: user.sector,
       alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector],
       projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
+      qualityCompetencies: Array.isArray(user.qualityCompetencies) ? user.qualityCompetencies : [],
       active: user.active !== false,
       createdAt: user.createdAt || null,
     }));
@@ -6540,6 +6708,56 @@ async function loadStageHistoryDatePendencies() {
   }
 }
 
+
+function getStageUpdatesByIds(ids = []) {
+  const idSet = new Set((Array.isArray(ids) ? ids : [ids]).map((id) => String(id || '').trim()).filter(Boolean));
+  return (Array.isArray(state.stageUpdates) ? state.stageUpdates : []).filter((item) => idSet.has(String(item?.id || '')));
+}
+
+function isStageUpdateEffectivelyProcessed(item) {
+  if (!item) return true;
+  if (isResolvedStageStatus(item.status)) return true;
+  if (item.trackingMatched === true) return true;
+  if (String(item.trackingStatus || '').toLowerCase() === 'matched') return true;
+  return false;
+}
+
+function areStageUpdateIdsProcessed(ids = []) {
+  const cleanIds = (Array.isArray(ids) ? ids : [ids]).map((id) => String(id || '').trim()).filter(Boolean);
+  if (!cleanIds.length) return false;
+  const current = getStageUpdatesByIds(cleanIds);
+  if (!current.length) return true;
+  const currentById = new Map(current.map((item) => [String(item?.id || ''), item]));
+  return cleanIds.every((id) => isStageUpdateEffectivelyProcessed(currentById.get(String(id))));
+}
+
+async function refreshStageUpdatesAfterAction(ids = [], options = {}) {
+  try {
+    await loadStageUpdates({ force: true });
+    if (areStageUpdateIdsProcessed(ids)) {
+      if (options.clearSelection !== false) {
+        const processed = new Set((Array.isArray(ids) ? ids : [ids]).map((id) => String(id || '').trim()).filter(Boolean));
+        setStageSelection((state.stageSelectedIds || []).filter((id) => !processed.has(String(id || ''))));
+      }
+      renderStageUpdatesModal();
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+function isProbablyAlreadyProcessedStageError(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  return message.includes('não encontrado')
+    || message.includes('nao encontrado')
+    || message.includes('nenhum apontamento elegível')
+    || message.includes('nenhum apontamento elegivel')
+    || message.includes('já foi processado')
+    || message.includes('ja foi processado')
+    || message.includes('já estava')
+    || message.includes('ja estava');
+}
+
 async function sendStageTrackingUpdate(ids = [], options = {}) {
   const cleanIds = Array.from(new Set((Array.isArray(ids) ? ids : [ids]).map((id) => String(id || '').trim()).filter(Boolean)));
   if (!cleanIds.length || state.stageTrackingSubmitting) return;
@@ -6602,6 +6820,11 @@ async function sendStageTrackingUpdate(ids = [], options = {}) {
     await loadStageUpdates();
     renderStageUpdatesModal();
   } catch (error) {
+    const processedAfterRefresh = await refreshStageUpdatesAfterAction(cleanIds);
+    if (processedAfterRefresh) {
+      window.alert('Tracking atualizado/conferido. A tela foi sincronizada novamente.');
+      return;
+    }
     window.alert(error.message || 'Falha ao atualizar o Tracking.');
   } finally {
     state.stageTrackingSubmitting = false;
@@ -6677,6 +6900,14 @@ async function concludeStageUpdatesBulk(ids = []) {
     await loadStageUpdates();
     renderStageUpdatesModal();
   } catch (error) {
+    const processedAfterRefresh = await refreshStageUpdatesAfterAction(cleanIds, { clearSelection: true });
+    if (processedAfterRefresh || isProbablyAlreadyProcessedStageError(error)) {
+      await loadStageUpdates({ force: true }).catch(() => {});
+      setStageSelection([]);
+      renderStageUpdatesModal();
+      window.alert('Os apontamentos já estavam concluídos ou foram sincronizados novamente.');
+      return;
+    }
     window.alert(error.message || 'Falha ao concluir lote de apontamentos.');
   }
 }
@@ -6760,6 +6991,13 @@ async function concludeStageUpdate(id) {
     await loadStageUpdates();
     renderStageUpdatesModal();
   } catch (error) {
+    const processedAfterRefresh = await refreshStageUpdatesAfterAction([id], { clearSelection: true });
+    if (processedAfterRefresh || isProbablyAlreadyProcessedStageError(error)) {
+      await loadStageUpdates({ force: true }).catch(() => {});
+      renderStageUpdatesModal();
+      window.alert('Este apontamento já estava concluído ou foi sincronizado novamente.');
+      return;
+    }
     window.alert(error.message || 'Falha ao concluir apontamento.');
   }
 }
@@ -6777,6 +7015,7 @@ async function handleAdminUserSubmit(event) {
       sector: document.getElementById("admin-user-sector").value,
       alertSectors: getSelectedAdminAlertSectors(),
       projectPmAliases: adminUserFormHasProjectsScope() ? getAdminProjectPmAliases() : [],
+      qualityCompetencies: adminUserFormHasQualityScope() ? getAdminQualityCompetencies() : [],
     };
     const response = await fetch("/api/admin-users", {
       method: editingId ? "PUT" : "POST",
@@ -6796,6 +7035,7 @@ async function handleAdminUserSubmit(event) {
       sector: payload.role === "admin" ? "all" : payload.sector,
       alertSectors: payload.role === "admin" ? [] : payload.alertSectors,
       projectPmAliases: payload.role === "admin" ? [] : payload.projectPmAliases,
+      qualityCompetencies: payload.role === "admin" ? [] : payload.qualityCompetencies,
       active: true,
       createdAt: new Date().toISOString(),
     };

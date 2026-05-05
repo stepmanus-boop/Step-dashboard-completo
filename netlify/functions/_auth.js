@@ -70,6 +70,7 @@ function createSessionCookie(user) {
     sector: user.sector,
     alertSectors: normalizeSectorList(user.sector, user.alertSectors),
     projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
+    qualityCompetencies: Array.isArray(user.qualityCompetencies) ? user.qualityCompetencies : [],
     name: user.name,
     exp: Date.now() + SESSION_TTL_MS,
   };

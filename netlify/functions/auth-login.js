@@ -38,6 +38,7 @@ exports.handler = async (event) => {
       sector: 'all',
       alertSectors: [],
       projectPmAliases: [],
+      qualityCompetencies: [],
       active: true,
       passwordHash: 'admin123',
     };
@@ -77,6 +78,7 @@ exports.handler = async (event) => {
         sector: user.sector,
         alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [],
         projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
+        qualityCompetencies: Array.isArray(user.qualityCompetencies) ? user.qualityCompetencies : [],
       },
     }, {
       headers: {

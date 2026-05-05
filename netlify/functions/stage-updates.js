@@ -94,6 +94,87 @@ function getSpoolStageLabel(project, spool) {
     || 'Etapa não identificada';
 }
 
+
+function normalizeQualityCompetencies(input = []) {
+  const rawValues = Array.isArray(input) ? input : String(input || '').split(/[\n;,|]+/);
+  const allowed = new Set(['dimensional_inicial', 'dimensional_final', 'nde', 'th', 'final_inspection_qc']);
+  const aliases = {
+    inicial: 'dimensional_inicial',
+    dimensional_inicial: 'dimensional_inicial',
+    initial_dimensional: 'dimensional_inicial',
+    dimensional_final: 'dimensional_final',
+    final_dimensional: 'dimensional_final',
+    nde: 'nde',
+    end: 'nde',
+    th: 'th',
+    hydro: 'th',
+    hydro_test: 'th',
+    final_inspection: 'final_inspection_qc',
+    final_inspection_qc: 'final_inspection_qc',
+  };
+  const seen = new Set();
+  const values = [];
+  for (const value of rawValues) {
+    const key = String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase().replace(/[\s-]+/g, '_').replace(/__+/g, '_');
+    const normalized = aliases[key] || key;
+    if (!allowed.has(normalized) || seen.has(normalized)) continue;
+    seen.add(normalized);
+    values.push(normalized);
+  }
+  return values;
+}
+
+function qualityCompetencyLabel(value) {
+  const labels = {
+    dimensional_inicial: 'Inspeção Dimensional Inicial',
+    dimensional_final: 'Inspeção Dimensional Final',
+    nde: 'END / NDE',
+    th: 'TH',
+    final_inspection_qc: 'Final Inspection QC',
+  };
+  return labels[value] || value || 'não identificada';
+}
+
+function getSpoolQualityCompetence(project, spool) {
+  const stageValues = spool?.stageValues || project?.stageValues || {};
+  const text = normalizeStageWorkspaceText([
+    spool?.currentStatus,
+    spool?.stage,
+    spool?.flow?.status,
+    spool?.currentSector,
+    spool?.operationalSector,
+    spool?.flow?.sector,
+    project?.currentStage,
+    project?.sectorSummary,
+  ].filter(Boolean).join(' '));
+
+  const th = getStagePercent(stageValues, 'Hydro Test Pressure (QC)');
+  const nde = parseTrackingPercent(stageValues?.['Non Destructive Examination (QC)']);
+  const finalDimensional = getStagePercent(stageValues, 'Final Dimensional Inpection/3D (QC)');
+  const initialDimensional = getStagePercent(stageValues, 'Initial Dimensional Inspection/3D');
+  const finalInspection = getStagePercent(stageValues, 'Final Inspection');
+
+  if (text.includes('hydro') || text.includes('teste hidrostatico') || /\bth\b/.test(text) || text.includes('aguardando em th') || (th > 0 && th < 100)) return 'th';
+  if (text.includes('nde') || /\bend\b/.test(text) || text.includes('non destructive') || (nde != null && nde > 0 && nde < 100)) return 'nde';
+  if (text.includes('final dimensional') || text.includes('final dimensional inspection') || text.includes('final dimensional inpection') || finalDimensional > 0) return 'dimensional_final';
+  if (text.includes('initial dimensional') || text.includes('inspecao dimensional inicial') || initialDimensional > 0) return 'dimensional_inicial';
+  if (text.includes('final inspection') || text.includes('inspection finish') || finalInspection > 0) return 'final_inspection_qc';
+
+  return 'dimensional_final';
+}
+
+function ensureQualityCompetenceAllowed(project, spool, sector, session) {
+  if (normalizeCompetenceSector(sector) !== 'inspecao') return;
+  if (!session || session.role === 'admin' || isPcpUser(session)) return;
+  const competencies = normalizeQualityCompetencies(session.qualityCompetencies || []);
+  if (!competencies.length) return;
+  const competence = getSpoolQualityCompetence(project, spool);
+  if (!competence || competencies.includes(competence)) return;
+  const err = new Error(`Este spool pertence à competência ${qualityCompetencyLabel(competence)}, mas seu usuário não possui permissão para apontar esta demanda.`);
+  err.statusCode = 403;
+  throw err;
+}
+
 function getSpoolCompetenceSector(project, spool) {
   const stageValues = spool?.stageValues || project?.stageValues || {};
   const finished = Boolean(spool?.finished || spool?.projectFinishedFlag)
@@ -151,7 +232,7 @@ function getSpoolCompetenceSector(project, spool) {
   if (text.includes('finalizado')) return '';
   if (text.includes('package and delivered') || text.includes('final inspection') || text.includes('unitizacao') || text.includes('preparado para envio') || text.includes('logistica')) return 'pendente_envio';
   if (text.includes('pintura') || text.includes('paint') || text.includes('coating') || text.includes('surface preparation') || text.includes('acabamento') || text.includes('intermediaria') || text === 'j f') return 'pintura';
-  if (text.includes('hydro') || text.includes(' th ') || text === 'th' || text.includes('dimensional') || text.includes('inspection') || text.includes('inspecao') || text.includes('qualidade') || text.includes('nde') || text.includes('end')) return 'inspecao';
+  if (text.includes('hydro') || /\bth\b/.test(text) || text.includes('dimensional') || text.includes('inspection') || text.includes('inspecao') || text.includes('qualidade') || text.includes('nde') || text.includes('end')) return 'inspecao';
   if (text.includes('full welding') || text.includes('solda') || text === 'solda') return 'solda';
   if (text.includes('pre montagem') || text.includes('spool assemble') || text.includes('tack weld') || text.includes('welding preparation') || text.includes('boilermaker') || text.includes('calderaria')) return 'calderaria';
   if (text.includes('corte') || text.includes('limpeza') || text.includes('fabrication start') || text.includes('producao')) return 'producao';
@@ -161,7 +242,7 @@ function getSpoolCompetenceSector(project, spool) {
   return normalizeCompetenceSector(spool?.currentSector || spool?.operationalSector || spool?.flow?.sector || project?.currentSector || project?.operationalSector || project?.sectorSummary || 'engenharia');
 }
 
-function ensureSpoolReleasedForSector(project, spool, sector) {
+function ensureSpoolReleasedForSector(project, spool, sector, session = null) {
   const actorSector = normalizeCompetenceSector(sector);
   const competenceSector = getSpoolCompetenceSector(project, spool);
   if (!competenceSector || competenceSector !== actorSector) {
@@ -169,6 +250,7 @@ function ensureSpoolReleasedForSector(project, spool, sector) {
     err.statusCode = 403;
     throw err;
   }
+  ensureQualityCompetenceAllowed(project, spool, actorSector, session);
 }
 
 function sectorLabel(value) {
@@ -372,7 +454,7 @@ async function createSingleUpdate(payload, session, existingUpdates = null) {
     err.statusCode = 404;
     throw err;
   }
-  ensureSpoolReleasedForSector(project, spool, sector);
+  ensureSpoolReleasedForSector(project, spool, sector, session);
   const trackingProgress = getTrackingProgressForSector(spool, sector);
   const trackingMatched = trackingProgress != null && trackingProgress >= progress;
   const updates = existingUpdates || await listUpdates();
@@ -432,6 +514,25 @@ function getUpdatesByIds(updates, ids) {
   return updates.filter((item) => cleanIds.has(String(item.id || '')));
 }
 
+function getAlreadyResolvedByIds(updates, ids) {
+  const cleanIds = new Set((Array.isArray(ids) ? ids : []).map((id) => String(id || '').trim()).filter(Boolean));
+  return (Array.isArray(updates) ? updates : []).filter((item) =>
+    cleanIds.has(String(item?.id || '')) && isResolvedStatus(item?.status)
+  );
+}
+
+function alreadyProcessedResponse(updates, ids, message = 'Apontamento já estava concluído ou processado.') {
+  const resolved = getAlreadyResolvedByIds(updates, ids);
+  return jsonResponse(200, {
+    ok: true,
+    alreadyProcessed: true,
+    updates: resolved,
+    errors: [],
+    message,
+    storage: isSupabaseConfigured() ? 'supabase' : 'json',
+  });
+}
+
 async function updateTrackingAndResolve(body, session) {
   if (!canValidate(session)) {
     return jsonResponse(403, { ok: false, error: 'Apenas PCP ou administrador pode atualizar o Tracking.' });
@@ -449,6 +550,10 @@ async function updateTrackingAndResolve(body, session) {
     return isPendingStatus(item.status) && !isReviewStatus(item.status);
   });
   if (!selected.length) {
+    const alreadyResolved = getAlreadyResolvedByIds(updates, ids);
+    if (alreadyResolved.length) {
+      return alreadyProcessedResponse(updates, ids, 'Este apontamento já estava concluído. A tela será sincronizada novamente.');
+    }
     return jsonResponse(404, { ok: false, error: 'Nenhum apontamento elegível encontrado para atualizar o Tracking.' });
   }
 
@@ -523,7 +628,13 @@ async function concludeTrackingOkOnly(body, session) {
 
   const updates = await listUpdates();
   const selected = getUpdatesByIds(updates, ids).filter((item) => isPendingStatus(item.status));
-  if (!selected.length) return jsonResponse(404, { ok: false, error: 'Apontamento não encontrado.' });
+  if (!selected.length) {
+    const alreadyResolved = getAlreadyResolvedByIds(updates, ids);
+    if (alreadyResolved.length) {
+      return alreadyProcessedResponse(updates, ids, 'Este apontamento já estava concluído. A tela será sincronizada novamente.');
+    }
+    return jsonResponse(404, { ok: false, error: 'Apontamento não encontrado.' });
+  }
 
   const reviewItems = selected.filter((item) => isReviewStatus(item.status));
   const advanceItems = selected.filter((item) => !isReviewStatus(item.status));

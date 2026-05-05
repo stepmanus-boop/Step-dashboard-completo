@@ -183,6 +183,8 @@
                 <tr>
                   <th>Projeto</th>
                   <th>Tipo</th>
+                  <th>Cliente</th>
+                  <th>Unidade</th>
                   <th>Término planejado</th>
                   <th>Itens</th>
                   <th>Peso soldado (kg)</th>
@@ -204,7 +206,7 @@
               </thead>
               <tbody id="projects-body">
                 <tr>
-                  <td colspan="19" class="loading-cell">Carregando projetos...</td>
+                  <td colspan="21" class="loading-cell">Carregando projetos...</td>
                 </tr>
               </tbody>
             </table>
@@ -417,6 +419,17 @@
               <div id="admin-user-project-pms-count" class="pm-select-count">Nenhum PM adicional selecionado.</div>
             </div>
             <small>Selecione os nomes como aparecem na coluna PM do Tracking. A lista é montada automaticamente pelos projetos carregados.</small>
+          </label>
+          <label class="stack-field hidden" id="admin-user-quality-competencies-field">
+            <span>Competências da Qualidade</span>
+            <div class="check-grid quality-competencies-grid">
+              <label class="check-row"><input type="checkbox" data-admin-quality-competency-option value="dimensional_inicial" /> Inspeção Dimensional Inicial</label>
+              <label class="check-row"><input type="checkbox" data-admin-quality-competency-option value="dimensional_final" /> Inspeção Dimensional Final</label>
+              <label class="check-row"><input type="checkbox" data-admin-quality-competency-option value="nde" /> END / NDE</label>
+              <label class="check-row"><input type="checkbox" data-admin-quality-competency-option value="th" /> TH</label>
+              <label class="check-row"><input type="checkbox" data-admin-quality-competency-option value="final_inspection_qc" /> Final Inspection QC</label>
+            </div>
+            <small>Se nada for marcado, o usuário de Qualidade mantém acesso a todas as competências. Marcando opções, ele verá somente as demandas correspondentes.</small>
           </label>
           <div class="stack-actions">
             <button class="primary-button" type="submit"><span id="admin-user-submit-label">Criar usuário</span></button>

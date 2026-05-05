@@ -20,6 +20,7 @@ exports.handler = async (event) => {
       sector: session.sector,
       alertSectors: Array.isArray(session.alertSectors) ? session.alertSectors : (session.sector && session.sector !== 'all' ? [session.sector] : []),
       projectPmAliases: Array.isArray(session.projectPmAliases) ? session.projectPmAliases : [],
+      qualityCompetencies: Array.isArray(session.qualityCompetencies) ? session.qualityCompetencies : [],
     },
   });
 };
