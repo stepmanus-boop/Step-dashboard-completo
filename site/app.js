@@ -26,6 +26,7 @@ const state = {
   alertSectorFilter: "all",
   alertClientQuery: "",
   selectedProjectId: null,
+  selectedProjectDrawerOpen: false,
   modalPendingOnly: false,
   rowClickTimer: null,
   pollTimer: null,
@@ -83,6 +84,8 @@ const state = {
 
 const bodyEl = document.getElementById("projects-body");
 const detailCardEl = document.getElementById("detail-card");
+const detailDrawerEl = document.getElementById("detail-drawer");
+const closeDetailDrawerEl = document.getElementById("close-detail-drawer");
 const sheetNameEl = document.getElementById("sheet-name");
 const lastSyncEl = document.getElementById("last-sync");
 const refreshProjectsButtonEl = document.getElementById("refresh-projects-button");
@@ -3344,11 +3347,22 @@ function renderTable() {
 }
 
 function renderSelectedProjectCard() {
-  const project = getSelectedProject();
-  if (!project) {
-    detailCardEl.innerHTML = '<div class="detail-placeholder">Selecione um projeto na tabela ou pela busca para abrir o popup.</div>';
+  if (!detailCardEl) return;
+
+  if (!state.selectedProjectDrawerOpen) {
+    if (detailDrawerEl) detailDrawerEl.classList.add("hidden");
+    detailCardEl.innerHTML = "";
     return;
   }
+
+  const project = getSelectedProject();
+  if (!project) {
+    if (detailDrawerEl) detailDrawerEl.classList.add("hidden");
+    detailCardEl.innerHTML = "";
+    return;
+  }
+
+  if (detailDrawerEl) detailDrawerEl.classList.remove("hidden");
 
   const statusPresentation = getProjectStatusPresentation(project);
   const statusText = statusPresentation.text;
@@ -4097,6 +4111,13 @@ function bindEvents() {
     if (!statusFilterBoxEl.contains(event.target)) closeStatusFilterMenu();
   });
 
+  if (closeDetailDrawerEl) {
+    closeDetailDrawerEl.addEventListener("click", () => {
+      state.selectedProjectDrawerOpen = false;
+      renderSelectedProjectCard();
+    });
+  }
+
   bodyEl.addEventListener("click", (event) => {
     const row = event.target.closest("tr[data-project-id]");
     if (!row) return;
@@ -4107,6 +4128,7 @@ function bindEvents() {
     window.clearTimeout(state.rowClickTimer);
     state.rowClickTimer = window.setTimeout(() => {
       state.selectedProjectId = projectId;
+      state.selectedProjectDrawerOpen = true;
       renderTable();
       renderSelectedProjectCard();
       state.rowClickTimer = null;

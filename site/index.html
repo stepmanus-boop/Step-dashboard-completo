@@ -211,21 +211,18 @@
               </tbody>
             </table>
           </div>
-        </section>
 
-        <aside class="panel panel--detail">
-          <div class="panel-head panel-head--detail">
-            <div>
-              <h2>Detalhamento operacional</h2>
-              <p>Selecione um projeto para visualizar os itens internos em janela detalhada.</p>
+          <div class="detail-drawer hidden" id="detail-drawer" aria-live="polite">
+            <div class="detail-drawer-head">
+              <div>
+                <h3>Detalhamento operacional</h3>
+                <p>Resumo rápido do projeto selecionado. Dê 2 cliques na linha para abrir o detalhamento completo.</p>
+              </div>
+              <button id="close-detail-drawer" class="mini-action-button" type="button" aria-label="Fechar detalhamento">Fechar</button>
             </div>
-            <div class="autoplay-pill">VIEW</div>
+            <div class="detail-card detail-card--drawer" id="detail-card"></div>
           </div>
-
-          <div class="detail-card" id="detail-card">
-            <div class="detail-placeholder">Selecione um projeto na tabela ou pela busca para abrir o popup.</div>
-          </div>
-        </aside>
+        </section>
       </main>
 
       <footer class="footer-bar">
