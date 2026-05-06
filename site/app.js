@@ -2639,6 +2639,27 @@ function isProjectStatusOnHold(projectStatus) {
     || normalized.includes("suspenso");
 }
 
+function isProjectStatusPending(projectStatus) {
+  const normalized = normalizeText(projectStatus || "");
+  const compact = normalized.replace(/[^a-z0-9]+/g, "");
+  return compact === "pending" || normalized === "pending";
+}
+
+function isProjectPending(project) {
+  if (!project) return false;
+  const texts = [project.projectStatus, project["PROJECT STATUS"]];
+  if (Array.isArray(project.spools)) {
+    project.spools.forEach((spool) => {
+      texts.push(spool?.projectStatus, spool?.["PROJECT STATUS"]);
+    });
+  }
+  return texts.some((value) => isProjectStatusPending(value));
+}
+
+function isProjectExcludedFromTotal(project) {
+  return isProjectOnHold(project) || isProjectPending(project);
+}
+
 function getProjectHoldContextTexts(project) {
   if (!project) return [];
   const texts = [
@@ -2686,7 +2707,7 @@ function isProjectOnHold(project) {
 }
 
 function buildClientStats(projects) {
-  const activeProjects = (Array.isArray(projects) ? projects : []).filter((project) => !isProjectOnHold(project));
+  const activeProjects = (Array.isArray(projects) ? projects : []).filter((project) => !isProjectExcludedFromTotal(project));
   const stats = {
     totalProjects: activeProjects.length,
     totalSpools: 0,
@@ -2722,10 +2743,15 @@ function buildClientStats(projects) {
       : 0;
     stats.totalPaintingM2 += project.finished ? 0 : (openPaintingM2 > 0 ? openPaintingM2 : Number(project.m2Painting || 0));
     const isHoldProject = isProjectOnHold(project);
+    const isPendingProject = isProjectPending(project);
 
     if (isHoldProject) {
       stats.notStartedHold += 1;
       stats.notStartedHoldTags += tags;
+      continue;
+    }
+
+    if (isPendingProject) {
       continue;
     }
 
@@ -3240,7 +3266,7 @@ function formatBacklogItemText(project) {
 
 function getProjectDrillSource() {
   const source = getStatsProjectsSource();
-  return Array.isArray(source) ? source.filter((project) => !isProjectOnHold(project)) : [];
+  return Array.isArray(source) ? source.filter((project) => !isProjectExcludedFromTotal(project)) : [];
 }
 
 function getProjectDrillClientLabel(project) {
