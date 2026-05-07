@@ -1253,7 +1253,7 @@ function isProjectPending(project) {
 }
 
 function isProjectExcludedFromTotal(project) {
-  return isProjectOnHold(project) || isProjectPending(project);
+  return isProjectOnHold(project) || isProjectPending(project) || hasProjectFinishedMarker(project);
 }
 
 function getProjectHoldContextTexts(project) {
@@ -1352,13 +1352,13 @@ function buildStats(projects) {
       continue;
     }
 
-    progressAccumulator += project.overallProgress || 0;
-
-    if (project.finished) {
+    if (project.finished || project.uiState === "completed" || project.operationalState === "completed") {
       stats.completed += 1;
       stats.completedTags += tags;
       continue;
     }
+
+    progressAccumulator += project.overallProgress || 0;
 
     const openItems = getOpenFlowItemsForStats(project);
     const countSector = (sector) => openItems.filter((item) => item.flow?.sector === sector).length;

@@ -2656,8 +2656,29 @@ function isProjectPending(project) {
   return texts.some((value) => isProjectStatusPending(value));
 }
 
+function isProjectFinishedForTotal(project) {
+  if (!project) return false;
+  const statusText = normalizeText([
+    project.finished ? 'finalizado' : '',
+    project.uiState,
+    project.operationalState,
+    project.currentStage,
+    project.currentStatus,
+    project.statusSummary,
+    project.sectorSummary,
+    project.flow?.status,
+    project.flow?.state,
+  ].filter(Boolean).join(' '));
+
+  return Boolean(project.finished)
+    || project.uiState === 'completed'
+    || project.operationalState === 'completed'
+    || project.flow?.state === 'completed'
+    || statusText.includes('finalizado');
+}
+
 function isProjectExcludedFromTotal(project) {
-  return isProjectOnHold(project) || isProjectPending(project);
+  return isProjectOnHold(project) || isProjectPending(project) || isProjectFinishedForTotal(project);
 }
 
 function getProjectHoldContextTexts(project) {
@@ -2755,13 +2776,13 @@ function buildClientStats(projects) {
       continue;
     }
 
-    progressAccumulator += Number(project.overallProgress || 0);
-
-    if (project.finished || project.uiState === 'completed') {
+    if (project.finished || project.uiState === 'completed' || project.operationalState === 'completed') {
       stats.completed += 1;
       stats.completedTags += tags;
       continue;
     }
+
+    progressAccumulator += Number(project.overallProgress || 0);
 
     const openItems = getProjectOpenFlowItems(project);
     const countSector = (sectorKey) => openItems.filter((item) => getFlowSectorKey(item.flow) === sectorKey).length;
