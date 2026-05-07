@@ -11,7 +11,7 @@
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
     <title>STEP • Painel Operacional</title>
-    <link rel="stylesheet" href="./app.css" />
+    <link rel="stylesheet" href="./app.css?v=drill-cards-v3" />
   </head>
   <body>
     <div class="page-shell">
@@ -74,21 +74,21 @@
       </header>
 
       <section class="summary-row summary-row--nine">
-        <article class="summary-card summary-card--clickable" id="total-projects-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir a visão por cliente, unidade e BSP">
+        <button class="summary-card summary-card--clickable summary-card--drill-trigger" id="total-projects-card" type="button" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir a visão por cliente, unidade e BSP">
           <span class="summary-label">Total de projetos</span>
           <strong id="stat-projects">--</strong>
-          <small class="summary-card-hint">Clique para detalhar</small>
-        </article>
+          <span class="summary-card-cta">Abrir detalhamento <span aria-hidden="true">›</span></span>
+        </button>
         <article class="summary-card">
           <span class="summary-label">Peso total Programado</span>
           <strong id="stat-total-weight">--</strong>
         </article>
-        <article class="summary-card summary-card--clickable" id="welded-weight-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir o peso soldado por cliente e BSP">
+        <button class="summary-card summary-card--clickable summary-card--drill-trigger" id="welded-weight-card" type="button" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir o peso soldado por cliente e BSP">
           <span class="summary-label">Peso total soldado</span>
           <span class="summary-subtext" id="stat-current-week">Total enviado -- kg</span>
           <strong id="stat-spools">--</strong>
-          <small class="summary-card-hint">Clique para detalhar</small>
-        </article>
+          <span class="summary-card-cta">Abrir clientes <span aria-hidden="true">›</span></span>
+        </button>
         <article class="summary-card">
           <span class="summary-label">Total pendente de solda</span>
           <strong id="stat-backlog-welding">--</strong>
@@ -98,12 +98,12 @@
           <span class="summary-subtext" id="stat-not-started-tags">Tags --</span>
           <strong id="stat-not-started">--</strong>
         </article>
-        <article class="summary-card summary-card--warning summary-card--clickable" id="on-hold-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos em On Hold por cliente">
+        <button class="summary-card summary-card--warning summary-card--clickable summary-card--drill-trigger" id="on-hold-card" type="button" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos em On Hold por cliente">
           <span class="summary-label">Projetos Em Hold</span>
           <span class="summary-subtext" id="stat-not-started-hold-tags">Tags --</span>
           <strong id="stat-not-started-hold">--</strong>
-          <small class="summary-card-hint">Clique para detalhar</small>
-        </article>
+          <span class="summary-card-cta">Abrir clientes <span aria-hidden="true">›</span></span>
+        </button>
         <article class="summary-card summary-card--warning">
           <span class="summary-label">Projetos Em produção</span>
           <span class="summary-subtext" id="stat-in-progress-tags">Tags --</span>
@@ -664,6 +664,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
-    <script src="./app.js"></script>
+    <script src="./app.js?v=drill-cards-v3"></script>
   </body>
 </html>

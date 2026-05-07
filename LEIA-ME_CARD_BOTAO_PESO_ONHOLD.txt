@@ -1,0 +1,33 @@
+CORREÇÃO APLICADA - CARDS COMO BOTÃO
+
+Ajustes realizados:
+
+1. O card "Peso total soldado" agora é um botão real, igual ao Total de Projetos.
+   - Clique no card para abrir os clientes.
+   - Clique no cliente para abrir os projetos/BSPs com os pesos.
+
+2. O card "Projetos Em Hold" agora é um botão real.
+   - Clique no card para abrir os clientes.
+   - Clique no cliente para abrir os projetos em On Hold.
+
+3. O card "Total de projetos" também foi padronizado como botão real.
+
+4. Incluído indicador visual no card:
+   - seta no canto superior direito;
+   - botão/pílula "Abrir clientes" ou "Abrir detalhamento";
+   - efeito de destaque ao passar o mouse;
+   - efeito quando o painel estiver aberto.
+
+5. Atualizado cache do PWA:
+   - app.css e app.js ganharam versão na chamada do HTML;
+   - service worker mudou de v5 para v6-drill-cards.
+
+Arquivos alterados:
+- site/index.html
+- site/app.css
+- site/sw.js
+
+Após publicar no Netlify, se ainda aparecer a versão antiga:
+1. Limpe o cache do navegador.
+2. Feche e abra o PWA novamente.
+3. No Chrome, use CTRL + F5.
