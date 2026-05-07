@@ -1,4 +1,4 @@
-const CACHE_NAME = "step-gerencia-pwa-v6";
+const CACHE_NAME = "step-gerencia-pwa-v7-cards-preparados";
 const APP_SHELL = [
   "/",
   "/app.css",

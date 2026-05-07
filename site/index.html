@@ -75,17 +75,49 @@
 
       <section class="summary-row summary-row--twelve">
         <article class="summary-card summary-card--clickable" id="total-projects-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir a visão por cliente, unidade e BSP">
-          <span class="summary-label">Total de projetos</span>
+          <span class="summary-label">1. Total de projetos</span>
           <strong id="stat-projects">--</strong>
           <small class="summary-card-hint">Clique para detalhar</small>
         </article>
         <article class="summary-card summary-card--accent">
-          <span class="summary-label">Projetos Iniciados</span>
+          <span class="summary-label">2. Projetos iniciados</span>
           <span class="summary-subtext" id="stat-started-tags">Tags --</span>
           <strong id="stat-started-projects">--</strong>
         </article>
+        <article class="summary-card summary-card--danger">
+          <span class="summary-label">3. Projetos não iniciados</span>
+          <span class="summary-subtext" id="stat-not-started-tags">Tags --</span>
+          <strong id="stat-not-started">--</strong>
+        </article>
+        <article class="summary-card summary-card--warning summary-card--clickable" id="on-hold-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos em On Hold por cliente">
+          <span class="summary-label">4. Projetos em On Hold</span>
+          <span class="summary-subtext" id="stat-not-started-hold-tags">Tags --</span>
+          <strong id="stat-not-started-hold">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
+        </article>
+        <article class="summary-card summary-card--warning">
+          <span class="summary-label">5. Projetos em produção</span>
+          <span class="summary-subtext" id="stat-in-progress-tags">Tags --</span>
+          <strong id="stat-in-progress">--</strong>
+        </article>
+        <article class="summary-card summary-card--inspection">
+          <span class="summary-label">6. Projetos em qualidade</span>
+          <span class="summary-subtext" id="stat-inspection-tags">Tags --</span>
+          <strong id="stat-inspection">--</strong>
+        </article>
+        <article class="summary-card summary-card--warning">
+          <span class="summary-label">7. Projetos em pintura</span>
+          <span class="summary-subtext" id="stat-painting-tags">Tags --</span>
+          <strong id="stat-painting">--</strong>
+        </article>
+        <article class="summary-card summary-card--success summary-card--clickable" id="awaiting-shipment-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos preparados para envio por cliente">
+          <span class="summary-label">8. Projetos preparados para envio</span>
+          <span class="summary-subtext" id="stat-awaiting-tags">Apenas aguardando envio</span>
+          <strong id="stat-awaiting-shipment">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
+        </article>
         <article class="summary-card">
-          <span class="summary-label">Peso total Programado</span>
+          <span class="summary-label">Peso total programado</span>
           <strong id="stat-total-weight">--</strong>
         </article>
         <article class="summary-card summary-card--clickable" id="welded-weight-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir o peso soldado por cliente e BSP">
@@ -97,37 +129,6 @@
         <article class="summary-card">
           <span class="summary-label">Total pendente de solda</span>
           <strong id="stat-backlog-welding">--</strong>
-        </article>
-        <article class="summary-card summary-card--danger">
-          <span class="summary-label">Projetos Não iniciados</span>
-          <span class="summary-subtext" id="stat-not-started-tags">Tags --</span>
-          <strong id="stat-not-started">--</strong>
-        </article>
-        <article class="summary-card summary-card--warning summary-card--clickable" id="on-hold-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos em On Hold por cliente">
-          <span class="summary-label">Projetos Em Hold</span>
-          <span class="summary-subtext" id="stat-not-started-hold-tags">Tags --</span>
-          <strong id="stat-not-started-hold">--</strong>
-          <small class="summary-card-hint">Clique para detalhar</small>
-        </article>
-        <article class="summary-card summary-card--warning">
-          <span class="summary-label">Projetos Em produção</span>
-          <span class="summary-subtext" id="stat-in-progress-tags">Tags --</span>
-          <strong id="stat-in-progress">--</strong>
-        </article>
-        <article class="summary-card summary-card--inspection">
-          <span class="summary-label">Projetos Em qualidade</span>
-          <span class="summary-subtext" id="stat-inspection-tags">Tags --</span>
-          <strong id="stat-inspection">--</strong>
-        </article>
-        <article class="summary-card summary-card--warning">
-          <span class="summary-label">Projetos Em pintura</span>
-          <span class="summary-subtext" id="stat-painting-tags">Tags --</span>
-          <strong id="stat-painting">--</strong>
-        </article>
-        <article class="summary-card summary-card--success">
-          <span class="summary-label">Projetos Concluídos preparados para envio</span>
-          <span class="summary-subtext" id="stat-awaiting-tags">Tags --</span>
-          <strong id="stat-awaiting-shipment">--</strong>
         </article>
         <article class="summary-card summary-card--warning">
           <span class="summary-label">(M²) Programada</span>

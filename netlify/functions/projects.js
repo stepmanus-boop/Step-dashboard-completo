@@ -1353,6 +1353,18 @@ function isProjectStartedForStats(project) {
   return progress > 0 ? { started: true, tags: Number(project.quantitySpools || 1) } : { started: false, tags: 0 };
 }
 
+function isAwaitingShipmentStatsFlow(flow) {
+  const normalized = normalizeStatusText(flow?.status || "").replace(/[^A-Z0-9]+/g, "");
+  return normalized === "AGUARDANDOENVIO";
+}
+
+function getAwaitingShipmentTagsForStats(project) {
+  if (!project || isProjectExcludedFromTotal(project)) return 0;
+  const openItems = getOpenFlowItemsForStats(project);
+  const awaitingItems = openItems.filter((item) => isAwaitingShipmentStatsFlow(item.flow));
+  return awaitingItems.length;
+}
+
 function getProjectHoldContextTexts(project) {
   if (!project) return [];
   const texts = [
@@ -1470,7 +1482,7 @@ function buildStats(projects) {
     const producaoTags = countSector("Produção");
     const qualidadeTags = countSector("Qualidade");
     const pinturaTags = countSector("Pintura");
-    const logisticaTags = countSector("Logística");
+    const logisticaTags = getAwaitingShipmentTagsForStats(project);
     const preStartTags = openItems.filter((item) => ["Engenharia", "Suprimento"].includes(item.flow?.sector)).length;
 
     if (producaoTags) { stats.inProgress += 1; stats.inProgressTags += producaoTags; }

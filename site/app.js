@@ -106,6 +106,7 @@ const projectViewTabsEl = document.getElementById("project-view-tabs");
 const totalProjectsCardEl = document.getElementById("total-projects-card");
 const weldedWeightCardEl = document.getElementById("welded-weight-card");
 const onHoldCardEl = document.getElementById("on-hold-card");
+const awaitingShipmentCardEl = document.getElementById("awaiting-shipment-card");
 const projectDrillPanelEl = document.getElementById("project-drill-panel");
 const projectDrillTitleEl = document.getElementById("project-drill-title");
 const projectDrillSubtitleEl = document.getElementById("project-drill-subtitle");
@@ -2156,6 +2157,27 @@ function getPreparedShipmentTags(project) {
     : 0;
 }
 
+function isAwaitingShipmentFlowStatus(value) {
+  return normalizeText(value || '').replace(/[^a-z0-9]+/g, '') === 'aguardandoenvio';
+}
+
+function getAwaitingShipmentTags(project) {
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  const openSpools = spools.filter((spool) => spool?.flow?.state !== 'completed' && spool?.flow?.status !== 'Finalizado');
+  const sourceSpools = openSpools.length ? openSpools : spools;
+
+  if (sourceSpools.length) {
+    return sourceSpools.filter((spool) => {
+      const snapshot = getLogisticsProgressSnapshot(spool);
+      return isAwaitingShipmentSnapshot(snapshot) || isAwaitingShipmentFlowStatus(spool?.flow?.status || spool?.currentStatus || spool?.stage);
+    }).length;
+  }
+
+  return projectHasAwaitingShipmentPackage(project) || isAwaitingShipmentFlowStatus(project?.flow?.status || project?.currentStatus || project?.currentStage || project?.statusSummary)
+    ? Number(project?.quantitySpools || 1)
+    : 0;
+}
+
 function getProjectStatusPresentation(project) {
   if (projectHasAwaitingShipmentPackage(project) && project?.uiState !== 'completed') {
     return { text: 'Aguardando envio', state: 'awaiting_shipment' };
@@ -2905,7 +2927,7 @@ function buildClientStats(projects) {
     const producaoTags = countSector('producao') + countSector('solda') + countSector('calderaria');
     const qualidadeTags = countSector('inspecao');
     const pinturaTags = countSector('pintura');
-    const logisticaTags = getPreparedShipmentTags(project);
+    const logisticaTags = getAwaitingShipmentTags(project);
     const preStartTags = countSector('engenharia') + countSector('suprimento');
 
     if (producaoTags) {
@@ -3461,6 +3483,10 @@ function getProjectDrillSource(mode = getProjectDrillMode()) {
     return source.filter((project) => isProjectOnHold(project));
   }
 
+  if (mode === 'awaiting') {
+    return source.filter((project) => !isProjectExcludedFromTotal(project) && getAwaitingShipmentTags(project) > 0);
+  }
+
   return source.filter((project) => !isProjectExcludedFromTotal(project));
 }
 
@@ -3493,6 +3519,7 @@ function getProjectDrillClientGroups(projects = getProjectDrillSource()) {
         totalWeightKg: 0,
         weldedWeightKg: 0,
         holdTags: 0,
+        awaitingTags: 0,
         vesselCount: 0,
       });
     }
@@ -3503,6 +3530,7 @@ function getProjectDrillClientGroups(projects = getProjectDrillSource()) {
     group.totalWeightKg += Number(project.kilos || 0);
     group.weldedWeightKg += getProjectWeldedWeightKg(project);
     group.holdTags += getProjectHoldTagCount(project);
+    group.awaitingTags += getAwaitingShipmentTags(project);
   });
 
   groups.forEach((group) => {
@@ -3539,6 +3567,7 @@ function getProjectDrillVesselGroups(clientGroup) {
         totalWeightKg: 0,
         weldedWeightKg: 0,
         holdTags: 0,
+        awaitingTags: 0,
       });
     }
 
@@ -3548,6 +3577,7 @@ function getProjectDrillVesselGroups(clientGroup) {
     group.totalWeightKg += Number(project.kilos || 0);
     group.weldedWeightKg += getProjectWeldedWeightKg(project);
     group.holdTags += getProjectHoldTagCount(project);
+    group.awaitingTags += getAwaitingShipmentTags(project);
   });
 
   return Array.from(groups.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'pt-BR'));
@@ -3570,7 +3600,7 @@ function closeProjectDrillPanel() {
   state.projectDrill.mode = 'total';
   state.projectDrill.selectedClientKey = '';
   state.projectDrill.selectedVesselKey = '';
-  [totalProjectsCardEl, weldedWeightCardEl, onHoldCardEl].forEach((card) => {
+  [totalProjectsCardEl, weldedWeightCardEl, onHoldCardEl, awaitingShipmentCardEl].forEach((card) => {
     if (card) card.setAttribute('aria-expanded', 'false');
   });
   renderProjectDrillPanel();
@@ -3581,7 +3611,7 @@ function openProjectDrillPanel(mode = 'total') {
   state.projectDrill.mode = mode || 'total';
   state.projectDrill.selectedClientKey = '';
   state.projectDrill.selectedVesselKey = '';
-  [totalProjectsCardEl, weldedWeightCardEl, onHoldCardEl].forEach((card) => {
+  [totalProjectsCardEl, weldedWeightCardEl, onHoldCardEl, awaitingShipmentCardEl].forEach((card) => {
     if (card) card.setAttribute('aria-expanded', card === getProjectDrillTriggerCard(state.projectDrill.mode) ? 'true' : 'false');
   });
   renderProjectDrillPanel();
@@ -3593,6 +3623,7 @@ function openProjectDrillPanel(mode = 'total') {
 function getProjectDrillTriggerCard(mode = getProjectDrillMode()) {
   if (mode === 'welded') return weldedWeightCardEl;
   if (mode === 'hold') return onHoldCardEl;
+  if (mode === 'awaiting') return awaitingShipmentCardEl;
   return totalProjectsCardEl;
 }
 
@@ -3624,6 +3655,21 @@ function getProjectDrillLabels(mode = getProjectDrillMode(), clientGroup = null,
       title: 'Projetos em On Hold por cliente',
       subtitle: 'Clique em um cliente para visualizar os projetos em On Hold vinculados a ele.',
       kicker: 'On Hold por cliente',
+    };
+  }
+
+  if (mode === 'awaiting') {
+    if (clientGroup) {
+      return {
+        title: `Preparados para envio • ${clientGroup.label}`,
+        subtitle: `${formatNumber(clientGroup.count)} projeto(s) aguardando envio neste cliente, com ${formatNumber(clientGroup.awaitingTags || 0)} tag(s). Dê 2 cliques na BSP para abrir o detalhamento completo.`,
+        kicker: 'Preparados para envio por cliente',
+      };
+    }
+    return {
+      title: 'Projetos preparados para envio por cliente',
+      subtitle: 'Clique em um cliente para visualizar apenas os projetos com status Aguardando envio.',
+      kicker: 'Preparados para envio',
     };
   }
 
@@ -3678,6 +3724,16 @@ function renderProjectDrillClientCards(clientGroups, mode) {
           `;
         }
 
+        if (mode === 'awaiting') {
+          return `
+            <button type="button" class="project-drill-card" data-drill-client="${escapeHtml(group.key)}">
+              <span class="project-drill-label">${escapeHtml(group.label)}</span>
+              <strong>${formatNumber(group.count)}</strong>
+              <small>${formatNumber(group.awaitingTags || 0)} tag(s) aguardando envio • ${formatNumber(group.weldedWeightKg, 0)} kg soldado</small>
+            </button>
+          `;
+        }
+
         return `
           <button type="button" class="project-drill-card" data-drill-client="${escapeHtml(group.key)}">
             <span class="project-drill-label">${escapeHtml(group.label)}</span>
@@ -3693,6 +3749,7 @@ function renderProjectDrillClientCards(clientGroups, mode) {
 function renderProjectDrillProjectsTable(projects, mode) {
   const rows = [...projects].sort((a, b) => {
     if (mode === 'welded') return getProjectWeldedWeightKg(b) - getProjectWeldedWeightKg(a) || compareProjectsByPlannedFinishDate(a, b);
+    if (mode === 'awaiting') return getAwaitingShipmentTags(b) - getAwaitingShipmentTags(a) || compareProjectsByPlannedFinishDate(a, b);
     return compareProjectsByPlannedFinishDate(a, b);
   });
 
@@ -3700,7 +3757,9 @@ function renderProjectDrillProjectsTable(projects, mode) {
     ? '<th>Peso programado</th><th>Peso soldado</th>'
     : mode === 'hold'
       ? '<th>Tags</th><th>Motivo On Hold</th>'
-      : '<th>Itens</th><th>Término planejado</th><th>Data de envio</th><th>% Geral</th>';
+      : mode === 'awaiting'
+        ? '<th>Tags aguardando envio</th><th>Data de envio</th>'
+        : '<th>Itens</th><th>Término planejado</th><th>Data de envio</th><th>% Geral</th>';
 
   return `
     <div class="project-drill-table-shell">
@@ -3721,7 +3780,9 @@ function renderProjectDrillProjectsTable(projects, mode) {
               ? `<td>${formatNumber(project.kilos || 0, 0)} kg</td><td>${formatNumber(getProjectWeldedWeightKg(project), 0)} kg</td>`
               : mode === 'hold'
                 ? `<td>${formatNumber(getProjectHoldTagCount(project))}</td><td>${escapeHtml(getProjectHoldReason(project))}</td>`
-                : `<td>${formatNumber(getProjectItemCount(project))}</td><td>${escapeHtml(project.plannedFinishDate || '—')}</td><td>${escapeHtml(getProjectShipmentDate(project))}</td><td>${formatPercent(project.overallProgress)}</td>`;
+                : mode === 'awaiting'
+                  ? `<td>${formatNumber(getAwaitingShipmentTags(project))}</td><td>${escapeHtml(getProjectShipmentDate(project) || '—')}</td>`
+                  : `<td>${formatNumber(getProjectItemCount(project))}</td><td>${escapeHtml(project.plannedFinishDate || '—')}</td><td>${escapeHtml(getProjectShipmentDate(project))}</td><td>${formatPercent(project.overallProgress)}</td>`;
             return `
               <tr data-drill-project-id="${project.rowId}">
                 <td>${escapeHtml(project.projectDisplay || '—')}</td>
@@ -3774,7 +3835,7 @@ function renderProjectDrillPanel() {
   const labels = getProjectDrillLabels(mode, activeClientGroup, activeVesselGroup);
 
   projectDrillPanelEl.classList.remove('hidden');
-  [totalProjectsCardEl, weldedWeightCardEl, onHoldCardEl].forEach((card) => {
+  [totalProjectsCardEl, weldedWeightCardEl, onHoldCardEl, awaitingShipmentCardEl].forEach((card) => {
     if (card) card.setAttribute('aria-expanded', card === getProjectDrillTriggerCard(mode) ? 'true' : 'false');
   });
 
@@ -3875,7 +3936,8 @@ function renderStats() {
 
   const awaitingEl = document.getElementById("stat-awaiting-shipment");
   if (awaitingEl) awaitingEl.textContent = formatNumber(stats.awaitingShipment);
-  setTags("stat-awaiting-tags", stats.awaitingShipmentTags);
+  const awaitingTagsEl = document.getElementById("stat-awaiting-tags");
+  if (awaitingTagsEl) awaitingTagsEl.textContent = `Aguardando envio • Tags ${formatNumber(stats.awaitingShipmentTags ?? 0)}`;
 
   const paintingM2El = document.getElementById("stat-painting-m2");
   if (paintingM2El) paintingM2El.textContent = `${formatNumber(stats.totalPaintingM2, 3)} m²`;
@@ -5017,6 +5079,7 @@ function bindEvents() {
   attachProjectDrillCard(totalProjectsCardEl, 'total');
   attachProjectDrillCard(weldedWeightCardEl, 'welded');
   attachProjectDrillCard(onHoldCardEl, 'hold');
+  attachProjectDrillCard(awaitingShipmentCardEl, 'awaiting');
 
   if (projectDrillCloseEl) {
     projectDrillCloseEl.addEventListener("click", closeProjectDrillPanel);
