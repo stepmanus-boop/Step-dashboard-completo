@@ -2647,40 +2647,146 @@ function isProjectStatusPending(projectStatus) {
   return compact === "pending" || normalized === "pending";
 }
 
-function isProjectPending(project) {
-  if (!project) return false;
-  const texts = [project.projectStatus, project["PROJECT STATUS"]];
+function getProjectStatusTexts(project) {
+  if (!project) return [];
+  const texts = [
+    project.projectStatus,
+    project["PROJECT STATUS"],
+    project.status,
+    project.currentStatus,
+    project.currentStage,
+    project.statusSummary,
+    project.sectorSummary,
+    project.operationalState,
+    project.uiState,
+    project.flow?.status,
+    project.flow?.state,
+  ];
+
+  if (project.stageValues && typeof project.stageValues === 'object') {
+    texts.push(project.stageValues['Project Finished?'], project.stageValues['Project Finish Date']);
+  }
+
   if (Array.isArray(project.spools)) {
     project.spools.forEach((spool) => {
-      texts.push(spool?.projectStatus, spool?.["PROJECT STATUS"]);
+      texts.push(
+        spool?.projectStatus,
+        spool?.["PROJECT STATUS"],
+        spool?.status,
+        spool?.currentStatus,
+        spool?.stage,
+        spool?.uiState,
+        spool?.operationalState,
+        spool?.flow?.status,
+        spool?.flow?.state
+      );
+      if (spool?.stageValues && typeof spool.stageValues === 'object') {
+        texts.push(spool.stageValues['Project Finished?'], spool.stageValues['Project Finish Date']);
+      }
     });
   }
-  return texts.some((value) => isProjectStatusPending(value));
+
+  return texts.filter((value) => value != null && String(value).trim() !== '');
+}
+
+function isProjectPending(project) {
+  return getProjectStatusTexts(project).some((value) => isProjectStatusPending(value));
+}
+
+function isMeaningfulFinishValue(value) {
+  if (value == null) return false;
+  const raw = String(value).trim();
+  if (!raw) return false;
+  const compact = normalizeText(raw).replace(/[^a-z0-9]+/g, '');
+  return !['na', 'n/a', 'none', 'null', 'false', 'no', 'nao', 'não', '0'].includes(compact);
+}
+
+function isProjectStatusFinished(projectStatus) {
+  const normalized = normalizeText(projectStatus || "");
+  const compact = normalized.replace(/[^a-z0-9]+/g, "");
+  return ['finalizado', 'concluido', 'finished', 'completed', 'delivered', 'entregue', 'enviado'].includes(compact)
+    || normalized === 'finalizado'
+    || normalized === 'concluido'
+    || normalized.includes('project finished')
+    || normalized.includes('projeto finalizado');
+}
+
+function hasProjectFinishDateMarker(project) {
+  if (!project) return false;
+  const values = [
+    project.projectFinishDate,
+    project.finishDate,
+    project.finishedDate,
+    project.shipmentDate,
+    project.stageValues?.['Project Finish Date'],
+    project.stageValues?.['PROJECT FINISH DATE'],
+  ];
+  return values.some(isMeaningfulFinishValue);
+}
+
+function hasProjectFinishedBooleanMarker(project) {
+  if (!project) return false;
+  const values = [project.finished, project.projectFinishedFlag, project.stageValues?.['Project Finished?'], project.stageValues?.['PROJECT FINISHED?']];
+  return values.some((value) => {
+    if (typeof value === 'boolean') return value;
+    const compact = normalizeText(value || '').replace(/[^a-z0-9]+/g, '');
+    return ['true', 'yes', 'sim', 'y', '1', 'finalizado', 'concluido', 'completed', 'finished'].includes(compact);
+  });
+}
+
+function areAllProjectSpoolsFinished(project) {
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  return spools.length > 0 && spools.every((spool) => Boolean(
+    spool?.finished
+    || spool?.projectFinishedFlag
+    || spool?.uiState === 'completed'
+    || spool?.operationalState === 'completed'
+    || spool?.flow?.state === 'completed'
+    || spool?.flow?.status === 'Finalizado'
+    || isProjectStatusFinished(spool?.projectStatus)
+    || isProjectStatusFinished(spool?.status)
+    || isProjectStatusFinished(spool?.currentStatus)
+    || isMeaningfulFinishValue(spool?.stageValues?.['Project Finish Date'])
+  ));
 }
 
 function isProjectFinishedForTotal(project) {
   if (!project) return false;
-  const statusText = normalizeText([
-    project.finished ? 'finalizado' : '',
-    project.uiState,
-    project.operationalState,
-    project.currentStage,
-    project.currentStatus,
-    project.statusSummary,
-    project.sectorSummary,
-    project.flow?.status,
-    project.flow?.state,
-  ].filter(Boolean).join(' '));
-
-  return Boolean(project.finished)
+  return Boolean(
+    hasProjectFinishedBooleanMarker(project)
+    || hasProjectFinishDateMarker(project)
     || project.uiState === 'completed'
     || project.operationalState === 'completed'
     || project.flow?.state === 'completed'
-    || statusText.includes('finalizado');
+    || isProjectStatusFinished(project.projectStatus)
+    || isProjectStatusFinished(project.status)
+    || isProjectStatusFinished(project.currentStage)
+    || isProjectStatusFinished(project.currentStatus)
+    || isProjectStatusFinished(project.statusSummary)
+    || isProjectStatusFinished(project.flow?.status)
+    || areAllProjectSpoolsFinished(project)
+  );
 }
 
 function isProjectExcludedFromTotal(project) {
   return isProjectOnHold(project) || isProjectPending(project) || isProjectFinishedForTotal(project);
+}
+
+function isProjectStartedForStats(project) {
+  if (!project || isProjectExcludedFromTotal(project)) return { started: false, tags: 0 };
+  const openItems = getProjectOpenFlowItems(project);
+  const startedItems = openItems.filter((item) => {
+    const sectorKey = getFlowSectorKey(item.flow);
+    return ['producao', 'solda', 'calderaria', 'inspecao', 'pintura', 'pendente_envio'].includes(sectorKey);
+  });
+  if (startedItems.length) return { started: true, tags: startedItems.length };
+
+  const statusText = normalizeText([project.currentStage, project.currentStatus, project.statusSummary, project.operationalSector, project.currentSector, project.flow?.status, project.flow?.sector].filter(Boolean).join(' '));
+  const textualStarted = ['corte', 'fabrication', 'pre montagem', 'solda', 'welding', 'inspecao', 'inspection', 'th', 'pintura', 'painting', 'coating', 'unitizacao', 'envio'].some((term) => statusText.includes(term));
+  if (textualStarted) return { started: true, tags: Number(project.quantitySpools || 1) };
+
+  const progress = Number(project.overallProgress || project.currentStagePercent || 0);
+  return progress > 0 ? { started: true, tags: Number(project.quantitySpools || 1) } : { started: false, tags: 0 };
 }
 
 function getProjectHoldContextTexts(project) {
@@ -2739,6 +2845,8 @@ function buildClientStats(projects) {
     totalPaintingM2: 0,
     completed: 0,
     completedTags: 0,
+    startedProjects: 0,
+    startedTags: 0,
     inProgress: 0,
     inProgressTags: 0,
     inspectionProjects: 0,
@@ -2758,13 +2866,14 @@ function buildClientStats(projects) {
   for (const project of projects) {
     const spools = Array.isArray(project.spools) ? project.spools : [];
     const tags = Number(project.quantitySpools || spools.length || 0);
+    const isFinishedProject = isProjectFinishedForTotal(project);
     stats.totalSpools += tags;
     stats.totalWeightKg += Number(project.kilos || 0);
     stats.totalWeldedWeightKg += Number(project.weldedWeightKg || 0);
     const openPaintingM2 = spools.length
       ? spools.filter((spool) => spool.flow?.state !== 'completed' && spool.flow?.status !== 'Finalizado').reduce((total, spool) => total + Number(spool.m2Painting || 0), 0)
       : 0;
-    stats.totalPaintingM2 += project.finished ? 0 : (openPaintingM2 > 0 ? openPaintingM2 : Number(project.m2Painting || 0));
+    stats.totalPaintingM2 += isFinishedProject ? 0 : (openPaintingM2 > 0 ? openPaintingM2 : Number(project.m2Painting || 0));
     const isHoldProject = isProjectOnHold(project);
     const isPendingProject = isProjectPending(project);
 
@@ -2778,7 +2887,7 @@ function buildClientStats(projects) {
       continue;
     }
 
-    if (project.finished || project.uiState === 'completed' || project.operationalState === 'completed') {
+    if (isFinishedProject) {
       stats.completed += 1;
       stats.completedTags += tags;
       continue;
@@ -2787,6 +2896,11 @@ function buildClientStats(projects) {
     progressAccumulator += Number(project.overallProgress || 0);
 
     const openItems = getProjectOpenFlowItems(project);
+    const startedSnapshot = isProjectStartedForStats(project);
+    if (startedSnapshot.started) {
+      stats.startedProjects += 1;
+      stats.startedTags += Number(startedSnapshot.tags || tags || 0);
+    }
     const countSector = (sectorKey) => openItems.filter((item) => getFlowSectorKey(item.flow) === sectorKey).length;
     const producaoTags = countSector('producao') + countSector('solda') + countSector('calderaria');
     const qualidadeTags = countSector('inspecao');
@@ -3722,6 +3836,8 @@ function renderStats() {
   const totalWeldedWeight = Number(stats.totalWeldedWeightKg || 0);
   const totalBacklogWelding = Math.max(0, Number(stats.totalWeightKg || 0) - totalWeldedWeight);
   document.getElementById("stat-projects").textContent = formatNumber(stats.totalProjects);
+  const startedProjectsEl = document.getElementById("stat-started-projects");
+  if (startedProjectsEl) startedProjectsEl.textContent = formatNumber(stats.startedProjects || 0);
   document.getElementById("stat-spools").textContent = `${formatNumber(totalWeldedWeight, 0)} kg`;
   document.getElementById("stat-total-weight").textContent = `${formatNumber(stats.totalWeightKg, 0)} kg`;
   const backlogWeldingEl = document.getElementById("stat-backlog-welding");
@@ -3736,6 +3852,8 @@ function renderStats() {
     const el = document.getElementById(id);
     if (el) el.textContent = `Tags ${formatNumber(value ?? 0)}`;
   };
+
+  setTags("stat-started-tags", stats.startedTags || 0);
 
   document.getElementById("stat-not-started").textContent = formatNumber(stats.notStarted);
   setTags("stat-not-started-tags", stats.notStartedTags);

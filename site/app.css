@@ -195,6 +195,10 @@ body.modal-open { overflow: hidden; }
   grid-template-columns: repeat(9, minmax(0, 1fr));
 }
 
+.summary-row--twelve {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
 
 .summary-label {
   color: var(--accent);
@@ -1424,7 +1428,8 @@ button.alert-badge {
   }
 
   .summary-row--eight,
-  .summary-row--nine {
+  .summary-row--nine,
+  .summary-row--twelve {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1503,7 +1508,8 @@ button.alert-badge {
   }
 
   .summary-row--eight,
-  .summary-row--nine {
+  .summary-row--nine,
+  .summary-row--twelve {
     grid-template-columns: 1fr;
   }
 
