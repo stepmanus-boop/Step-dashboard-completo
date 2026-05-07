@@ -2647,49 +2647,6 @@ function isProjectStatusPending(projectStatus) {
   return compact === "pending" || normalized === "pending";
 }
 
-function isProjectStatusFinished(projectStatus) {
-  const normalized = normalizeText(projectStatus || "");
-  if (!normalized) return false;
-  const compact = normalized.replace(/[^a-z0-9]+/g, "");
-
-  if (
-    normalized.includes("nao finaliz") ||
-    normalized.includes("não finaliz") ||
-    normalized.includes("not finish") ||
-    normalized.includes("not complet") ||
-    normalized.includes("nao concluid") ||
-    normalized.includes("não concluid")
-  ) {
-    return false;
-  }
-
-  return [
-    "finalizado",
-    "finalizada",
-    "finished",
-    "finish",
-    "completed",
-    "complete",
-    "concluido",
-    "concluida",
-    "concluded",
-    "done",
-    "delivered",
-    "entregue",
-    "encerrado",
-    "encerrada"
-  ].includes(compact) ||
-    normalized.includes("finalizado") ||
-    normalized.includes("finalizada") ||
-    normalized.includes("finished") ||
-    normalized.includes("completed") ||
-    normalized.includes("concluido") ||
-    normalized.includes("concluida") ||
-    normalized.includes("entregue") ||
-    normalized.includes("encerrado") ||
-    normalized.includes("encerrada");
-}
-
 function isProjectPending(project) {
   if (!project) return false;
   const texts = [project.projectStatus, project["PROJECT STATUS"]];
@@ -2703,27 +2660,23 @@ function isProjectPending(project) {
 
 function isProjectFinishedForTotal(project) {
   if (!project) return false;
-  const stageValues = project.stageValues && typeof project.stageValues === 'object' ? project.stageValues : {};
-  const finishDate = project.shipmentDate || project.projectFinishDate || stageValues['Project Finish Date'] || stageValues['Project finish date'];
-  const finishedFlag = project.projectFinishedFlag || stageValues['Project Finished?'];
-  const statusCandidates = [
-    project.projectStatus,
-    project['PROJECT STATUS'],
+  const statusText = normalizeText([
+    project.finished ? 'finalizado' : '',
+    project.uiState,
+    project.operationalState,
     project.currentStage,
     project.currentStatus,
     project.statusSummary,
     project.sectorSummary,
     project.flow?.status,
     project.flow?.state,
-  ];
+  ].filter(Boolean).join(' '));
 
   return Boolean(project.finished)
-    || Boolean(finishedFlag)
-    || Boolean(finishDate && String(finishDate).trim())
     || project.uiState === 'completed'
     || project.operationalState === 'completed'
     || project.flow?.state === 'completed'
-    || statusCandidates.some((value) => isProjectStatusFinished(value));
+    || statusText.includes('finalizado');
 }
 
 function isProjectExcludedFromTotal(project) {
@@ -2811,8 +2764,7 @@ function buildClientStats(projects) {
     const openPaintingM2 = spools.length
       ? spools.filter((spool) => spool.flow?.state !== 'completed' && spool.flow?.status !== 'Finalizado').reduce((total, spool) => total + Number(spool.m2Painting || 0), 0)
       : 0;
-    const isFinishedProject = isProjectFinishedForTotal(project);
-    stats.totalPaintingM2 += isFinishedProject ? 0 : (openPaintingM2 > 0 ? openPaintingM2 : Number(project.m2Painting || 0));
+    stats.totalPaintingM2 += project.finished ? 0 : (openPaintingM2 > 0 ? openPaintingM2 : Number(project.m2Painting || 0));
     const isHoldProject = isProjectOnHold(project);
     const isPendingProject = isProjectPending(project);
 
@@ -2826,7 +2778,7 @@ function buildClientStats(projects) {
       continue;
     }
 
-    if (isFinishedProject) {
+    if (project.finished || project.uiState === 'completed' || project.operationalState === 'completed') {
       stats.completed += 1;
       stats.completedTags += tags;
       continue;

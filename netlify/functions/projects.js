@@ -920,114 +920,24 @@ function uiStateFromFlow(flow, allFinished = false) {
   return "in_progress";
 }
 
-
-function normalizeStatusRuleText(value) {
-  return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, " ");
-}
-
-function isProjectStatusFinished(projectStatus) {
-  const normalized = normalizeStatusRuleText(projectStatus);
-  if (!normalized) return false;
-  const compact = normalized.replace(/[^A-Z0-9]+/g, "");
-
-  if (
-    normalized.includes("NAO FINALIZ") ||
-    normalized.includes("NÃO FINALIZ") ||
-    normalized.includes("NOT FINISH") ||
-    normalized.includes("NOT COMPLET") ||
-    normalized.includes("NAO CONCLUID") ||
-    normalized.includes("NÃO CONCLUID")
-  ) {
-    return false;
-  }
-
-  return [
-    "FINALIZADO",
-    "FINALIZADA",
-    "FINISHED",
-    "FINISH",
-    "COMPLETED",
-    "COMPLETE",
-    "CONCLUIDO",
-    "CONCLUIDA",
-    "CONCLUDED",
-    "DONE",
-    "DELIVERED",
-    "ENTREGUE",
-    "ENCERRADO",
-    "ENCERRADA"
-  ].includes(compact) ||
-    normalized.includes("FINALIZADO") ||
-    normalized.includes("FINALIZADA") ||
-    normalized.includes("FINISHED") ||
-    normalized.includes("COMPLETED") ||
-    normalized.includes("CONCLUIDO") ||
-    normalized.includes("CONCLUIDA") ||
-    normalized.includes("ENTREGUE") ||
-    normalized.includes("ENCERRADO") ||
-    normalized.includes("ENCERRADA");
-}
-
-function hasProjectSummaryFinishedMarker(project) {
-  if (!project) return false;
-  const stageValues = project.stageValues && typeof project.stageValues === "object" ? project.stageValues : {};
-  const finishDate = project.shipmentDate || project.projectFinishDate || stageValues["Project Finish Date"] || stageValues["Project finish date"];
-  const finishedFlag = project.projectFinishedFlag || stageValues["Project Finished?"];
-  const statusCandidates = [
-    project.projectStatus,
-    project["PROJECT STATUS"],
-    project.currentStage,
-    project.currentStatus,
-    project.statusSummary,
-    project.sectorSummary,
-    project.flow?.status,
-    project.flow?.state,
-  ];
-
-  return Boolean(project.finished)
-    || Boolean(finishedFlag && isTruthyValue(finishedFlag))
-    || Boolean(finishDate && String(finishDate).trim())
-    || project.uiState === "completed"
-    || project.operationalState === "completed"
-    || project.flow?.state === "completed"
-    || statusCandidates.some((value) => isProjectStatusFinished(value));
-}
-
 function applyProjectSpoolRollup(project) {
   const fallbackFlow = project.flow || makeFlow(project.currentStage || "AG. Emissão de detalhamento", project.operationalSector || "Engenharia", project.currentStagePercent || 0, project.currentStageStatus || "waiting", project.operationalState || project.uiState || "not_started");
   const summary = summarizeFlowItems(project.spools || [], fallbackFlow, project.quantitySpools || 1);
-
-  // Importante: quando a linha-mãe do projeto é marcada como finalizada
-  // (Project Finished?, Project Finish Date, PROJECT STATUS finalizado, etc.),
-  // essa informação não pode ser perdida pelo rollup dos spools filhos.
-  // Antes, se algum spool filho ainda estivesse aberto, summary.allFinished voltava
-  // false e o projeto continuava entrando no Total de Projetos.
-  const explicitlyFinished = hasProjectSummaryFinishedMarker(project);
-  const rolledUpFinished = Boolean(explicitlyFinished || summary.allFinished);
-  const finalFlow = rolledUpFinished
-    ? makeFlow("Finalizado", "Enviado", 100, "completed", "completed")
-    : summary.flow;
-
   project.demandSummary = summary;
-  project.statusSummary = rolledUpFinished ? "Finalizado" : summary.statusSummary;
-  project.sectorSummary = rolledUpFinished ? "Enviado" : summary.sectorSummary;
+  project.statusSummary = summary.statusSummary;
+  project.sectorSummary = summary.sectorSummary;
   project.statusBreakdown = summary.statusBreakdown;
   project.sectorBreakdown = summary.sectorBreakdown;
-  project.flow = finalFlow;
-  project.currentStage = rolledUpFinished ? "Finalizado" : summary.statusSummary;
-  project.currentStageGroup = rolledUpFinished ? "Enviado" : summary.sectorSummary;
-  project.currentStagePercent = finalFlow.percent;
-  project.currentStageStatus = rolledUpFinished ? "completed" : (finalFlow.stageStatus || "waiting");
-  project.currentStageAlert = !rolledUpFinished && ["in_progress", "waiting"].includes(project.currentStageStatus);
-  project.operationalSector = rolledUpFinished ? "Enviado" : summary.sectorSummary;
-  project.operationalState = finalFlow.state;
-  project.finished = rolledUpFinished;
-  project.uiState = uiStateFromFlow(finalFlow, rolledUpFinished);
+  project.flow = summary.flow;
+  project.currentStage = summary.statusSummary;
+  project.currentStageGroup = summary.sectorSummary;
+  project.currentStagePercent = summary.flow.percent;
+  project.currentStageStatus = summary.allFinished ? "completed" : (summary.flow.stageStatus || "waiting");
+  project.currentStageAlert = !summary.allFinished && ["in_progress", "waiting"].includes(project.currentStageStatus);
+  project.operationalSector = summary.sectorSummary;
+  project.operationalState = summary.flow.state;
+  project.finished = summary.allFinished;
+  project.uiState = uiStateFromFlow(summary.flow, summary.allFinished);
   return project;
 }
 
@@ -1284,7 +1194,7 @@ function buildAlerts(projects) {
 }
 
 function hasProjectFinishedMarker(project) {
-  return hasProjectSummaryFinishedMarker(project);
+  return Boolean(project?.finished || project?.uiState === "completed" || project?.operationalState === "completed");
 }
 
 function getOpenFlowItemsForStats(project) {
@@ -1428,8 +1338,7 @@ function buildStats(projects) {
     const openPaintingM2 = spools.length
       ? spools.filter((spool) => spool.flow?.state !== "completed" && spool.flow?.status !== "Finalizado").reduce((total, spool) => total + Number(spool.m2Painting || 0), 0)
       : 0;
-    const isFinishedProject = hasProjectFinishedMarker(project);
-    stats.totalPaintingM2 += isFinishedProject ? 0 : (openPaintingM2 > 0 ? openPaintingM2 : Number(project.m2Painting || 0));
+    stats.totalPaintingM2 += project.finished ? 0 : (openPaintingM2 > 0 ? openPaintingM2 : Number(project.m2Painting || 0));
     const isOnHold = isProjectOnHold(project);
     const isPending = isProjectPending(project);
 
@@ -1443,7 +1352,7 @@ function buildStats(projects) {
       continue;
     }
 
-    if (isFinishedProject) {
+    if (project.finished || project.uiState === "completed" || project.operationalState === "completed") {
       stats.completed += 1;
       stats.completedTags += tags;
       continue;
