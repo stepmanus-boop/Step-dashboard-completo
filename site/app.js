@@ -13,7 +13,7 @@ const state = {
   projects: [],
   filteredProjects: [],
   projectView: 'all',
-  projectDrill: { open: false, selectedClientKey: '', selectedVesselKey: '' },
+  projectDrill: { open: false, mode: 'total', selectedClientKey: '', selectedVesselKey: '' },
   sectorScopedView: false,
   stats: null,
   meta: null,
@@ -104,6 +104,8 @@ const searchCountEl = document.getElementById("search-count");
 const tableShellEl = document.getElementById("table-shell");
 const projectViewTabsEl = document.getElementById("project-view-tabs");
 const totalProjectsCardEl = document.getElementById("total-projects-card");
+const weldedWeightCardEl = document.getElementById("welded-weight-card");
+const onHoldCardEl = document.getElementById("on-hold-card");
 const projectDrillPanelEl = document.getElementById("project-drill-panel");
 const projectDrillTitleEl = document.getElementById("project-drill-title");
 const projectDrillSubtitleEl = document.getElementById("project-drill-subtitle");
@@ -3285,9 +3287,67 @@ function formatBacklogItemText(project) {
   return `${formatNumber(count)} ${count === 1 ? "produto em produção" : "produtos em produção"}`;
 }
 
-function getProjectDrillSource() {
+function getProjectWeldedWeightKg(project) {
+  if (!project) return 0;
+  const directValue = Number(project.weldedWeightKg || 0);
+  if (Number.isFinite(directValue) && directValue > 0) return directValue;
+  const spools = Array.isArray(project.spools) ? project.spools : [];
+  return spools.reduce((total, spool) => total + Number(spool?.weldedWeightKg || 0), 0);
+}
+
+function getProjectHoldTagCount(project) {
+  return Number(project?.quantitySpools || (Array.isArray(project?.spools) ? project.spools.length : 0) || 0);
+}
+
+function getProjectHoldReason(project) {
+  if (!project) return '—';
+  const statusCandidates = [
+    project.projectStatus,
+    project.status,
+    project.jobProcessStatus,
+    project.currentStatus,
+    project.statusSummary,
+  ].filter(Boolean);
+
+  const statusMatch = statusCandidates.find((value) => isProjectStatusOnHold(value));
+  if (statusMatch) return String(statusMatch).trim();
+
+  const noteCandidates = [
+    project.observations,
+    project.note,
+    project.notes,
+    project.summaryDrawing,
+    ...(Array.isArray(project.spools) ? project.spools.flatMap((spool) => [
+      spool?.observations,
+      spool?.currentStatus,
+      spool?.stage,
+      spool?.stageStatus,
+      spool?.drawing,
+      spool?.description,
+    ]) : []),
+  ].filter(Boolean);
+
+  const noteMatch = noteCandidates.find((value) => isProjectStatusOnHold(value));
+  return noteMatch ? String(noteMatch).trim() : 'On Hold identificado';
+}
+
+function getProjectDrillMode() {
+  return state.projectDrill?.mode || 'total';
+}
+
+function getProjectDrillSource(mode = getProjectDrillMode()) {
   const source = getStatsProjectsSource();
-  return Array.isArray(source) ? source.filter((project) => !isProjectExcludedFromTotal(project)) : [];
+  if (!Array.isArray(source)) return [];
+
+  if (mode === 'welded') {
+    return source.filter((project) => getProjectWeldedWeightKg(project) > 0);
+  }
+
+  if (mode === 'hold') {
+    return source.filter((project) => isProjectOnHold(project));
+  }
+
+  return source.filter((project) => !isProjectExcludedFromTotal(project));
 }
 
 function getProjectDrillClientLabel(project) {
@@ -3318,6 +3378,7 @@ function getProjectDrillClientGroups(projects = getProjectDrillSource()) {
         projects: [],
         totalWeightKg: 0,
         weldedWeightKg: 0,
+        holdTags: 0,
         vesselCount: 0,
       });
     }
@@ -3326,7 +3387,8 @@ function getProjectDrillClientGroups(projects = getProjectDrillSource()) {
     group.count += 1;
     group.projects.push(project);
     group.totalWeightKg += Number(project.kilos || 0);
-    group.weldedWeightKg += Number(project.weldedWeightKg || 0);
+    group.weldedWeightKg += getProjectWeldedWeightKg(project);
+    group.holdTags += getProjectHoldTagCount(project);
   });
 
   groups.forEach((group) => {
@@ -3334,7 +3396,11 @@ function getProjectDrillClientGroups(projects = getProjectDrillSource()) {
     group.vesselCount = vesselKeys.size;
   });
 
-  return Array.from(groups.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'pt-BR'));
+  return Array.from(groups.values()).sort((a, b) => {
+    const mode = getProjectDrillMode();
+    if (mode === 'welded') return b.weldedWeightKg - a.weldedWeightKg || a.label.localeCompare(b.label, 'pt-BR');
+    return b.count - a.count || a.label.localeCompare(b.label, 'pt-BR');
+  });
 }
 
 function getProjectDrillSelectedClientGroup() {
@@ -3358,6 +3424,7 @@ function getProjectDrillVesselGroups(clientGroup) {
         projects: [],
         totalWeightKg: 0,
         weldedWeightKg: 0,
+        holdTags: 0,
       });
     }
 
@@ -3365,7 +3432,8 @@ function getProjectDrillVesselGroups(clientGroup) {
     group.count += 1;
     group.projects.push(project);
     group.totalWeightKg += Number(project.kilos || 0);
-    group.weldedWeightKg += Number(project.weldedWeightKg || 0);
+    group.weldedWeightKg += getProjectWeldedWeightKg(project);
+    group.holdTags += getProjectHoldTagCount(project);
   });
 
   return Array.from(groups.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'pt-BR'));
@@ -3385,21 +3453,175 @@ function setProjectDrillLevel({ clientKey = '', vesselKey = '' } = {}) {
 
 function closeProjectDrillPanel() {
   state.projectDrill.open = false;
+  state.projectDrill.mode = 'total';
   state.projectDrill.selectedClientKey = '';
   state.projectDrill.selectedVesselKey = '';
-  if (totalProjectsCardEl) totalProjectsCardEl.setAttribute('aria-expanded', 'false');
+  [totalProjectsCardEl, weldedWeightCardEl, onHoldCardEl].forEach((card) => {
+    if (card) card.setAttribute('aria-expanded', 'false');
+  });
   renderProjectDrillPanel();
 }
 
-function openProjectDrillPanel() {
+function openProjectDrillPanel(mode = 'total') {
   state.projectDrill.open = true;
+  state.projectDrill.mode = mode || 'total';
   state.projectDrill.selectedClientKey = '';
   state.projectDrill.selectedVesselKey = '';
-  if (totalProjectsCardEl) totalProjectsCardEl.setAttribute('aria-expanded', 'true');
+  [totalProjectsCardEl, weldedWeightCardEl, onHoldCardEl].forEach((card) => {
+    if (card) card.setAttribute('aria-expanded', card === getProjectDrillTriggerCard(state.projectDrill.mode) ? 'true' : 'false');
+  });
   renderProjectDrillPanel();
   if (projectDrillPanelEl) {
     projectDrillPanelEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+}
+
+function getProjectDrillTriggerCard(mode = getProjectDrillMode()) {
+  if (mode === 'welded') return weldedWeightCardEl;
+  if (mode === 'hold') return onHoldCardEl;
+  return totalProjectsCardEl;
+}
+
+function getProjectDrillLabels(mode = getProjectDrillMode(), clientGroup = null, vesselGroup = null) {
+  if (mode === 'welded') {
+    if (clientGroup) {
+      return {
+        title: `Peso soldado • ${clientGroup.label}`,
+        subtitle: `${formatNumber(clientGroup.projects.length)} projeto(s) deste cliente somam ${formatNumber(clientGroup.weldedWeightKg, 0)} kg soldados. Dê 2 cliques na BSP para abrir o detalhamento completo.`,
+        kicker: 'Peso soldado por cliente',
+      };
+    }
+    return {
+      title: 'Peso total soldado por cliente',
+      subtitle: 'Clique em um cliente para visualizar os projetos e o peso soldado de cada BSP.',
+      kicker: 'Peso soldado por cliente',
+    };
+  }
+
+  if (mode === 'hold') {
+    if (clientGroup) {
+      return {
+        title: `On Hold • ${clientGroup.label}`,
+        subtitle: `${formatNumber(clientGroup.count)} projeto(s) em On Hold neste cliente, com ${formatNumber(clientGroup.holdTags)} tag(s) vinculada(s). Dê 2 cliques na BSP para abrir o detalhamento completo.`,
+        kicker: 'On Hold por cliente',
+      };
+    }
+    return {
+      title: 'Projetos em On Hold por cliente',
+      subtitle: 'Clique em um cliente para visualizar os projetos em On Hold vinculados a ele.',
+      kicker: 'On Hold por cliente',
+    };
+  }
+
+  if (vesselGroup && clientGroup) {
+    return {
+      title: `${clientGroup.label} • ${vesselGroup.label}`,
+      subtitle: `${formatNumber(vesselGroup.projects.length)} BSP(s) vinculada(s) a esta unidade/obra. Dê 2 cliques na BSP para abrir o detalhamento completo.`,
+      kicker: 'Visão por cliente',
+    };
+  }
+
+  if (clientGroup) {
+    return {
+      title: `Unidades / obras de ${clientGroup.label}`,
+      subtitle: 'Clique em uma unidade para visualizar as BSPs vinculadas.',
+      kicker: 'Visão por cliente',
+    };
+  }
+
+  return {
+    title: 'Projetos por cliente',
+    subtitle: 'Selecione um cliente para abrir as unidades/obras vinculadas a ele.',
+    kicker: 'Visão por cliente',
+  };
+}
+
+function renderProjectDrillClientCards(clientGroups, mode) {
+  if (!clientGroups.length) {
+    return '<div class="project-drill-empty">Nenhum projeto disponível para detalhar.</div>';
+  }
+
+  return `
+    <div class="project-drill-grid project-drill-grid--clients">
+      ${clientGroups.map((group) => {
+        if (mode === 'welded') {
+          return `
+            <button type="button" class="project-drill-card" data-drill-client="${escapeHtml(group.key)}">
+              <span class="project-drill-label">${escapeHtml(group.label)}</span>
+              <strong>${formatNumber(group.weldedWeightKg, 0)} kg</strong>
+              <small>${formatNumber(group.count)} projeto(s) • ${formatNumber(group.totalWeightKg, 0)} kg programado</small>
+            </button>
+          `;
+        }
+
+        if (mode === 'hold') {
+          return `
+            <button type="button" class="project-drill-card" data-drill-client="${escapeHtml(group.key)}">
+              <span class="project-drill-label">${escapeHtml(group.label)}</span>
+              <strong>${formatNumber(group.count)}</strong>
+              <small>${formatNumber(group.holdTags)} tag(s) em On Hold • ${formatNumber(group.weldedWeightKg, 0)} kg soldado</small>
+            </button>
+          `;
+        }
+
+        return `
+          <button type="button" class="project-drill-card" data-drill-client="${escapeHtml(group.key)}">
+            <span class="project-drill-label">${escapeHtml(group.label)}</span>
+            <strong>${formatNumber(group.count)}</strong>
+            <small>${formatNumber(group.vesselCount)} unidade(s) • ${formatNumber(group.totalWeightKg, 0)} kg programado</small>
+          </button>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderProjectDrillProjectsTable(projects, mode) {
+  const rows = [...projects].sort((a, b) => {
+    if (mode === 'welded') return getProjectWeldedWeightKg(b) - getProjectWeldedWeightKg(a) || compareProjectsByPlannedFinishDate(a, b);
+    return compareProjectsByPlannedFinishDate(a, b);
+  });
+
+  const extraHead = mode === 'welded'
+    ? '<th>Peso programado</th><th>Peso soldado</th>'
+    : mode === 'hold'
+      ? '<th>Tags</th><th>Motivo On Hold</th>'
+      : '<th>Itens</th><th>Término planejado</th><th>Data de envio</th><th>% Geral</th>';
+
+  return `
+    <div class="project-drill-table-shell">
+      <table class="project-drill-table">
+        <thead>
+          <tr>
+            <th>BSP / Projeto</th>
+            <th>Tipo</th>
+            <th>Etapa atual</th>
+            <th>Status</th>
+            ${extraHead}
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((project) => {
+            const statusPresentation = getProjectStatusPresentation(project);
+            const extraCells = mode === 'welded'
+              ? `<td>${formatNumber(project.kilos || 0, 0)} kg</td><td>${formatNumber(getProjectWeldedWeightKg(project), 0)} kg</td>`
+              : mode === 'hold'
+                ? `<td>${formatNumber(getProjectHoldTagCount(project))}</td><td>${escapeHtml(getProjectHoldReason(project))}</td>`
+                : `<td>${formatNumber(getProjectItemCount(project))}</td><td>${escapeHtml(project.plannedFinishDate || '—')}</td><td>${escapeHtml(getProjectShipmentDate(project))}</td><td>${formatPercent(project.overallProgress)}</td>`;
+            return `
+              <tr data-drill-project-id="${project.rowId}">
+                <td>${escapeHtml(project.projectDisplay || '—')}</td>
+                <td><span class="type-pill">${escapeHtml(getProjectTypeLabel(project))}</span></td>
+                <td>${escapeHtml(getProjectCurrentStageDisplay(project))}</td>
+                <td><span class="cell-status cell-status--${statusPresentation.state}">${escapeHtml(statusPresentation.text)}</span></td>
+                ${extraCells}
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
 function renderProjectDrillPanel() {
@@ -3411,6 +3633,7 @@ function renderProjectDrillPanel() {
     return;
   }
 
+  const mode = getProjectDrillMode();
   const clientGroups = getProjectDrillClientGroups();
   const clientGroup = getProjectDrillSelectedClientGroup();
 
@@ -3420,20 +3643,31 @@ function renderProjectDrillPanel() {
   }
 
   const refreshedClientGroup = getProjectDrillSelectedClientGroup();
-  const vesselGroup = refreshedClientGroup ? getProjectDrillSelectedVesselGroup(refreshedClientGroup) : null;
+  const vesselGroup = mode === 'total' && refreshedClientGroup ? getProjectDrillSelectedVesselGroup(refreshedClientGroup) : null;
 
-  if (state.projectDrill.selectedVesselKey && !vesselGroup) {
+  if (mode === 'total' && state.projectDrill.selectedVesselKey && !vesselGroup) {
+    state.projectDrill.selectedVesselKey = '';
+  }
+  if (mode !== 'total') {
     state.projectDrill.selectedVesselKey = '';
   }
 
   const activeClientGroup = getProjectDrillSelectedClientGroup();
-  const activeVesselGroup = activeClientGroup ? getProjectDrillSelectedVesselGroup(activeClientGroup) : null;
+  const activeVesselGroup = mode === 'total' && activeClientGroup ? getProjectDrillSelectedVesselGroup(activeClientGroup) : null;
   const showingClients = !activeClientGroup;
-  const showingVessels = activeClientGroup && !activeVesselGroup;
-  const showingBsps = activeClientGroup && activeVesselGroup;
+  const showingVessels = mode === 'total' && activeClientGroup && !activeVesselGroup;
+  const showingProjects = Boolean(activeClientGroup && (mode !== 'total' || activeVesselGroup));
+  const labels = getProjectDrillLabels(mode, activeClientGroup, activeVesselGroup);
 
   projectDrillPanelEl.classList.remove('hidden');
-  if (totalProjectsCardEl) totalProjectsCardEl.setAttribute('aria-expanded', 'true');
+  [totalProjectsCardEl, weldedWeightCardEl, onHoldCardEl].forEach((card) => {
+    if (card) card.setAttribute('aria-expanded', card === getProjectDrillTriggerCard(mode) ? 'true' : 'false');
+  });
+
+  const kickerEl = projectDrillPanelEl.querySelector('.project-drill-kicker');
+  if (kickerEl) kickerEl.textContent = labels.kicker;
+  if (projectDrillTitleEl) projectDrillTitleEl.textContent = labels.title;
+  if (projectDrillSubtitleEl) projectDrillSubtitleEl.textContent = labels.subtitle;
 
   if (projectDrillBackEl) projectDrillBackEl.classList.toggle('hidden', showingClients);
 
@@ -3455,31 +3689,12 @@ function renderProjectDrillPanel() {
   }
 
   if (showingClients) {
-    if (projectDrillTitleEl) projectDrillTitleEl.textContent = 'Projetos por cliente';
-    if (projectDrillSubtitleEl) projectDrillSubtitleEl.textContent = 'Selecione um cliente para abrir as unidades/obras vinculadas a ele.';
-    if (!clientGroups.length) {
-      projectDrillContentEl.innerHTML = '<div class="project-drill-empty">Nenhum projeto disponível para detalhar.</div>';
-      return;
-    }
-
-    projectDrillContentEl.innerHTML = `
-      <div class="project-drill-grid project-drill-grid--clients">
-        ${clientGroups.map((group) => `
-          <button type="button" class="project-drill-card" data-drill-client="${escapeHtml(group.key)}">
-            <span class="project-drill-label">${escapeHtml(group.label)}</span>
-            <strong>${formatNumber(group.count)}</strong>
-            <small>${formatNumber(group.vesselCount)} unidade(s) • ${formatNumber(group.totalWeightKg, 0)} kg programado</small>
-          </button>
-        `).join('')}
-      </div>
-    `;
+    projectDrillContentEl.innerHTML = renderProjectDrillClientCards(clientGroups, mode);
     return;
   }
 
   if (showingVessels) {
     const vesselGroups = getProjectDrillVesselGroups(activeClientGroup);
-    if (projectDrillTitleEl) projectDrillTitleEl.textContent = `Unidades / obras de ${activeClientGroup.label}`;
-    if (projectDrillSubtitleEl) projectDrillSubtitleEl.textContent = 'Clique em uma unidade para visualizar as BSPs vinculadas.';
     projectDrillContentEl.innerHTML = `
       <div class="project-drill-grid project-drill-grid--vessels">
         ${vesselGroups.map((group) => `
@@ -3494,46 +3709,9 @@ function renderProjectDrillPanel() {
     return;
   }
 
-  if (showingBsps) {
-    const projects = [...activeVesselGroup.projects].sort(compareProjectsByPlannedFinishDate);
-    if (projectDrillTitleEl) projectDrillTitleEl.textContent = `${activeClientGroup.label} • ${activeVesselGroup.label}`;
-    if (projectDrillSubtitleEl) projectDrillSubtitleEl.textContent = `${formatNumber(projects.length)} BSP(s) vinculada(s) a esta unidade/obra. Dê 2 cliques na BSP para abrir o detalhamento completo.`;
-
-    projectDrillContentEl.innerHTML = `
-      <div class="project-drill-table-shell">
-        <table class="project-drill-table">
-          <thead>
-            <tr>
-              <th>BSP / Projeto</th>
-              <th>Tipo</th>
-              <th>Etapa atual</th>
-              <th>Status</th>
-              <th>Itens</th>
-              <th>Término planejado</th>
-              <th>Data de envio</th>
-              <th>% Geral</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${projects.map((project) => {
-              const statusPresentation = getProjectStatusPresentation(project);
-              return `
-                <tr data-drill-project-id="${project.rowId}">
-                  <td>${escapeHtml(project.projectDisplay || '—')}</td>
-                  <td><span class="type-pill">${escapeHtml(getProjectTypeLabel(project))}</span></td>
-                  <td>${escapeHtml(getProjectCurrentStageDisplay(project))}</td>
-                  <td><span class="cell-status cell-status--${statusPresentation.state}">${escapeHtml(statusPresentation.text)}</span></td>
-                  <td>${formatNumber(getProjectItemCount(project))}</td>
-                  <td>${escapeHtml(project.plannedFinishDate || '—')}</td>
-                  <td>${escapeHtml(getProjectShipmentDate(project))}</td>
-                  <td>${formatPercent(project.overallProgress)}</td>
-                </tr>
-              `;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>
-    `;
+  if (showingProjects) {
+    const projects = mode === 'total' ? activeVesselGroup.projects : activeClientGroup.projects;
+    projectDrillContentEl.innerHTML = renderProjectDrillProjectsTable(projects, mode);
   }
 }
 
@@ -4706,16 +4884,21 @@ function bindEvents() {
     });
   }
 
-  if (totalProjectsCardEl) {
-    const openTotalProjectsDrill = () => openProjectDrillPanel();
-    totalProjectsCardEl.addEventListener("click", openTotalProjectsDrill);
-    totalProjectsCardEl.addEventListener("keydown", (event) => {
+  const attachProjectDrillCard = (cardEl, mode) => {
+    if (!cardEl) return;
+    const openDrill = () => openProjectDrillPanel(mode);
+    cardEl.addEventListener("click", openDrill);
+    cardEl.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        openTotalProjectsDrill();
+        openDrill();
       }
     });
-  }
+  };
+
+  attachProjectDrillCard(totalProjectsCardEl, 'total');
+  attachProjectDrillCard(weldedWeightCardEl, 'welded');
+  attachProjectDrillCard(onHoldCardEl, 'hold');
 
   if (projectDrillCloseEl) {
     projectDrillCloseEl.addEventListener("click", closeProjectDrillPanel);
