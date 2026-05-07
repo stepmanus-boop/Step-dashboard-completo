@@ -1,0 +1,42 @@
+ALTERAÇÃO APLICADA - TODOS OS CARDS COM DETALHAMENTO
+
+Base utilizada: última ZIP aprovada pelo usuário.
+
+O que foi alterado:
+
+1. Todos os cards principais do painel agora funcionam como botão clicável.
+2. Cada card abre o painel de detalhamento por cliente.
+3. Ao clicar em um cliente, aparecem os projetos/BSPs daquele cliente relacionados ao card selecionado.
+4. No card Total de projetos, foi mantido o fluxo anterior com cliente > unidade/obra > projetos.
+5. Nos demais cards, o fluxo é cliente > projetos para agilizar a consulta.
+
+Cards com detalhamento:
+- Total de projetos
+- Projetos iniciados
+- Projetos não iniciados
+- Projetos em On Hold
+- Projetos em produção
+- Projetos em qualidade
+- Projetos em pintura
+- Projetos preparados para envio
+- Peso total programado
+- Peso total soldado
+- Total pendente de solda
+- (M²) Programada
+
+Regras preservadas:
+- PENDING fora do Total de projetos.
+- ON HOLD fora do Total de projetos.
+- Finalizados fora do Total de projetos.
+- Observações contendo on hold continuam identificadas.
+- Projetos preparados para envio continuam contando apenas Aguardando envio.
+
+Arquivos alterados:
+- site/index.html
+- site/app.js
+- site/sw.js
+
+Validação realizada:
+- node --check site/app.js
+- node --check netlify/functions/projects.js
+- node --check site/sw.js

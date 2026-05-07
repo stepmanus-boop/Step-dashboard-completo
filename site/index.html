@@ -74,20 +74,22 @@
       </header>
 
       <section class="summary-row summary-row--twelve">
-        <article class="summary-card summary-card--clickable" id="total-projects-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir a visão por cliente, unidade e BSP">
+        <article class="summary-card summary-card--clickable" id="total-projects-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir o total por cliente, unidade e BSP">
           <span class="summary-label">1. Total de projetos</span>
           <strong id="stat-projects">--</strong>
           <small class="summary-card-hint">Clique para detalhar</small>
         </article>
-        <article class="summary-card summary-card--accent">
+        <article class="summary-card summary-card--accent summary-card--clickable" id="started-projects-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos iniciados por cliente">
           <span class="summary-label">2. Projetos iniciados</span>
           <span class="summary-subtext" id="stat-started-tags">Tags --</span>
           <strong id="stat-started-projects">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
         </article>
-        <article class="summary-card summary-card--danger">
+        <article class="summary-card summary-card--danger summary-card--clickable" id="not-started-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos não iniciados por cliente">
           <span class="summary-label">3. Projetos não iniciados</span>
           <span class="summary-subtext" id="stat-not-started-tags">Tags --</span>
           <strong id="stat-not-started">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
         </article>
         <article class="summary-card summary-card--warning summary-card--clickable" id="on-hold-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos em On Hold por cliente">
           <span class="summary-label">4. Projetos em On Hold</span>
@@ -95,20 +97,23 @@
           <strong id="stat-not-started-hold">--</strong>
           <small class="summary-card-hint">Clique para detalhar</small>
         </article>
-        <article class="summary-card summary-card--warning">
+        <article class="summary-card summary-card--warning summary-card--clickable" id="production-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos em produção por cliente">
           <span class="summary-label">5. Projetos em produção</span>
           <span class="summary-subtext" id="stat-in-progress-tags">Tags --</span>
           <strong id="stat-in-progress">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
         </article>
-        <article class="summary-card summary-card--inspection">
+        <article class="summary-card summary-card--inspection summary-card--clickable" id="inspection-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos em qualidade por cliente">
           <span class="summary-label">6. Projetos em qualidade</span>
           <span class="summary-subtext" id="stat-inspection-tags">Tags --</span>
           <strong id="stat-inspection">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
         </article>
-        <article class="summary-card summary-card--warning">
+        <article class="summary-card summary-card--warning summary-card--clickable" id="painting-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos em pintura por cliente">
           <span class="summary-label">7. Projetos em pintura</span>
           <span class="summary-subtext" id="stat-painting-tags">Tags --</span>
           <strong id="stat-painting">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
         </article>
         <article class="summary-card summary-card--success summary-card--clickable" id="awaiting-shipment-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos preparados para envio por cliente">
           <span class="summary-label">8. Projetos preparados para envio</span>
@@ -116,9 +121,10 @@
           <strong id="stat-awaiting-shipment">--</strong>
           <small class="summary-card-hint">Clique para detalhar</small>
         </article>
-        <article class="summary-card">
+        <article class="summary-card summary-card--clickable" id="total-weight-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir o peso programado por cliente e BSP">
           <span class="summary-label">Peso total programado</span>
           <strong id="stat-total-weight">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
         </article>
         <article class="summary-card summary-card--clickable" id="welded-weight-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir o peso soldado por cliente e BSP">
           <span class="summary-label">Peso total soldado</span>
@@ -126,13 +132,15 @@
           <strong id="stat-spools">--</strong>
           <small class="summary-card-hint">Clique para detalhar</small>
         </article>
-        <article class="summary-card">
+        <article class="summary-card summary-card--clickable" id="backlog-welding-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir o peso pendente de solda por cliente e BSP">
           <span class="summary-label">Total pendente de solda</span>
           <strong id="stat-backlog-welding">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
         </article>
-        <article class="summary-card summary-card--warning">
+        <article class="summary-card summary-card--warning summary-card--clickable" id="painting-m2-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir a área operacional por cliente e BSP">
           <span class="summary-label">(M²) Programada</span>
           <strong id="stat-painting-m2">-- m²</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
         </article>
       </section>
 
