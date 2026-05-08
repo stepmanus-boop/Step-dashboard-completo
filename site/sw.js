@@ -1,4 +1,4 @@
-const CACHE_NAME = "step-gerencia-pwa-v22-cliente-mac-fallback";
+const CACHE_NAME = "step-gerencia-pwa-v23-cliente-fluid-auto-retry";
 const APP_SHELL = [
   "/",
   "/app.css",

@@ -28,6 +28,32 @@ body {
 
 body.modal-open { overflow: hidden; }
 
+/* Evita flash do painel interno enquanto o login do cliente é validado no F5/refresh */
+body.app-booting .summary-row,
+body.app-booting .project-drill-panel,
+body.app-booting .content-grid,
+body.app-booting .footer-bar {
+  display: none !important;
+}
+
+body.app-booting::after {
+  content: "Carregando painel...";
+  display: block;
+  max-width: 420px;
+  margin: 18px auto;
+  padding: 14px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(64, 164, 223, 0.22);
+  background: rgba(3, 25, 44, 0.82);
+  color: #9fc2d8;
+  text-align: center;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  font-size: 12px;
+}
+
+
 .page-shell {
   height: auto;
   min-height: calc(100vh + 28px);
@@ -4448,6 +4474,31 @@ button.alert-badge {
 .client-stage-strip span { display:block; color:#9fc2d8; font-size:.76rem; }
 .client-stage-strip strong { color:#fff; }
 .client-empty { grid-column: 1 / -1; padding: 24px; border: 1px dashed rgba(255,255,255,.22); border-radius: 18px; color: #cfe7f6; text-align: center; }
+.client-loading-state {
+  grid-column: 1 / -1;
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  padding: 28px;
+  border: 1px dashed rgba(104, 198, 255, .28);
+  border-radius: 20px;
+  background: rgba(6, 36, 62, .38);
+  color: #cfe7f6;
+  text-align: center;
+}
+
+.client-loading-state strong {
+  color: #fff;
+  font-size: 1.1rem;
+}
+
+.client-loading-state span,
+.client-loading-state small {
+  color: #9fc2d8;
+}
+
 .stack-field--wide { grid-column: 1 / -1; }
 @media (max-width: 1280px) {
   .client-bsp-content {
@@ -4614,6 +4665,16 @@ body.client-mode .client-project-detail {
   background: linear-gradient(145deg, rgba(9, 53, 85, 0.96), rgba(6, 38, 63, 0.98));
   border-radius: 20px;
   padding: 16px;
+  box-shadow: none;
+}
+
+body.client-mode .topbar,
+body.client-mode .summary-card,
+body.client-mode .panel,
+body.client-mode .footer-bar,
+body.client-mode .clock-card,
+body.client-mode .brand-card {
+  box-shadow: none;
 }
 body.client-mode .client-hero {
   min-height: 58px;

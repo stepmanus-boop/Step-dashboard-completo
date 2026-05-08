@@ -14,7 +14,7 @@ const state = {
   filteredProjects: [],
   projectView: 'all',
   projectDrill: { open: false, mode: 'total', selectedClientKey: '', selectedVesselKey: '' },
-  clientPortal: { selectedVesselKey: '', selectedProjectId: null, rowClickTimer: null },
+  clientPortal: { selectedVesselKey: '', selectedProjectId: null, rowClickTimer: null, retryTimer: null, retryCount: 0, isLoading: false },
   sectorScopedView: false,
   stats: null,
   meta: null,
@@ -3543,6 +3543,55 @@ function ensureClientDashboardEl() {
   return el;
 }
 
+function setClientText(id, value) {
+  const node = document.getElementById(id);
+  if (node) node.textContent = value;
+}
+
+function renderClientDashboardLoading(message = 'Carregando carteira do cliente...') {
+  if (!isClientUser()) return;
+  const el = ensureClientDashboardEl();
+  el.classList.remove('hidden');
+  document.body.classList.add('client-mode');
+  const logo = document.getElementById('client-dashboard-logo');
+  if (logo) logo.src = getClientPortalLogo();
+  setClientText('client-dashboard-name', getClientPortalName());
+  setClientText('client-dashboard-meta', message);
+  setClientText('client-dashboard-sync', 'Sincronizando dados...');
+  setClientText('client-stat-bsps', '...');
+  setClientText('client-stat-tags', '...');
+  setClientText('client-stat-weight', '...');
+  setClientText('client-stat-welded', '...');
+  setClientText('client-stat-m2', '...');
+  setClientText('client-stat-progress', '...');
+  const grid = document.getElementById('client-vessel-grid');
+  if (grid && !state.projects.length) {
+    grid.innerHTML = `<div class="client-loading-state"><strong>Sincronizando carteira</strong><span>${escapeHtml(message)}</span><small>O painel será preenchido automaticamente assim que a API retornar os dados.</small></div>`;
+  }
+  const panel = document.getElementById('client-bsp-panel');
+  if (panel && !state.projects.length) panel.classList.add('hidden');
+  const detail = document.getElementById('client-project-detail');
+  if (detail && !state.projects.length) detail.classList.add('hidden');
+}
+
+function clearClientProjectRetry() {
+  if (state.clientPortal?.retryTimer) {
+    window.clearTimeout(state.clientPortal.retryTimer);
+    state.clientPortal.retryTimer = null;
+  }
+}
+
+function scheduleClientProjectsRetry(message = 'Sincronizando carteira do cliente...', retryCount = 1) {
+  if (!isClientUser()) return;
+  clearClientProjectRetry();
+  state.clientPortal.retryCount = retryCount;
+  renderClientDashboardLoading(message);
+  const delay = Math.min(6500, 1200 + retryCount * 900);
+  state.clientPortal.retryTimer = window.setTimeout(() => {
+    loadProjects({ force: true, retryCount }).catch(() => {});
+  }, delay);
+}
+
 function setClientDashboardMode() {
   const enabled = isClientUser();
   document.body.classList.toggle('client-mode', enabled);
@@ -3581,6 +3630,11 @@ function renderClientDashboard() {
   if (!isClientUser()) return;
   const el = ensureClientDashboardEl();
   const projects = Array.isArray(state.projects) ? state.projects : [];
+  if (projects.length) {
+    clearClientProjectRetry();
+    state.clientPortal.retryCount = 0;
+    state.clientPortal.isLoading = false;
+  }
   const logo = document.getElementById('client-dashboard-logo');
   if (logo) logo.src = getClientPortalLogo();
   const nameEl = document.getElementById('client-dashboard-name');
@@ -6400,6 +6454,7 @@ function updateMeta() {
 async function loadProjects(options = {}) {
   const force = Boolean(options.force);
   const background = Boolean(options.background);
+  const retryCount = Number(options.retryCount || 0);
 
   if (!state.user) {
     resetDashboardForLoggedOutState();
@@ -6408,10 +6463,18 @@ async function loadProjects(options = {}) {
 
   if (background && shouldSkipBackgroundRequest(options)) return;
 
+  if (isClientUser() && !state.projects.length && !background) {
+    state.clientPortal.isLoading = true;
+    renderClientDashboardLoading(retryCount ? `Sincronizando carteira do cliente... tentativa ${retryCount + 1}` : 'Sincronizando carteira do cliente...');
+  }
+
   const cached = readProjectsCache();
   if (!force && cached?.payload) {
-    applyProjectsPayload(cached.payload, { fromCache: true });
-    if (isProjectsCacheFresh(cached)) {
+    const cachedCount = Array.isArray(cached.payload.projects) ? cached.payload.projects.length : 0;
+    if (!(isClientUser() && cachedCount === 0)) {
+      applyProjectsPayload(cached.payload, { fromCache: true });
+    }
+    if (isProjectsCacheFresh(cached) && !(isClientUser() && cachedCount === 0)) {
       state.lastProjectsFetchAt = Date.now();
       if (lastSyncEl && state.meta?.lastSync) {
         lastSyncEl.textContent = `Última atualização: ${new Date(state.meta.lastSync).toLocaleString("pt-BR")} • cache econômico`;
@@ -6452,6 +6515,12 @@ async function loadProjects(options = {}) {
         throw new Error(data?.error || "Falha ao carregar projetos.");
       }
 
+      const clientProjectCount = Array.isArray(data.projects) ? data.projects.length : 0;
+      if (isClientUser() && clientProjectCount === 0 && retryCount < 5 && !background) {
+        scheduleClientProjectsRetry('Aguardando retorno da API do cliente. Sincronizando novamente...', retryCount + 1);
+        return;
+      }
+
       state.lastProjectsFetchAt = Date.now();
       writeProjectsCache(data);
       applyProjectsPayload(data, { fromCache: false });
@@ -6464,6 +6533,16 @@ async function loadProjects(options = {}) {
           : "";
         lastSyncEl.textContent = `Conexão instável com a planilha${staleSuffix}`;
         console.warn("Falha temporária ao atualizar projetos:", fallbackMessage);
+        return;
+      }
+
+      if (isClientUser() && retryCount < 5 && !background) {
+        scheduleClientProjectsRetry('Conexão instável com a planilha. Tentando carregar novamente...', retryCount + 1);
+        return;
+      }
+
+      if (isClientUser()) {
+        renderClientDashboardLoading(fallbackMessage);
         return;
       }
 
@@ -7692,6 +7771,9 @@ function updateSessionUi() {
     ? `Cliente • ${getClientPortalName(user)}`
     : `${user.role === "admin" ? "Administrador" : "Setor"} • ${sectorLabel(user.sector)}${user.role !== "admin" && linkedSectors.length > 1 ? ` • Alertas: ${formatSectorList(linkedSectors)}` : ""}`;
   setClientDashboardMode();
+  if (isClientUser(user) && !state.projects.length) {
+    renderClientDashboardLoading('Preparando o Portal do Cliente...');
+  }
   updatePrimaryUserActionUi();
   sessionStatusEl.textContent = "online";
   logoutButtonEl.classList.remove("hidden");
@@ -9924,6 +10006,18 @@ async function acknowledgeManualAlert(alertId) {
   }
 }
 
+function finishAppBoot() {
+  document.body.classList.remove('app-booting');
+  document.body.classList.add('app-ready');
+}
+
+function keepInternalDashboardHiddenForClient() {
+  if (!isClientUser()) return;
+  document.body.classList.add('client-mode');
+  document.body.classList.remove('app-booting');
+  document.body.classList.add('app-ready');
+}
+
 async function init() {
   if (alertModalEl) {
     alertModalEl.classList.add("hidden");
@@ -9942,12 +10036,17 @@ async function init() {
   resetAdminUserForm();
   const authenticated = await bootstrapSession();
   if (authenticated) {
+    if (isClientUser()) {
+      renderClientDashboardLoading('Carregando dados do Portal do Cliente...');
+    }
     const autoOpenStageValidation = shouldOpenStageValidationWorkspaceFromUrl() && canValidateStageWorkspace();
     if (autoOpenStageValidation) {
       state.stageUpdatesSearchQuery = '';
       openStageUpdatesModal({ loading: true });
     }
-    await loadProjects();
+    await loadProjects({ force: isClientUser() });
+    keepInternalDashboardHiddenForClient();
+    finishAppBoot();
     await syncPushSubscription(false).catch(() => {});
     await loadManualAlerts();
     await loadAlertResponses();
@@ -9960,6 +10059,8 @@ async function init() {
       await loadAdminData();
     }
     startPolling();
+  } else {
+    finishAppBoot();
   }
 }
 
