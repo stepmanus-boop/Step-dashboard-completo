@@ -3508,11 +3508,11 @@ function ensureClientDashboardEl() {
       </div>
       <div class="client-hero-actions">
         <span id="client-dashboard-sync">Atualização: --</span>
-        <button class="mini-action-button client-macro-button" type="button" data-client-open-macro-dashboard>Visão macro do projeto</button>
+        <button class="mini-action-button client-macro-button" type="button" data-client-open-macro-dashboard>Visão executiva da carteira</button>
       </div>
     </div>
     <div class="client-summary-grid">
-      <article class="client-summary-card-button" data-client-open-macro-dashboard title="Abrir visão macro de todas as BSPs"><span>BSPs</span><strong id="client-stat-bsps">--</strong><small>abrir visão macro</small></article>
+      <article class="client-summary-card-button" data-client-open-macro-dashboard title="Abrir visão executiva da carteira"><span>BSPs</span><strong id="client-stat-bsps">--</strong><small>abrir visão executiva</small></article>
       <article><span>Tags</span><strong id="client-stat-tags">--</strong></article>
       <article><span>Peso programado</span><strong id="client-stat-weight">--</strong></article>
       <article><span>Peso soldado</span><strong id="client-stat-welded">--</strong></article>
@@ -3529,9 +3529,11 @@ function ensureClientDashboardEl() {
         <div><p class="client-kicker">BSPs</p><h3 id="client-bsp-title">Projetos</h3></div>
         <button id="client-clear-vessel" class="mini-action-button" type="button">Ver todas</button>
       </div>
-      <div id="client-bsp-table" class="client-table-wrap"></div>
+      <div class="client-bsp-content">
+        <div id="client-bsp-table" class="client-table-wrap"></div>
+        <div id="client-project-detail" class="client-project-detail hidden"></div>
+      </div>
     </div>
-    <div id="client-project-detail" class="client-project-detail hidden"></div>
   `;
   const anchor = document.querySelector('.summary-row');
   if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(el, anchor.nextSibling);
@@ -4293,7 +4295,7 @@ function openClientMacroExecutive(projects = state.projects) {
   content.innerHTML = `
     <header class="client-exec-header client-exec-header--macro">
       <div>
-        <p class="client-kicker">Visão Macro do Projeto</p>
+        <p class="client-kicker">Visão Executiva da Carteira</p>
         <h2>${escapeHtml(getClientPortalName())}</h2>
         <p>Carteira completa do cliente • ${formatNumber(totals.bsps)} BSP(s) • ${formatNumber(totals.tags)} tag(s)</p>
       </div>
@@ -4335,7 +4337,7 @@ function openClientMacroExecutive(projects = state.projects) {
 
     <div class="client-exec-grid client-exec-grid--main">
       <section class="client-exec-card client-exec-card--curve">
-        <div class="client-exec-card-head"><h3>Curva S | Macro do Projeto</h3><span>Planejado x realizado de todas as BSPs</span></div>
+        <div class="client-exec-card-head"><h3>Curva S | Carteira do Cliente</h3><span>Planejado x realizado consolidado de todas as BSPs</span></div>
         <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span></div>
         ${renderClientMacroSCurveSvg(list)}
       </section>
