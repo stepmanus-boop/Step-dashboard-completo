@@ -3553,19 +3553,89 @@ function getCachedClientProjectsCount(cacheEntry) {
   return Array.isArray(projects) ? projects.length : 0;
 }
 
+function getClientLoadingMessages(customMessage = '') {
+  const clientName = getClientPortalName() || 'cliente';
+  const cleanCustom = String(customMessage || '').replace(/\s+/g, ' ').trim();
+  const base = [
+    `Aguarde enquanto carregamos as informações da ${clientName}.`,
+    'Carregando andamento das obras.',
+    'Organizando BSPs por unidade/vessel.',
+    'Calculando estatísticas gráficas da carteira.',
+    'Consolidando pedidos e referências do cliente.',
+    'Validando informações operacionais da carteira.',
+    'Preparando visão executiva da carteira.',
+    'Aplicando filtros de cliente com segurança.',
+  ];
+  if (cleanCustom && !/^sincronizando carteira do cliente/i.test(cleanCustom)) {
+    base.unshift(cleanCustom);
+  }
+  return base;
+}
+
+function stopClientLoadingSequence() {
+  const portal = state.clientPortal || {};
+  if (portal.loadingMessageTimer) {
+    window.clearInterval(portal.loadingMessageTimer);
+    portal.loadingMessageTimer = null;
+  }
+}
+
+function updateClientLoadingVisual(customMessage = '') {
+  if (!isClientUser() || state.projects.length) return;
+  const portal = state.clientPortal || (state.clientPortal = {});
+  if (!portal.loadingStartedAt) portal.loadingStartedAt = Date.now();
+  portal.loadingStep = Number(portal.loadingStep || 0);
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - portal.loadingStartedAt) / 1000));
+
+  if (elapsedSeconds >= 60 && !state.projects.length) {
+    renderClientDashboardSlowState('A sincronização passou de 1 minuto. Clique em Atualizar agora para tentar novamente sem manter a tela presa.');
+    return;
+  }
+
+  const messages = getClientLoadingMessages(customMessage);
+  const message = messages[portal.loadingStep % messages.length] || messages[0];
+  const progress = Math.min(96, Math.max(8, Math.round(14 + elapsedSeconds * 1.25 + Number(portal.retryCount || 0) * 14 + (portal.loadingStep % messages.length) * 2)));
+  const secondsLabel = elapsedSeconds < 10 ? 'iniciando conexão segura' : `${elapsedSeconds}s de sincronização`;
+
+  const messageEl = document.getElementById('client-loading-message');
+  const progressEl = document.getElementById('client-loading-progressbar');
+  const percentEl = document.getElementById('client-loading-percent');
+  const stepEl = document.getElementById('client-loading-step');
+  const titleEl = document.getElementById('client-loading-title');
+
+  if (titleEl) titleEl.textContent = 'Preparando Portal do Cliente';
+  if (messageEl) messageEl.textContent = message;
+  if (progressEl) progressEl.style.width = `${progress}%`;
+  if (percentEl) percentEl.textContent = `${progress}%`;
+  if (stepEl) stepEl.textContent = secondsLabel;
+}
+
+function startClientLoadingSequence(customMessage = '') {
+  if (!isClientUser() || state.projects.length) return;
+  const portal = state.clientPortal || (state.clientPortal = {});
+  if (!portal.loadingStartedAt) portal.loadingStartedAt = Date.now();
+  stopClientLoadingSequence();
+  updateClientLoadingVisual(customMessage);
+  portal.loadingMessageTimer = window.setInterval(() => {
+    portal.loadingStep = Number(portal.loadingStep || 0) + 1;
+    updateClientLoadingVisual(customMessage);
+  }, 2200);
+}
+
 function renderClientDashboardSlowState(message = 'A API está demorando mais que o normal.') {
   if (!isClientUser()) return;
+  stopClientLoadingSequence();
   const el = ensureClientDashboardEl();
   el.classList.remove('hidden');
   document.body.classList.add('client-mode');
   const logo = document.getElementById('client-dashboard-logo');
   if (logo) logo.src = getClientPortalLogo();
   setClientText('client-dashboard-name', getClientPortalName());
-  setClientText('client-dashboard-meta', 'Carregamento em segundo plano ativo');
-  setClientText('client-dashboard-sync', 'API lenta • tentando novamente');
+  setClientText('client-dashboard-meta', 'Conexão lenta com a base operacional. O painel não ficará preso nesta tela.');
+  setClientText('client-dashboard-sync', 'Conexão lenta • ação necessária');
   const grid = document.getElementById('client-vessel-grid');
   if (grid && !state.projects.length) {
-    grid.innerHTML = `<div class="client-loading-state client-loading-state--slow"><strong>Conexão lenta com a planilha</strong><span>${escapeHtml(message)}</span><small>O painel continuará tentando em segundo plano. Você também pode forçar uma nova sincronização.</small><button class="mini-action-button" type="button" data-client-force-refresh>Atualizar agora</button></div>`;
+    grid.innerHTML = `<div class="client-loading-state client-loading-state--slow"><div class="client-loading-spinner"></div><strong>Conexão lenta com a base operacional</strong><span>${escapeHtml(message)}</span><div class="client-loading-progress"><i style="width:100%"></i></div><small>Se a carteira não carregar em até 1 minuto, use o botão abaixo. Isso evita passar imagem de plataforma travada.</small><button class="mini-action-button" type="button" data-client-force-refresh>Atualizar agora</button></div>`;
   }
 }
 
@@ -3588,8 +3658,8 @@ function renderClientDashboardLoading(message = 'Carregando carteira do cliente.
   const logo = document.getElementById('client-dashboard-logo');
   if (logo) logo.src = getClientPortalLogo();
   setClientText('client-dashboard-name', getClientPortalName());
-  setClientText('client-dashboard-meta', message);
-  setClientText('client-dashboard-sync', 'Sincronizando dados...');
+  setClientText('client-dashboard-meta', 'Preparando as informações da carteira.');
+  setClientText('client-dashboard-sync', 'Carregando com segurança...');
   setClientText('client-stat-bsps', '...');
   setClientText('client-stat-tags', '...');
   setClientText('client-stat-weight', '...');
@@ -3598,7 +3668,9 @@ function renderClientDashboardLoading(message = 'Carregando carteira do cliente.
   setClientText('client-stat-progress', '...');
   const grid = document.getElementById('client-vessel-grid');
   if (grid && !state.projects.length) {
-    grid.innerHTML = `<div class="client-loading-state"><strong>Sincronizando carteira</strong><span>${escapeHtml(message)}</span><small>O painel será preenchido automaticamente assim que a API retornar os dados.</small></div>`;
+    const initialMessage = getClientLoadingMessages(message)[0];
+    grid.innerHTML = `<div class="client-loading-state client-loading-state--script"><div class="client-loading-spinner"></div><strong id="client-loading-title">Preparando Portal do Cliente</strong><span id="client-loading-message">${escapeHtml(initialMessage)}</span><div class="client-loading-progress"><i id="client-loading-progressbar" style="width:12%"></i></div><small><b id="client-loading-percent">12%</b> • <span id="client-loading-step">iniciando conexão segura</span></small><small class="client-loading-hint">Estamos carregando andamento das obras, estatísticas gráficas e sincronização de POs.</small></div>`;
+    startClientLoadingSequence(message);
   }
   const panel = document.getElementById('client-bsp-panel');
   if (panel && !state.projects.length) panel.classList.add('hidden');
@@ -3664,8 +3736,11 @@ function renderClientDashboard() {
   const projects = Array.isArray(state.projects) ? state.projects : [];
   if (projects.length) {
     clearClientProjectRetry();
+    stopClientLoadingSequence();
     state.clientPortal.retryCount = 0;
     state.clientPortal.isLoading = false;
+    state.clientPortal.loadingStartedAt = null;
+    state.clientPortal.loadingStep = 0;
   }
   const logo = document.getElementById('client-dashboard-logo');
   if (logo) logo.src = getClientPortalLogo();
@@ -6495,9 +6570,9 @@ function scheduleClientBackgroundFullSync(delayMs = 1500) {
 
 function updateMeta() {
   if (!state.meta) return;
-  sheetNameEl.textContent = state.meta.sheetName || "Smartsheet";
+  sheetNameEl.textContent = state.meta.sheetName || "Base operacional";
   lastSyncEl.textContent = `Última atualização: ${new Date(state.meta.lastSync).toLocaleString("pt-BR")}`;
-  footerVersionEl.textContent = `Versão da sheet: ${state.meta.version}`;
+  footerVersionEl.textContent = `Versão dos dados: ${state.meta.version}`;
 }
 
 async function loadProjects(options = {}) {
@@ -6550,7 +6625,7 @@ async function loadProjects(options = {}) {
       try {
         data = await response.json();
       } catch (parseError) {
-        throw new Error("Falha ao atualizar dados da planilha.");
+        throw new Error("Falha ao atualizar dados operacionais.");
       }
 
       if (response.status === 401) {
@@ -6583,13 +6658,13 @@ async function loadProjects(options = {}) {
         scheduleClientBackgroundFullSync(data?.meta?.fastSnapshot ? 800 : 1500);
       }
     } catch (error) {
-      const fallbackMessage = error?.message || "Falha ao atualizar dados da planilha.";
+      const fallbackMessage = error?.message || "Falha ao atualizar dados operacionais.";
 
       if (state.projects.length) {
         const staleSuffix = state.meta?.lastSync
           ? ` | exibindo última atualização válida: ${new Date(state.meta.lastSync).toLocaleString("pt-BR")}`
           : "";
-        lastSyncEl.textContent = `Conexão instável com a planilha${staleSuffix}`;
+        lastSyncEl.textContent = `Conexão instável com a base operacional${staleSuffix}`;
         console.warn("Falha temporária ao atualizar projetos:", fallbackMessage);
         return;
       }
@@ -6597,18 +6672,13 @@ async function loadProjects(options = {}) {
       if (isClientUser() && retryCount < 1 && !background) {
         const message = error?.name === 'AbortError'
           ? 'A API demorou para responder. Tentando novamente sem travar a tela...'
-          : 'Conexão instável com a planilha. Tentando carregar novamente...';
+          : 'Conexão instável com a base operacional. Tentando carregar novamente...';
         scheduleClientProjectsRetry(message, retryCount + 1);
         return;
       }
 
       if (isClientUser()) {
         renderClientDashboardSlowState(fallbackMessage);
-        if (!background) {
-          state.clientPortal.retryTimer = window.setTimeout(() => {
-            loadProjects({ force: true, retryCount: 0 }).catch(() => {});
-          }, 4500);
-        }
         return;
       }
 

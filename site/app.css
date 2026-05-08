@@ -4499,6 +4499,54 @@ button.alert-badge {
   color: #9fc2d8;
 }
 
+.client-loading-state--script {
+  background: radial-gradient(circle at top, rgba(34, 123, 174, .22), rgba(3, 24, 42, .62));
+  border-style: solid;
+  border-color: rgba(91, 190, 255, .24);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+}
+
+.client-loading-spinner {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 3px solid rgba(132, 209, 255, .20);
+  border-top-color: rgba(64, 201, 255, .92);
+  animation: clientSpin 1s linear infinite;
+}
+
+.client-loading-progress {
+  width: min(520px, 80vw);
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(170, 214, 238, .14);
+  border: 1px solid rgba(113, 203, 255, .16);
+  margin-top: 8px;
+}
+
+.client-loading-progress i {
+  display: block;
+  height: 100%;
+  width: 12%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #19a5d2, #30d6a2);
+  transition: width .6s ease;
+  box-shadow: 0 0 18px rgba(48, 214, 162, .25);
+}
+
+.client-loading-state b {
+  color: #dff7ff;
+}
+
+.client-loading-hint {
+  max-width: 620px;
+}
+
+@keyframes clientSpin {
+  to { transform: rotate(360deg); }
+}
+
 .stack-field--wide { grid-column: 1 / -1; }
 @media (max-width: 1280px) {
   .client-bsp-content {

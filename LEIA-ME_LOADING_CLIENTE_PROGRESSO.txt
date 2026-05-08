@@ -1,0 +1,18 @@
+AJUSTE - LOADING DO PORTAL DO CLIENTE
+
+Alterações aplicadas:
+
+1. Tela de carregamento do Portal do Cliente ficou mais profissional.
+2. Incluída barra de progresso visual enquanto a API/base operacional carrega.
+3. Incluídas mensagens rotativas durante a sincronização:
+   - Aguarde enquanto carregamos as informações do cliente
+   - Carregando andamento das obras
+   - Organizando BSPs por unidade/vessel
+   - Calculando estatísticas gráficas
+   - Consolidando pedidos e referências do cliente
+   - Validando informações operacionais da carteira
+   - Preparando visão executiva da carteira
+4. Incluído limite visual de 60 segundos para não deixar o cliente preso indefinidamente.
+5. Se passar de 1 minuto sem retorno, o painel troca para uma mensagem de conexão lenta com botão Atualizar agora.
+6. Removido ciclo automático infinito de retry após falha longa, evitando aparência de plataforma travada.
+7. Atualizado cache do PWA para v27-loading-progress.
