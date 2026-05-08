@@ -1,4 +1,6 @@
 const { jsonResponse, requireSession } = require('./_auth');
+const fs = require('fs');
+const path = require('path');
 const API_BASE = process.env.SMARTSHEET_API_BASE || "https://api.smartsheet.com/2.0";
 const SHEET_NAME = process.env.SMARTSHEET_SHEET_NAME || "Progress Tracking Sheet - Piping Fabrication";
 const SHEET_ID_ENV = process.env.SMARTSHEET_SHEET_ID || "";
@@ -14,6 +16,7 @@ const cache = global.__STEP_PROGRESS_CACHE__ || {
   wipStepSheetName: null,
   wipStepVersion: null,
   payload: null,
+  snapshotPayload: null,
   lastSync: null,
 };
 global.__STEP_PROGRESS_CACHE__ = cache;
@@ -1916,6 +1919,39 @@ function scopePayloadForSession(payload, session = {}) {
   };
 }
 
+function loadFallbackSnapshotPayload() {
+  if (cache.snapshotPayload) return cache.snapshotPayload;
+  const candidates = [
+    path.join(__dirname, '..', 'data', 'fallback-projects.json'),
+    path.join(process.cwd(), 'netlify', 'data', 'fallback-projects.json'),
+  ];
+
+  for (const filePath of candidates) {
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      if (!parsed || !Array.isArray(parsed.projects)) continue;
+      cache.snapshotPayload = {
+        ...parsed,
+        ok: true,
+        meta: {
+          ...(parsed.meta || {}),
+          sheetName: parsed.meta?.sheetName || 'Snapshot local',
+          version: parsed.meta?.version || 'snapshot-local',
+          lastSync: parsed.meta?.lastSync || new Date().toISOString(),
+          fastSnapshot: true,
+          snapshotServedAt: new Date().toISOString(),
+        },
+      };
+      return cache.snapshotPayload;
+    } catch (error) {
+      console.warn('Falha ao ler snapshot local de projetos:', error.message);
+    }
+  }
+
+  return null;
+}
+
 exports.handler = async (event) => {
   const auth = requireSession(event);
   if (!auth.ok) {
@@ -1926,20 +1962,39 @@ exports.handler = async (event) => {
   const fastMode = query.fast === '1' || query.fast === 'true';
 
   try {
-    if (fastMode && cache.payload) {
-      const payload = scopePayloadForSession(cache.payload, auth.session);
-      return jsonResponse(200, {
-        ...payload,
-        meta: {
-          ...(payload.meta || {}),
-          fastCache: true,
-          cacheServedAt: new Date().toISOString(),
-        },
-      }, {
-        headers: {
-          'cache-control': 'private, max-age=30, stale-while-revalidate=180',
-        },
-      });
+    if (fastMode) {
+      if (cache.payload) {
+        const payload = scopePayloadForSession(cache.payload, auth.session);
+        return jsonResponse(200, {
+          ...payload,
+          meta: {
+            ...(payload.meta || {}),
+            fastCache: true,
+            cacheServedAt: new Date().toISOString(),
+          },
+        }, {
+          headers: {
+            'cache-control': 'private, max-age=30, stale-while-revalidate=180',
+          },
+        });
+      }
+
+      const snapshot = loadFallbackSnapshotPayload();
+      if (snapshot) {
+        const payload = scopePayloadForSession(snapshot, auth.session);
+        return jsonResponse(200, {
+          ...payload,
+          meta: {
+            ...(payload.meta || {}),
+            fastSnapshot: true,
+            snapshotServedAt: new Date().toISOString(),
+          },
+        }, {
+          headers: {
+            'cache-control': 'private, max-age=20, stale-while-revalidate=180',
+          },
+        });
+      }
     }
 
     const payload = scopePayloadForSession(await buildPayload(), auth.session);

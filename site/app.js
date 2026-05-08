@@ -3618,9 +3618,9 @@ function scheduleClientProjectsRetry(message = 'Sincronizando carteira do client
   clearClientProjectRetry();
   state.clientPortal.retryCount = retryCount;
   renderClientDashboardLoading(message);
-  const delay = Math.min(3500, 700 + retryCount * 650);
+  const delay = Math.min(1800, 500 + retryCount * 350);
   state.clientPortal.retryTimer = window.setTimeout(() => {
-    loadProjects({ force: true, retryCount }).catch(() => {});
+    loadProjects({ force: false, retryCount }).catch(() => {});
   }, delay);
 }
 
@@ -4215,7 +4215,6 @@ function buildClientExecutiveSchedule(project) {
     { key: 'engineering', label: 'ENGINEERING', base: 15, percent: getClientStageValue(project, ['Drawing Execution Advance%', 'Drawing']) },
     { key: 'procurement', label: 'MATERIAL PROCUREMENT', base: 15, percent: Math.max(getClientStageValue(project, ['Procuremnt Status %', 'Procurement Status %', 'Procurement']), getClientStageValue(project, ['Material Separation']), getClientStageValue(project, ['Material Release to Fabrication'])) },
     { key: 'fabrication', label: 'FABRICATION', base: 81, percent: getClientFabricationProgress(project) },
-    { key: 'databook', label: 'DATABOOK', base: 3, percent: getClientDatabookProgress(project) },
     { key: 'delivery', label: 'DELIVERY', base: 2, percent: getClientPackageProgress(project) },
   ];
   const groupDurations = scaleDurationVector(groupTemplate, totalBusinessDays);
@@ -4247,8 +4246,6 @@ function buildClientExecutiveSchedule(project) {
       children = [{ label: 'Materials for Application Acquisition', progress: group.percent, duration: group.duration }];
     } else if (group.key === 'fabrication') {
       children = fabricationDurations.map((item) => ({ label: item.label, progress: item.percent, duration: item.duration }));
-    } else if (group.key === 'databook') {
-      children = [{ label: 'Databook Issuance', progress: group.percent, duration: group.duration }];
     } else if (group.key === 'delivery') {
       children = [{ label: 'Delivery', progress: group.percent, duration: group.duration }];
     }
@@ -6483,6 +6480,19 @@ function applyProjectsPayload(data, options = {}) {
   }
 }
 
+function scheduleClientBackgroundFullSync(delayMs = 1500) {
+  if (!isClientUser()) return;
+  if (state.clientPortal?.backgroundSyncTimer) {
+    window.clearTimeout(state.clientPortal.backgroundSyncTimer);
+  }
+  state.clientPortal.backgroundSyncTimer = window.setTimeout(() => {
+    state.clientPortal.backgroundSyncTimer = null;
+    loadProjects({ force: true, background: true }).catch((error) => {
+      console.warn('Sincronização completa em segundo plano falhou:', error?.message || error);
+    });
+  }, delayMs);
+}
+
 function updateMeta() {
   if (!state.meta) return;
   sheetNameEl.textContent = state.meta.sheetName || "Smartsheet";
@@ -6534,7 +6544,7 @@ async function loadProjects(options = {}) {
       }
       const fastClientMode = isClientUser() && !force && !background;
       const requestUrl = fastClientMode ? "/api/projects?fast=1" : "/api/projects";
-      const response = await fetchWithTimeout(requestUrl, { cache: "no-store", credentials: "same-origin" }, isClientUser() ? 10000 : 18000);
+      const response = await fetchWithTimeout(requestUrl, { cache: "no-store", credentials: "same-origin" }, isClientUser() && fastClientMode ? 4500 : isClientUser() ? 12000 : 18000);
       let data = null;
 
       try {
@@ -6557,14 +6567,21 @@ async function loadProjects(options = {}) {
       }
 
       const clientProjectCount = Array.isArray(data.projects) ? data.projects.length : 0;
-      if (isClientUser() && clientProjectCount === 0 && retryCount < 5 && !background) {
-        scheduleClientProjectsRetry('Aguardando retorno da API do cliente. Sincronizando novamente...', retryCount + 1);
+      if (isClientUser() && clientProjectCount === 0 && !background) {
+        if (retryCount < 1) {
+          scheduleClientProjectsRetry('Validando vínculo do cliente e buscando carteira novamente...', retryCount + 1);
+          return;
+        }
+        renderClientDashboardSlowState('A API respondeu sem BSPs para este cliente. Confira o vínculo do usuário ou force uma nova atualização.');
         return;
       }
 
       state.lastProjectsFetchAt = Date.now();
       writeProjectsCache(data);
       applyProjectsPayload(data, { fromCache: false });
+      if (isClientUser() && !background && (data?.meta?.fastSnapshot || data?.meta?.fastCache || data?.meta?.staleFallback)) {
+        scheduleClientBackgroundFullSync(data?.meta?.fastSnapshot ? 800 : 1500);
+      }
     } catch (error) {
       const fallbackMessage = error?.message || "Falha ao atualizar dados da planilha.";
 
@@ -6577,7 +6594,7 @@ async function loadProjects(options = {}) {
         return;
       }
 
-      if (isClientUser() && retryCount < 3 && !background) {
+      if (isClientUser() && retryCount < 1 && !background) {
         const message = error?.name === 'AbortError'
           ? 'A API demorou para responder. Tentando novamente sem travar a tela...'
           : 'Conexão instável com a planilha. Tentando carregar novamente...';
