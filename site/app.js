@@ -3587,10 +3587,8 @@ function updateClientLoadingVisual(customMessage = '') {
   portal.loadingStep = Number(portal.loadingStep || 0);
   const elapsedSeconds = Math.max(0, Math.floor((Date.now() - portal.loadingStartedAt) / 1000));
 
-  if (elapsedSeconds >= 60 && !state.projects.length) {
-    renderClientDashboardSlowState('A sincronização passou de 1 minuto. Clique em Atualizar agora para tentar novamente sem manter a tela presa.');
-    return;
-  }
+  // Não exibimos alerta de lentidão para o cliente. A barra permanece em preparação
+  // enquanto a primeira carga válida não chega, e o botão de atualização fica disponível.
 
   const messages = getClientLoadingMessages(customMessage);
   const message = messages[portal.loadingStep % messages.length] || messages[0];
@@ -3622,7 +3620,7 @@ function startClientLoadingSequence(customMessage = '') {
   }, 2200);
 }
 
-function renderClientDashboardSlowState(message = 'A API está demorando mais que o normal.') {
+function renderClientDashboardSlowState(message = 'Estamos preparando a carteira operacional.') {
   if (!isClientUser()) return;
   stopClientLoadingSequence();
   const el = ensureClientDashboardEl();
@@ -3631,16 +3629,20 @@ function renderClientDashboardSlowState(message = 'A API está demorando mais qu
   const logo = document.getElementById('client-dashboard-logo');
   if (logo) logo.src = getClientPortalLogo();
   setClientText('client-dashboard-name', getClientPortalName());
-  setClientText('client-dashboard-meta', 'Conexão lenta com a base operacional. O painel não ficará preso nesta tela.');
-  setClientText('client-dashboard-sync', 'Conexão lenta • ação necessária');
+  setClientText('client-dashboard-meta', 'Preparando as informações da carteira.');
+  setClientText('client-dashboard-sync', 'Preparando atualização...');
   const grid = document.getElementById('client-vessel-grid');
   if (grid && !state.projects.length) {
-    grid.innerHTML = `<div class="client-loading-state client-loading-state--slow"><div class="client-loading-spinner"></div><strong>Conexão lenta com a base operacional</strong><span>${escapeHtml(message)}</span><div class="client-loading-progress"><i style="width:100%"></i></div><small>Se a carteira não carregar em até 1 minuto, use o botão abaixo. Isso evita passar imagem de plataforma travada.</small><button class="mini-action-button" type="button" data-client-force-refresh>Atualizar agora</button></div>`;
+    grid.innerHTML = `<div class="client-loading-state client-loading-state--script"><div class="client-loading-spinner"></div><strong id="client-loading-title">Preparando Portal do Cliente</strong><span id="client-loading-message">${escapeHtml(sanitizeOperationalLoadMessage(message))}</span><div class="client-loading-progress"><i id="client-loading-progressbar" style="width:92%"></i></div><small><b id="client-loading-percent">92%</b> • finalizando consolidação da carteira</small><small class="client-loading-hint">A atualização continua ativa em segundo plano.</small><button class="mini-action-button" type="button" data-client-force-refresh>Atualizar agora</button></div>`;
   }
 }
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
-  if (typeof AbortController === 'undefined') return fetch(url, options);
+async function fetchWithTimeout(url, options = {}, timeoutMs = 90000) {
+  // A API operacional pode levar alguns segundos em cold start. Não abortamos cedo
+  // para evitar mensagens técnicas e manter a carga confiável.
+  if (!timeoutMs || timeoutMs < 30000 || typeof AbortController === 'undefined') {
+    return fetch(url, options);
+  }
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -3669,7 +3671,7 @@ function renderClientDashboardLoading(message = 'Carregando carteira do cliente.
   const grid = document.getElementById('client-vessel-grid');
   if (grid && !state.projects.length) {
     const initialMessage = getClientLoadingMessages(message)[0];
-    grid.innerHTML = `<div class="client-loading-state client-loading-state--script"><div class="client-loading-spinner"></div><strong id="client-loading-title">Preparando Portal do Cliente</strong><span id="client-loading-message">${escapeHtml(initialMessage)}</span><div class="client-loading-progress"><i id="client-loading-progressbar" style="width:12%"></i></div><small><b id="client-loading-percent">12%</b> • <span id="client-loading-step">iniciando conexão segura</span></small><small class="client-loading-hint">Estamos carregando andamento das obras, estatísticas gráficas e sincronização de POs.</small></div>`;
+    grid.innerHTML = `<div class="client-loading-state client-loading-state--script"><div class="client-loading-spinner"></div><strong id="client-loading-title">Preparando Portal do Cliente</strong><span id="client-loading-message">${escapeHtml(initialMessage)}</span><div class="client-loading-progress"><i id="client-loading-progressbar" style="width:12%"></i></div><small><b id="client-loading-percent">12%</b> • <span id="client-loading-step">iniciando conexão segura</span></small><small class="client-loading-hint">Estamos carregando andamento das obras, estatísticas gráficas e referências do cliente.</small></div>`;
     startClientLoadingSequence(message);
   }
   const panel = document.getElementById('client-bsp-panel');
@@ -6526,6 +6528,114 @@ function isProjectsCacheFresh(cacheEntry) {
   return savedAt > 0 && Date.now() - savedAt <= PROJECTS_CACHE_TTL_MS;
 }
 
+function sanitizeOperationalLoadMessage(message = '') {
+  const text = String(message || '').trim();
+  if (!text) return 'Preparando dados operacionais.';
+  if (/abort|signal|fetch|network|timeout|smartsheet|sheet|work in progress|planilha/i.test(text)) {
+    return 'Preparando dados operacionais.';
+  }
+  return text;
+}
+
+function normalizeClientPayloadScopeValue(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function getCurrentClientScopeAliases(user = state.user) {
+  const values = [
+    user?.clientKey,
+    user?.clientName,
+    user?.name,
+    user?.username,
+    user?.email,
+    ...(Array.isArray(user?.allowedClients) ? user.allowedClients : []),
+  ];
+  const aliases = new Set();
+  values.forEach((value) => {
+    const normalized = normalizeClientPayloadScopeValue(value);
+    if (!normalized) return;
+    aliases.add(normalized);
+    normalized.split(/\s+/).forEach((part) => {
+      if (part && part.length >= 3) aliases.add(part);
+    });
+  });
+  return aliases;
+}
+
+function projectMatchesCurrentClient(project, user = state.user) {
+  if (!isClientUser(user)) return true;
+  const aliases = getCurrentClientScopeAliases(user);
+  if (!aliases.size) return false;
+  const client = normalizeClientPayloadScopeValue(project?.client);
+  if (!client) return false;
+  for (const alias of aliases) {
+    if (client === alias || client.includes(alias) || alias.includes(client)) return true;
+  }
+  return false;
+}
+
+function scopeProjectsPayloadForCurrentUser(payload) {
+  if (!payload || !isClientUser()) return payload;
+  const projects = (Array.isArray(payload.projects) ? payload.projects : []).filter((project) => projectMatchesCurrentClient(project));
+  return {
+    ...payload,
+    projects,
+    stats: buildStats(projects),
+    alerts: [],
+    meta: {
+      ...(payload.meta || {}),
+      clientPortal: true,
+      clientName: getClientPortalName(),
+      clientKey: state.user?.clientKey || state.user?.clientName || state.user?.name || state.user?.username || '',
+      staticSnapshot: true,
+      lastSync: payload.meta?.lastSync || new Date().toISOString(),
+    },
+  };
+}
+
+async function readStaticProjectsSnapshot() {
+  if (state.staticProjectsSnapshot) return state.staticProjectsSnapshot;
+  try {
+    const response = await fetch('/data/fallback-projects.json', { cache: 'force-cache', credentials: 'same-origin' });
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (!data || !Array.isArray(data.projects)) return null;
+    state.staticProjectsSnapshot = {
+      ...data,
+      ok: true,
+      meta: {
+        ...(data.meta || {}),
+        sheetName: 'Base operacional',
+        version: data.meta?.version || 'snapshot-operacional',
+        fastSnapshot: true,
+        staticSnapshot: true,
+        lastSync: data.meta?.lastSync || new Date().toISOString(),
+      },
+    };
+    return state.staticProjectsSnapshot;
+  } catch (error) {
+    console.warn('Snapshot operacional local indisponível:', error?.message || error);
+    return null;
+  }
+}
+
+async function applyStaticSnapshotIfPossible(options = {}) {
+  if (options.background || state.projects.length) return false;
+  if (options.force && !options.allowStaticOnForce) return false;
+  const snapshot = await readStaticProjectsSnapshot();
+  if (!snapshot) return false;
+  const scoped = scopeProjectsPayloadForCurrentUser(snapshot);
+  if (isClientUser() && !(Array.isArray(scoped.projects) && scoped.projects.length)) return false;
+  writeProjectsCache(scoped);
+  applyProjectsPayload(scoped, { fromCache: true, fromStaticSnapshot: true });
+  return true;
+}
+
 function applyProjectsPayload(data, options = {}) {
   state.projects = enrichProjects(data.projects || []);
   renderAdminProjectPmAliasOptions();
@@ -6562,7 +6672,7 @@ function scheduleClientBackgroundFullSync(delayMs = 1500) {
   }
   state.clientPortal.backgroundSyncTimer = window.setTimeout(() => {
     state.clientPortal.backgroundSyncTimer = null;
-    loadProjects({ force: true, background: true }).catch((error) => {
+    loadProjects({ force: true, background: true, includePo: true }).catch((error) => {
       console.warn('Sincronização completa em segundo plano falhou:', error?.message || error);
     });
   }, delayMs);
@@ -6570,9 +6680,9 @@ function scheduleClientBackgroundFullSync(delayMs = 1500) {
 
 function updateMeta() {
   if (!state.meta) return;
-  sheetNameEl.textContent = state.meta.sheetName || "Base operacional";
+  sheetNameEl.textContent = "Base operacional";
   lastSyncEl.textContent = `Última atualização: ${new Date(state.meta.lastSync).toLocaleString("pt-BR")}`;
-  footerVersionEl.textContent = `Versão dos dados: ${state.meta.version}`;
+  footerVersionEl.textContent = `Versão dos dados: ${state.meta.version || 'operacional'}`;
 }
 
 async function loadProjects(options = {}) {
@@ -6589,7 +6699,7 @@ async function loadProjects(options = {}) {
 
   if (isClientUser() && !state.projects.length && !background) {
     state.clientPortal.isLoading = true;
-    renderClientDashboardLoading(retryCount ? `Sincronizando carteira do cliente... tentativa ${retryCount + 1}` : 'Sincronizando carteira do cliente...');
+    renderClientDashboardLoading('Preparando informações da carteira...');
   }
 
   const cached = readProjectsCache();
@@ -6603,6 +6713,20 @@ async function loadProjects(options = {}) {
       if (lastSyncEl && state.meta?.lastSync) {
         lastSyncEl.textContent = `Última atualização: ${new Date(state.meta.lastSync).toLocaleString("pt-BR")} • cache local`;
       }
+      const cacheMeta = cached.payload?.meta || {};
+      const needsBackgroundRefresh = Boolean(cacheMeta.fastSnapshot || cacheMeta.fastCache || cacheMeta.staleFallback);
+      if (needsBackgroundRefresh && !background) {
+        window.setTimeout(() => loadProjects({ force: true, background: true, includePo: isClientUser() }).catch(() => {}), 1400);
+      }
+      return;
+    }
+  }
+
+  if (!force && !background && !state.projects.length) {
+    const appliedStaticSnapshot = await applyStaticSnapshotIfPossible(options);
+    if (appliedStaticSnapshot) {
+      const delay = isClientUser() ? 900 : 700;
+      window.setTimeout(() => loadProjects({ force: true, background: true, includePo: isClientUser() }).catch(() => {}), delay);
       return;
     }
   }
@@ -6617,9 +6741,10 @@ async function loadProjects(options = {}) {
         refreshProjectsButtonEl.disabled = true;
         refreshProjectsButtonEl.textContent = force ? 'Atualizando...' : 'Sincronizando...';
       }
-      const fastClientMode = isClientUser() && !force && !background;
-      const requestUrl = fastClientMode ? "/api/projects?fast=1" : "/api/projects";
-      const response = await fetchWithTimeout(requestUrl, { cache: "no-store", credentials: "same-origin" }, isClientUser() && fastClientMode ? 4500 : isClientUser() ? 12000 : 18000);
+      const fastInitialMode = !force && !background;
+      const includePo = Boolean(options.includePo);
+      const requestUrl = fastInitialMode ? "/api/projects?fast=1" : (includePo ? "/api/projects?po=1" : "/api/projects");
+      const response = await fetchWithTimeout(requestUrl, { cache: "no-store", credentials: "same-origin" }, fastInitialMode ? 15000 : (background ? 45000 : 60000));
       let data = null;
 
       try {
@@ -6644,18 +6769,22 @@ async function loadProjects(options = {}) {
       const clientProjectCount = Array.isArray(data.projects) ? data.projects.length : 0;
       if (isClientUser() && clientProjectCount === 0 && !background) {
         if (retryCount < 1) {
-          scheduleClientProjectsRetry('Validando vínculo do cliente e buscando carteira novamente...', retryCount + 1);
+          scheduleClientProjectsRetry('Consolidando carteira do cliente e referências operacionais...', retryCount + 1);
           return;
         }
-        renderClientDashboardSlowState('A API respondeu sem BSPs para este cliente. Confira o vínculo do usuário ou force uma nova atualização.');
+        renderClientDashboardSlowState('Preparando informações da carteira operacional.');
         return;
       }
 
       state.lastProjectsFetchAt = Date.now();
       writeProjectsCache(data);
       applyProjectsPayload(data, { fromCache: false });
-      if (isClientUser() && !background && (data?.meta?.fastSnapshot || data?.meta?.fastCache || data?.meta?.staleFallback)) {
-        scheduleClientBackgroundFullSync(data?.meta?.fastSnapshot ? 800 : 1500);
+      if (!background && (data?.meta?.fastSnapshot || data?.meta?.fastCache || data?.meta?.staleFallback)) {
+        if (isClientUser()) {
+          scheduleClientBackgroundFullSync(data?.meta?.fastSnapshot ? 1200 : 2200);
+        } else {
+          window.setTimeout(() => loadProjects({ force: true, background: true }).catch(() => {}), data?.meta?.fastSnapshot ? 1200 : 2200);
+        }
       }
     } catch (error) {
       const fallbackMessage = error?.message || "Falha ao atualizar dados operacionais.";
@@ -6664,26 +6793,26 @@ async function loadProjects(options = {}) {
         const staleSuffix = state.meta?.lastSync
           ? ` | exibindo última atualização válida: ${new Date(state.meta.lastSync).toLocaleString("pt-BR")}`
           : "";
-        lastSyncEl.textContent = `Conexão instável com a base operacional${staleSuffix}`;
-        console.warn("Falha temporária ao atualizar projetos:", fallbackMessage);
+        lastSyncEl.textContent = `Exibindo dados operacionais disponíveis${staleSuffix}`;
+        console.warn("Atualização em segundo plano não concluída:", fallbackMessage);
         return;
       }
 
       if (isClientUser() && retryCount < 1 && !background) {
         const message = error?.name === 'AbortError'
-          ? 'A API demorou para responder. Tentando novamente sem travar a tela...'
-          : 'Conexão instável com a base operacional. Tentando carregar novamente...';
+          ? 'Consolidando informações operacionais...'
+          : 'Preparando carteira operacional...';
         scheduleClientProjectsRetry(message, retryCount + 1);
         return;
       }
 
       if (isClientUser()) {
-        renderClientDashboardSlowState(fallbackMessage);
+        renderClientDashboardSlowState(sanitizeOperationalLoadMessage(fallbackMessage));
         return;
       }
 
-      bodyEl.innerHTML = `<tr><td colspan="21" class="loading-cell">${fallbackMessage}</td></tr>`;
-      detailCardEl.innerHTML = `<div class="detail-placeholder">${fallbackMessage}</div>`;
+      bodyEl.innerHTML = `<tr><td colspan="21" class="loading-cell">Preparando dados operacionais...</td></tr>`;
+      detailCardEl.innerHTML = `<div class="detail-placeholder">Preparando painel operacional...</div>`;
     } finally {
       state.loadingProjectsRequest = null;
       if (refreshProjectsButtonEl) {
@@ -9526,7 +9655,7 @@ function renderStageValidationWorkspace() {
           </div>
         </div>
         <div class="stage-validation-note">
-          A atualização usa a API do Smartsheet com percentuais numéricos: 25% = 0.25, 50% = 0.5, 75% = 0.75 e 100% = 1. O apontamento só sai dos pendentes após confirmação do Tracking.
+          A atualização usa a API operacional com percentuais numéricos: 25% = 0.25, 50% = 0.5, 75% = 0.75 e 100% = 1. O apontamento só sai dos pendentes após confirmação operacional.
         </div>
       </section>
 

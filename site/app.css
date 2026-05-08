@@ -5486,12 +5486,3 @@ body:not(.client-mode) .client-exec-modal {
   letter-spacing: -.02em;
 }
 
-.client-loading-state--slow {
-  background: rgba(6, 36, 62, .28);
-}
-
-.client-loading-state--slow .mini-action-button {
-  margin-top: 8px;
-  width: fit-content;
-  justify-self: center;
-}

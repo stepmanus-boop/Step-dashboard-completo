@@ -17,9 +17,18 @@ const cache = global.__STEP_PROGRESS_CACHE__ || {
   wipStepVersion: null,
   payload: null,
   snapshotPayload: null,
+  wipPoMap: null,
+  payloadSyncedAt: 0,
   lastSync: null,
 };
 global.__STEP_PROGRESS_CACHE__ = cache;
+
+const SERVER_MEMORY_CACHE_TTL_MS = Number(process.env.STEP_SERVER_MEMORY_CACHE_TTL_MS || 90000);
+// PERFORMANCE: a leitura da base complementar de PO não pode bloquear a abertura do painel.
+// Por padrão, o painel carrega a base principal primeiro e usa PO em cache quando disponível.
+// Para forçar leitura bloqueante da PO, defina STEP_ENABLE_WIP_PO_BLOCKING=true.
+const WIP_PO_BLOCKING_ENABLED = String(process.env.STEP_ENABLE_WIP_PO_BLOCKING || '').toLowerCase() === 'true';
+const WIP_PO_MAX_WAIT_MS = Number(process.env.STEP_WIP_PO_MAX_WAIT_MS || 6000);
 
 const STAGE_ORDER = [
   { key: "Drawing Execution Advance%", label: "AG. Emissão de detalhamento", type: "percent" },
@@ -1765,16 +1774,66 @@ function getPoListForProject(project, poMap) {
   return [];
 }
 
+function getCachedWipPoData() {
+  if (cache.wipPoMap) {
+    return {
+      poMap: cache.wipPoMap,
+      version: cache.wipStepVersion || null,
+      sheetName: cache.wipStepSheetName || WIP_STEP_SHEET_NAME,
+      available: true,
+      fromCache: true,
+    };
+  }
+  return { poMap: new Map(), version: null, sheetName: WIP_STEP_SHEET_NAME, available: false, skipped: true };
+}
+
+function withTimeout(promise, timeoutMs, fallbackValue) {
+  const limit = Number(timeoutMs || 0);
+  if (!limit || limit <= 0) return promise;
+  return Promise.race([
+    promise,
+    new Promise((resolve) => {
+      setTimeout(() => resolve({ ...fallbackValue, timedOut: true, available: Boolean(fallbackValue?.available) }), limit);
+    }),
+  ]);
+}
+
+async function getWipPoDataForPayload({ includeWip = false } = {}) {
+  const cached = getCachedWipPoData();
+  if (!includeWip && !WIP_PO_BLOCKING_ENABLED) return cached;
+  return withTimeout(fetchWipStepPoMap(), WIP_PO_MAX_WAIT_MS, cached);
+}
+
 async function fetchWipStepPoMap() {
   try {
     const sheetId = await resolveWipStepSheetId();
     if (!sheetId) return { poMap: new Map(), version: null, sheetName: WIP_STEP_SHEET_NAME, available: false };
     const version = await fetchSheetVersion(sheetId);
+
+    // Evita reler a planilha complementar inteira quando nada mudou.
+    if (cache.wipPoMap && cache.wipStepVersion === version && cache.wipStepSheetId === sheetId) {
+      return {
+        poMap: cache.wipPoMap,
+        version,
+        sheetName: cache.wipStepSheetName || WIP_STEP_SHEET_NAME,
+        available: true,
+        fromCache: true,
+      };
+    }
+
     const sheet = await fetchFullSheet(sheetId);
     const rows = mapApiRows(sheet);
-    return { poMap: buildWipPoMap(rows), version, sheetName: sheet.name || cache.wipStepSheetName || WIP_STEP_SHEET_NAME, available: true };
+    const poMap = buildWipPoMap(rows);
+    cache.wipStepSheetId = sheetId;
+    cache.wipStepSheetName = sheet.name || cache.wipStepSheetName || WIP_STEP_SHEET_NAME;
+    cache.wipStepVersion = version;
+    cache.wipPoMap = poMap;
+    return { poMap, version, sheetName: cache.wipStepSheetName, available: true };
   } catch (error) {
-    console.warn('Não foi possível carregar Work in Progress - STEP para vínculo de PO:', error.message);
+    console.warn('Não foi possível carregar vínculo de PO:', error.message);
+    if (cache.wipPoMap) {
+      return { poMap: cache.wipPoMap, version: cache.wipStepVersion || null, sheetName: cache.wipStepSheetName || WIP_STEP_SHEET_NAME, available: true, fromCache: true, error: error.message };
+    }
     return { poMap: new Map(), version: null, sheetName: WIP_STEP_SHEET_NAME, available: false, error: error.message };
   }
 }
@@ -1802,14 +1861,22 @@ async function fetchFullSheet(sheetId) {
   return apiFetch(`/sheets/${sheetId}?includeAll=true`);
 }
 
-async function buildPayload() {
+async function buildPayload(options = {}) {
   if (!TOKEN) throw new Error("SMARTSHEET_TOKEN não configurado.");
+
+  // Em ambiente serverless, a leitura completa do Smartsheet pode variar bastante.
+  // Se já existe payload recente na memória da função, devolvemos imediatamente.
+  if (cache.payload && cache.payloadSyncedAt && (Date.now() - Number(cache.payloadSyncedAt)) <= SERVER_MEMORY_CACHE_TTL_MS) {
+    return cache.payload;
+  }
 
   const sheetId = await resolveSheetId();
   const version = await fetchSheetVersion(sheetId);
-  const wipPoData = await fetchWipStepPoMap();
+  const includeWip = Boolean(options.includeWip || WIP_PO_BLOCKING_ENABLED);
+  const wipPoData = await getWipPoDataForPayload({ includeWip });
 
-  if (cache.payload && cache.version === version && cache.wipStepVersion === wipPoData.version) {
+  if (cache.payload && cache.version === version && (!includeWip || cache.wipStepVersion === wipPoData.version)) {
+    cache.payloadSyncedAt = Date.now();
     return cache.payload;
   }
 
@@ -1849,6 +1916,7 @@ async function buildPayload() {
   cache.wipStepSheetName = payload.meta.wipStepSheetName;
   cache.wipStepVersion = payload.meta.wipStepVersion;
   cache.lastSync = payload.meta.lastSync;
+  cache.payloadSyncedAt = Date.now();
   cache.payload = payload;
 
   return payload;
@@ -1960,6 +2028,7 @@ exports.handler = async (event) => {
 
   const query = event?.queryStringParameters || {};
   const fastMode = query.fast === '1' || query.fast === 'true';
+  const includePo = query.po === '1' || query.po === 'true' || query.includePo === '1' || query.includePo === 'true';
 
   try {
     if (fastMode) {
@@ -1997,7 +2066,7 @@ exports.handler = async (event) => {
       }
     }
 
-    const payload = scopePayloadForSession(await buildPayload(), auth.session);
+    const payload = scopePayloadForSession(await buildPayload({ includeWip: includePo }), auth.session);
     return jsonResponse(200, payload, {
       headers: {
         'cache-control': 'private, max-age=60, stale-while-revalidate=120',
@@ -2020,7 +2089,23 @@ exports.handler = async (event) => {
         },
       });
     }
-    return jsonResponse(500, { ok: false, error: error.message });
+    const snapshot = loadFallbackSnapshotPayload();
+    if (snapshot) {
+      const payload = scopePayloadForSession(snapshot, auth.session);
+      return jsonResponse(200, {
+        ...payload,
+        meta: {
+          ...(payload.meta || {}),
+          staleFallback: true,
+          fallbackServedAt: new Date().toISOString(),
+        },
+      }, {
+        headers: {
+          'cache-control': 'private, max-age=15, stale-while-revalidate=120',
+        },
+      });
+    }
+    return jsonResponse(200, { ok: true, projects: [], stats: buildStats([]), alerts: [], meta: { sheetName: 'Base operacional', version: 'aguardando-atualizacao', lastSync: new Date().toISOString(), staleFallback: true } });
   }
 };
 exports.buildPayload = buildPayload;

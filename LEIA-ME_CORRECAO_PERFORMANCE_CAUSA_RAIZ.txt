@@ -1,0 +1,25 @@
+CORREÇÃO DE PERFORMANCE - CAUSA RAIZ
+
+Problema encontrado:
+1. O painel dependia da resposta completa da API /api/projects antes de preencher a tela em alguns cenários.
+2. A API estava lendo a base principal e, junto dela, a base complementar de PO. Essa segunda leitura podia deixar a abertura muito lenta.
+3. O cache em memória do Netlify não é garantido entre execuções serverless. Por isso, em cold start, o painel podia voltar a fazer a leitura completa.
+4. O snapshot/fallback anterior estava no lado da função. Em deploy Netlify, esse arquivo pode não estar disponível de forma imediata para o navegador. Por isso, o usuário ainda podia ficar aguardando.
+5. Quando a requisição demorava, o AbortController encerrava a chamada e apareciam mensagens técnicas no painel.
+
+Correção aplicada:
+1. Criado snapshot estático em site/data/fallback-projects.json.
+2. O frontend agora carrega esse snapshot diretamente do navegador antes da API, preenchendo o painel quase imediato.
+3. Para usuário cliente, o snapshot é filtrado no próprio frontend pelo cliente logado antes de renderizar.
+4. A API principal deixou de bloquear a abertura esperando a base complementar de PO.
+5. A PO passa a ser atualizada em segundo plano quando solicitado, sem travar a primeira abertura.
+6. Mensagens técnicas e de lentidão foram removidas da interface.
+7. O Service Worker passou a pré-cachear o snapshot estático.
+8. O painel admin também se beneficia do snapshot rápido, evitando tela zerada se a API demorar.
+
+Observação:
+Para velocidade máxima no backend, configure no Netlify:
+SMARTSHEET_SHEET_ID = ID da planilha principal de tracking
+SMARTSHEET_WIP_STEP_SHEET_ID = ID da base complementar de PO
+
+Sem esses IDs, a API pode precisar listar as planilhas para descobrir o ID, o que aumenta o tempo em cold start.

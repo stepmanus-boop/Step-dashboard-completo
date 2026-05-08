@@ -1,4 +1,4 @@
-const CACHE_NAME = "step-gerencia-pwa-v28-cliente-loading-sem-referencia-interna";
+const CACHE_NAME = "step-gerencia-pwa-v30-snapshot-estatico-rapido";
 const APP_SHELL = [
   "/",
   "/app.css",
@@ -8,6 +8,7 @@ const APP_SHELL = [
   "/assets/icon-192.png",
   "/assets/icon-512.png",
   "/assets/apple-touch-icon.png",
+  "/data/fallback-projects.json",
 ];
 
 const CORE_ASSETS = new Set([
@@ -17,6 +18,7 @@ const CORE_ASSETS = new Set([
   "/app.js",
   "/manifest.webmanifest",
   "/sw.js",
+  "/data/fallback-projects.json",
 ]);
 
 function toUrl(input) {

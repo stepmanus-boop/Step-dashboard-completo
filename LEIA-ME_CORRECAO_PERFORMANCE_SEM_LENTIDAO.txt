@@ -1,0 +1,16 @@
+CORREÇÃO APLICADA — PERFORMANCE DO PAINEL E LOADING SEM MENSAGEM DE LENTIDÃO
+
+Ajustes principais:
+
+1. O painel não exibe mais mensagens como "conexão lenta" ou erro técnico "signal is aborted".
+2. A primeira abertura agora usa leitura rápida (/api/projects?fast=1) para administrador e cliente.
+3. Se houver snapshot/cache disponível, o painel abre imediatamente com os últimos dados disponíveis.
+4. A atualização completa continua em segundo plano, sem travar a tela inicial.
+5. A rotina de fetch não aborta mais cedo, evitando o erro visual que aparecia no painel.
+6. O backend reutiliza cache em memória por curto período para evitar releituras completas repetidas.
+7. A leitura de PO foi otimizada para não reler a base complementar inteira quando a versão não mudou.
+8. Caso a API operacional falhe, o sistema retorna snapshot/local fallback em vez de quebrar a tela.
+9. Removidas referências visuais a planilhas internas, Smartsheet, Work in Progress e mensagens de lentidão.
+10. Cache do PWA atualizado para forçar a nova versão.
+
+Após publicar no Netlify, executar Ctrl + F5 uma vez no navegador para limpar o cache antigo.
