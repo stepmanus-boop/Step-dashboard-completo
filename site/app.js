@@ -319,6 +319,11 @@ const adminUserClientFieldsEl = document.getElementById("admin-user-client-field
 const adminUserClientKeyEl = document.getElementById("admin-user-client-key");
 const adminUserClientNameEl = document.getElementById("admin-user-client-name");
 const adminUserClientLogoUrlEl = document.getElementById("admin-user-client-logo-url");
+const adminUserClientLogoFileEl = document.getElementById("admin-user-client-logo-file");
+const adminUserClientLogoImportEl = document.getElementById("admin-user-client-logo-import");
+const adminUserClientPlatformImageUrlEl = document.getElementById("admin-user-client-platform-image-url");
+const adminUserClientPlatformImageFileEl = document.getElementById("admin-user-client-platform-image-file");
+const adminUserClientPlatformImageImportEl = document.getElementById("admin-user-client-platform-image-import");
 const adminTabTriggerEls = Array.from(document.querySelectorAll('[data-admin-tab-trigger]'));
 const adminTabPanelEls = Array.from(document.querySelectorAll('[data-admin-tab-panel]'));
 const projectSignalModalEl = document.getElementById('project-signal-modal');
@@ -905,7 +910,7 @@ function normalizeSectorValue(value) {
   if (["solda", "welding"].includes(normalized)) return "solda";
   if (["pcp", "planejamento", "planejamento_controle_producao", "planning", "planning_control"].includes(normalized)) return "pcp";
   if (["projetos", "projeto", "project", "projects", "pm"].includes(normalized)) return "projetos";
-  if (normalized === "all") return "all";
+  if (["all", "todos", "todo", "geral", "tudo"].includes(normalized)) return "all";
   return normalized;
 }
 
@@ -3426,6 +3431,10 @@ function getClientPortalLogo(user = state.user) {
   return String(user?.clientLogoUrl || '').trim() || './assets/step-logo.png';
 }
 
+function getClientPortalPlatformImage(user = state.user) {
+  return String(user?.clientPlatformImageUrl || '').trim() || getClientPortalLogo(user);
+}
+
 function ensureClientDashboardEl() {
   let el = document.getElementById('client-dashboard');
   if (el) return el;
@@ -3545,10 +3554,13 @@ function renderClientDashboard() {
   if (grid) {
     grid.innerHTML = groups.length ? groups.map((group) => `
       <button type="button" class="client-vessel-card ${state.clientPortal.selectedVesselKey === group.key ? 'is-active' : ''}" data-client-vessel="${escapeHtml(group.key)}">
-        <span>${escapeHtml(group.label)}</span>
-        <strong>${formatNumber(group.projects.length)} BSP(s)</strong>
-        <small>${formatNumber(group.tags)} tag(s) • ${formatNumber(group.weight, 0)} kg programado</small>
-        <small>${formatNumber(group.welded, 0)} kg soldado • ${formatPercent(group.avgProgress)}</small>
+        <div class="client-vessel-info">
+          <span>${escapeHtml(group.label)}</span>
+          <strong>${formatNumber(group.projects.length)} BSP(s)</strong>
+          <small>${formatNumber(group.tags)} tag(s) • ${formatNumber(group.weight, 0)} kg programado</small>
+          <small>${formatNumber(group.welded, 0)} kg soldado • ${formatPercent(group.avgProgress)}</small>
+        </div>
+        <div class="client-vessel-media"><img src="${escapeHtml(getClientPortalPlatformImage())}" alt="Foto da plataforma" /></div>
       </button>
     `).join('') : '<div class="client-empty">Nenhuma demanda encontrada para este cliente.</div>';
   }
@@ -5882,13 +5894,23 @@ if (adminUserSectorEl) {
 
 if (adminUserRoleEl) {
   adminUserRoleEl.addEventListener("change", (event) => {
-    const disabled = event.target.value === "admin" || event.target.value === "client";
+    const role = event.target.value;
+    if ((role === "admin" || role === "client") && adminUserSectorEl) adminUserSectorEl.value = "all";
+    const disabled = role === "admin" || role === "client";
     document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
       input.disabled = disabled;
     });
     updateAdminClientFieldsVisibility();
     updateAdminProjectPmAliasesVisibility();
   });
+}
+
+if (adminUserClientLogoImportEl) {
+  adminUserClientLogoImportEl.addEventListener('click', () => importAdminClientImage(adminUserClientLogoFileEl, adminUserClientLogoUrlEl, 'logo do cliente'));
+}
+
+if (adminUserClientPlatformImageImportEl) {
+  adminUserClientPlatformImageImportEl.addEventListener('click', () => importAdminClientImage(adminUserClientPlatformImageFileEl, adminUserClientPlatformImageUrlEl, 'foto da plataforma'));
 }
 
 document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
@@ -7331,12 +7353,70 @@ function renderAdminPresence(users = []) {
 }
 
 
+function readImageFileAsOptimizedDataUrl(file, options = {}) {
+  const maxWidth = Number(options.maxWidth || 900);
+  const maxHeight = Number(options.maxHeight || 520);
+  const quality = Number(options.quality || 0.78);
+  return new Promise((resolve, reject) => {
+    if (!file || !String(file.type || '').startsWith('image/')) {
+      reject(new Error('Selecione um arquivo de imagem válido.'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Não foi possível ler a imagem selecionada.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Não foi possível processar a imagem selecionada.'));
+      img.onload = () => {
+        let width = img.naturalWidth || img.width || maxWidth;
+        let height = img.naturalHeight || img.height || maxHeight;
+        const ratio = Math.min(maxWidth / width, maxHeight / height, 1);
+        width = Math.max(1, Math.round(width * ratio));
+        height = Math.max(1, Math.round(height * ratio));
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#041a2d';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = String(reader.result || '');
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function importAdminClientImage(fileInput, targetInput, label) {
+  const file = fileInput?.files?.[0];
+  if (!file) {
+    window.alert(`Selecione a imagem de ${label} primeiro.`);
+    return;
+  }
+  try {
+    const dataUrl = await readImageFileAsOptimizedDataUrl(file);
+    if (targetInput) {
+      targetInput.value = dataUrl;
+      targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    if (adminUserFeedbackEl) adminUserFeedbackEl.textContent = `Imagem de ${label} importada. Salve o usuário para gravar.`;
+  } catch (error) {
+    window.alert(error.message || `Falha ao importar imagem de ${label}.`);
+  }
+}
+
 function updateAdminClientFieldsVisibility() {
   const role = document.getElementById('admin-user-role')?.value || 'sector';
   if (adminUserClientFieldsEl) adminUserClientFieldsEl.classList.toggle('hidden', role !== 'client');
   if (adminUserClientKeyEl) adminUserClientKeyEl.disabled = role !== 'client';
   if (adminUserClientNameEl) adminUserClientNameEl.disabled = role !== 'client';
   if (adminUserClientLogoUrlEl) adminUserClientLogoUrlEl.disabled = role !== 'client';
+  if (adminUserClientLogoFileEl) adminUserClientLogoFileEl.disabled = role !== 'client';
+  if (adminUserClientLogoImportEl) adminUserClientLogoImportEl.disabled = role !== 'client';
+  if (adminUserClientPlatformImageUrlEl) adminUserClientPlatformImageUrlEl.disabled = role !== 'client';
+  if (adminUserClientPlatformImageFileEl) adminUserClientPlatformImageFileEl.disabled = role !== 'client';
+  if (adminUserClientPlatformImageImportEl) adminUserClientPlatformImageImportEl.disabled = role !== 'client';
 }
 
 function resetAdminUserForm() {
@@ -7353,6 +7433,9 @@ function resetAdminUserForm() {
   if (adminUserClientKeyEl) adminUserClientKeyEl.value = '';
   if (adminUserClientNameEl) adminUserClientNameEl.value = '';
   if (adminUserClientLogoUrlEl) adminUserClientLogoUrlEl.value = '';
+  if (adminUserClientLogoFileEl) adminUserClientLogoFileEl.value = '';
+  if (adminUserClientPlatformImageUrlEl) adminUserClientPlatformImageUrlEl.value = '';
+  if (adminUserClientPlatformImageFileEl) adminUserClientPlatformImageFileEl.value = '';
   updateAdminClientFieldsVisibility();
   updateAdminProjectPmAliasesVisibility();
   updateAdminQualityCompetenciesVisibility();
@@ -7366,7 +7449,7 @@ function startEditUser(userId) {
   document.getElementById("admin-user-username").value = user.username || "";
   document.getElementById("admin-user-password").value = "";
   document.getElementById("admin-user-role").value = user.role === "admin" ? "admin" : (user.role === "client" ? "client" : "sector");
-  document.getElementById("admin-user-sector").value = user.sector && user.sector !== "all" ? user.sector : "pintura";
+  document.getElementById("admin-user-sector").value = user.role === "client" ? "all" : (user.sector || "all");
   setSelectedAdminAlertSectors(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]);
   state.adminProjectPmSearchQuery = "";
   const projectPmSearchEl = document.getElementById("admin-user-project-pms-search");
@@ -7376,6 +7459,9 @@ function startEditUser(userId) {
   if (adminUserClientKeyEl) adminUserClientKeyEl.value = user.clientKey || '';
   if (adminUserClientNameEl) adminUserClientNameEl.value = user.clientName || '';
   if (adminUserClientLogoUrlEl) adminUserClientLogoUrlEl.value = user.clientLogoUrl || '';
+  if (adminUserClientLogoFileEl) adminUserClientLogoFileEl.value = '';
+  if (adminUserClientPlatformImageUrlEl) adminUserClientPlatformImageUrlEl.value = user.clientPlatformImageUrl || '';
+  if (adminUserClientPlatformImageFileEl) adminUserClientPlatformImageFileEl.value = '';
   updateAdminClientFieldsVisibility();
   updateAdminProjectPmAliasesVisibility();
   updateAdminQualityCompetenciesVisibility();
@@ -8652,6 +8738,7 @@ async function handleAdminUserSubmit(event) {
       clientKey: adminUserClientKeyEl?.value || '',
       clientName: adminUserClientNameEl?.value || '',
       clientLogoUrl: adminUserClientLogoUrlEl?.value || '',
+      clientPlatformImageUrl: adminUserClientPlatformImageUrlEl?.value || '',
     };
     const response = await fetch("/api/admin-users", {
       method: editingId ? "PUT" : "POST",

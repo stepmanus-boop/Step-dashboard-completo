@@ -82,6 +82,7 @@ exports.handler = async (event) => {
         clientKey: user.clientKey || '',
         clientName: user.clientName || '',
         clientLogoUrl: user.clientLogoUrl || '',
+        clientPlatformImageUrl: user.clientPlatformImageUrl || '',
         allowedClients: Array.isArray(user.allowedClients) ? user.allowedClients : [],
       },
     }, {

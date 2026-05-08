@@ -62,6 +62,10 @@ function normalizeClientLogoUrl(input) {
   return String(input || '').trim();
 }
 
+function normalizeClientPlatformImageUrl(input) {
+  return String(input || '').trim();
+}
+
 function normalizeAllowedClients(primary, input) {
   const values = Array.isArray(input) ? input : String(input || '').split(/[\n;,|]+/);
   const seen = new Set();
@@ -117,6 +121,7 @@ exports.handler = async (event) => {
           clientKey: user.clientKey || '',
           clientName: user.clientName || '',
           clientLogoUrl: user.clientLogoUrl || '',
+          clientPlatformImageUrl: user.clientPlatformImageUrl || '',
           allowedClients: Array.isArray(user.allowedClients) ? user.allowedClients : [],
           active: Boolean(user.active),
           createdAt: user.createdAt || null,
@@ -152,13 +157,14 @@ exports.handler = async (event) => {
       const username = String(body.username || '').trim();
       const password = String(body.password || '');
       const role = normalizeUserRole(body.role);
-      const sector = role === 'admin' ? 'all' : (role === 'client' ? 'client' : normalizeSectorValue(body.sector));
+      const sector = role === 'admin' ? 'all' : (role === 'client' ? 'all' : normalizeSectorValue(body.sector));
       const alertSectors = role !== 'sector' ? [] : normalizeSectorList('', body.alertSectors);
       const projectPmAliases = isProjectsUser(role, sector, alertSectors) ? normalizeProjectPmAliases(body.projectPmAliases) : [];
       const qualityCompetencies = isQualityUser(role, sector, alertSectors) ? normalizeQualityCompetencies(body.qualityCompetencies) : [];
       const clientKey = role === 'client' ? normalizeClientKey(body.clientKey || body.clientName || username) : '';
       const clientName = role === 'client' ? String(body.clientName || clientKey).trim() : '';
       const clientLogoUrl = role === 'client' ? normalizeClientLogoUrl(body.clientLogoUrl) : '';
+      const clientPlatformImageUrl = role === 'client' ? normalizeClientPlatformImageUrl(body.clientPlatformImageUrl) : '';
       const allowedClients = role === 'client' ? normalizeAllowedClients(clientKey, body.allowedClients) : [];
 
       if (!name || !username) {
@@ -190,6 +196,7 @@ exports.handler = async (event) => {
         clientKey,
         clientName,
         clientLogoUrl,
+        clientPlatformImageUrl,
         allowedClients,
         active: body.active === false ? false : true,
         ...(password ? { passwordHash: hashPassword(password) } : {}),
@@ -219,7 +226,7 @@ exports.handler = async (event) => {
       }
       const saved = await updateUser(userId, {
         role: nextRole,
-        sector: nextRole === 'admin' ? 'all' : (nextRole === 'client' ? 'client' : (current.sector && current.sector !== 'all' ? current.sector : '')),
+        sector: nextRole === 'admin' ? 'all' : (nextRole === 'client' ? 'all' : (current.sector && current.sector !== 'all' ? current.sector : '')),
         alertSectors: nextRole !== 'sector' ? [] : normalizeSectorList('', current.alertSectors),
         projectPmAliases: nextRole !== 'sector' ? [] : (isProjectsUser(nextRole, current.sector, current.alertSectors) ? normalizeProjectPmAliases(current.projectPmAliases) : []),
         qualityCompetencies: nextRole !== 'sector' ? [] : (isQualityUser(nextRole, current.sector, current.alertSectors) ? normalizeQualityCompetencies(current.qualityCompetencies) : []),
@@ -240,13 +247,14 @@ exports.handler = async (event) => {
     const username = String(body.username || '').trim();
     const password = String(body.password || '');
     const role = normalizeUserRole(body.role);
-    const sector = role === 'admin' ? 'all' : (role === 'client' ? 'client' : normalizeSectorValue(body.sector));
+    const sector = role === 'admin' ? 'all' : (role === 'client' ? 'all' : normalizeSectorValue(body.sector));
     const alertSectors = role !== 'sector' ? [] : normalizeSectorList('', body.alertSectors);
     const projectPmAliases = isProjectsUser(role, sector, alertSectors) ? normalizeProjectPmAliases(body.projectPmAliases) : [];
     const qualityCompetencies = isQualityUser(role, sector, alertSectors) ? normalizeQualityCompetencies(body.qualityCompetencies) : [];
     const clientKey = role === 'client' ? normalizeClientKey(body.clientKey || body.clientName || username) : '';
     const clientName = role === 'client' ? String(body.clientName || clientKey).trim() : '';
     const clientLogoUrl = role === 'client' ? normalizeClientLogoUrl(body.clientLogoUrl) : '';
+    const clientPlatformImageUrl = role === 'client' ? normalizeClientPlatformImageUrl(body.clientPlatformImageUrl) : '';
     const allowedClients = role === 'client' ? normalizeAllowedClients(clientKey, body.allowedClients) : [];
 
     if (!name || !username || !password) {
@@ -278,6 +286,7 @@ exports.handler = async (event) => {
       clientKey,
       clientName,
       clientLogoUrl,
+      clientPlatformImageUrl,
       allowedClients,
       active: true,
     });

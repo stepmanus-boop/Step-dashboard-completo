@@ -413,6 +413,7 @@
             <label class="stack-field">
               <span>Setor</span>
               <select id="admin-user-sector">
+                <option value="all">Todos</option>
                 <option value="engenharia">Engenharia</option>
                 <option value="suprimento">Suprimento</option>
                 <option value="pintura">Pintura</option>
@@ -453,7 +454,20 @@
             <label class="stack-field stack-field--wide">
               <span>Logo do cliente</span>
               <input id="admin-user-client-logo-url" type="text" placeholder="URL da logo ou ./assets/client-logos/prio.png" />
-              <small>Opcional. Se ficar em branco, o portal usa a logo da STEP.</small>
+              <div class="file-import-row">
+                <input id="admin-user-client-logo-file" type="file" accept="image/*" />
+                <button id="admin-user-client-logo-import" class="ghost-button ghost-button--compact" type="button">Importar logo do computador</button>
+              </div>
+              <small>Opcional. Você pode colar uma URL/caminho ou importar uma imagem local.</small>
+            </label>
+            <label class="stack-field stack-field--wide">
+              <span>Foto da plataforma / vessel</span>
+              <input id="admin-user-client-platform-image-url" type="text" placeholder="URL da foto ou imagem importada" />
+              <div class="file-import-row">
+                <input id="admin-user-client-platform-image-file" type="file" accept="image/*" />
+                <button id="admin-user-client-platform-image-import" class="ghost-button ghost-button--compact" type="button">Importar foto da plataforma</button>
+              </div>
+              <small>Essa imagem aparece na lateral dos cards de Vessel/Unidade no Portal do Cliente.</small>
             </label>
           </div>
           <label class="stack-field hidden" id="admin-user-project-pms-field">

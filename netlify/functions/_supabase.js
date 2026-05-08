@@ -53,6 +53,7 @@ function mapUser(row) {
     clientKey: row.client_key || '',
     clientName: row.client_name || row.client_key || '',
     clientLogoUrl: row.client_logo_url || '',
+    clientPlatformImageUrl: row.client_platform_image_url || '',
     allowedClients: Array.isArray(row.allowed_clients) ? row.allowed_clients.filter(Boolean) : [],
     active: row.active !== false,
     createdAt: row.created_at || null,
@@ -195,6 +196,7 @@ async function insertUser(input) {
     client_key: input.clientKey || '',
     client_name: input.clientName || input.clientKey || '',
     client_logo_url: input.clientLogoUrl || '',
+    client_platform_image_url: input.clientPlatformImageUrl || '',
     allowed_clients: Array.isArray(input.allowedClients) ? input.allowedClients : [],
     active: input.active !== false,
   };
@@ -220,6 +222,7 @@ async function updateUser(userId, updates) {
   if ('clientKey' in updates) payload.client_key = updates.clientKey || '';
   if ('clientName' in updates) payload.client_name = updates.clientName || updates.clientKey || '';
   if ('clientLogoUrl' in updates) payload.client_logo_url = updates.clientLogoUrl || '';
+  if ('clientPlatformImageUrl' in updates) payload.client_platform_image_url = updates.clientPlatformImageUrl || '';
   if ('allowedClients' in updates) payload.allowed_clients = Array.isArray(updates.allowedClients) ? updates.allowedClients : [];
   if ('active' in updates) payload.active = updates.active !== false;
   const rows = await supabaseFetch(`/rest/v1/users?id=eq.${q}&select=*`, {
@@ -247,7 +250,7 @@ async function upsertUserPresence(input = {}) {
     user_id: String(input.userId || '').trim(),
     username: input.username || '',
     name: input.name || '',
-    role: input.role === 'admin' ? 'admin' : 'sector',
+    role: input.role === 'admin' ? 'admin' : (input.role === 'client' ? 'client' : 'sector'),
     sector: normalizeSectorValue(input.sector || ''),
     alert_sectors: normalizeSectorList(input.sector || '', Array.isArray(input.alertSectors) ? input.alertSectors : []),
     status: input.status === 'offline' ? 'offline' : 'online',

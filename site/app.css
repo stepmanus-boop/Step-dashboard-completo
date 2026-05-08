@@ -4432,3 +4432,62 @@ button.alert-badge {
   .client-summary-grid, .client-summary-grid--detail { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .client-hero, .client-detail-head, .client-section-head { align-items: flex-start; flex-direction: column; }
 }
+
+/* Portal do Cliente - cards com foto da plataforma e importação de imagens */
+.file-import-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.file-import-row input[type="file"] {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px dashed rgba(126, 204, 255, .34);
+  background: rgba(255, 255, 255, .04);
+  color: #cfe7f6;
+}
+.client-vessel-card {
+  min-height: 128px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 128px;
+  gap: 14px;
+  align-items: stretch;
+  overflow: hidden;
+}
+.client-vessel-info {
+  min-width: 0;
+  align-self: center;
+}
+.client-vessel-media {
+  min-height: 96px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(255,255,255,.08), rgba(255,255,255,.02));
+  border: 1px solid rgba(255,255,255,.12);
+  display: grid;
+  place-items: center;
+}
+.client-vessel-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.client-vessel-card .client-vessel-media img[src$="step-logo.png"],
+.client-vessel-card .client-vessel-media img[src$="step-logo.svg"] {
+  object-fit: contain;
+  padding: 16px;
+  background: rgba(255,255,255,.06);
+}
+@media (max-width: 720px) {
+  .client-vessel-card {
+    grid-template-columns: 1fr;
+  }
+  .client-vessel-media {
+    min-height: 150px;
+  }
+}
