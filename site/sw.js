@@ -1,4 +1,4 @@
-const CACHE_NAME = "step-gerencia-pwa-v14-cliente-dblclick-bsp";
+const CACHE_NAME = "step-gerencia-pwa-v15-cliente-logo-desvio-entrega";
 const APP_SHELL = [
   "/",
   "/app.css",

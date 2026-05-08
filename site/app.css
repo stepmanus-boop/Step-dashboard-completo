@@ -4369,8 +4369,8 @@ button.alert-badge {
 }
 .client-identity { display: flex; align-items: center; gap: 16px; }
 .client-logo-box {
-  width: 96px;
-  height: 72px;
+  width: 132px;
+  height: 92px;
   border-radius: 18px;
   display: grid;
   place-items: center;
@@ -4586,13 +4586,13 @@ body.client-mode .client-hero {
   min-height: 58px;
 }
 body.client-mode .client-logo-box {
-  width: 78px;
-  height: 50px;
+  width: 128px;
+  height: 82px;
   border-radius: 12px;
   background: rgba(255,255,255,.13);
 }
 body.client-mode .client-logo-box img {
-  padding: 5px;
+  padding: 8px;
   object-fit: contain;
 }
 body.client-mode .client-summary-grid article {
@@ -4853,6 +4853,44 @@ body.client-exec-open {
   letter-spacing: .08em;
 }
 
+.client-exec-gauge-meta {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.client-exec-gauge-meta small {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #55758b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.client-exec-gauge-meta i {
+  width: 14px;
+  height: 4px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.client-exec-gauge-meta i.actual {
+  background: #0a9878;
+}
+
+.client-exec-gauge-meta i.deviation {
+  background: #efc14f;
+}
+
+.client-exec-gauge-meta i.planned {
+  background: #7c858b;
+}
+
+.client-exec-gauge-meta i.delivery {
+  background: #2b7ed1;
+}
+
 .client-exec-bars {
   display: grid;
   gap: 13px;
@@ -4920,6 +4958,10 @@ body.client-exec-open {
 
 .client-exec-legend .actual {
   background: #0a9878;
+}
+
+.client-exec-legend .deviation {
+  background: #efc14f;
 }
 
 .client-scurve-svg {

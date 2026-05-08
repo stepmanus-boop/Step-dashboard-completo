@@ -3788,13 +3788,11 @@ function getClientProductionStages(project) {
   );
   const fabrication = getClientFabricationProgress(project);
   const packageDelivery = getClientPackageProgress(project);
-  const databook = getClientDatabookProgress(project);
   return [
     { key: 'engineering', label: 'Engineering / Drawing', percent: engineering, weight: 15 },
     { key: 'procurement', label: 'Procurement', percent: procurement, weight: 15 },
-    { key: 'fabrication', label: 'Fabrication', percent: fabrication, weight: 60 },
+    { key: 'fabrication', label: 'Fabrication', percent: fabrication, weight: 65 },
     { key: 'package', label: 'Package / Delivery', percent: packageDelivery, weight: 5 },
-    { key: 'databook', label: 'Databook', percent: databook, weight: 5 },
   ];
 }
 
@@ -3965,14 +3963,26 @@ function renderClientSCurveSvg(project) {
   `;
 }
 
-function renderClientGauge(percent, label) {
+function renderClientGauge(percent, label, plannedPercent = null, options = {}) {
   const p = clampClientPercent(percent);
+  const plannedBase = plannedPercent == null ? p : clampClientPercent(plannedPercent);
+  const planned = Math.max(p, plannedBase);
+  const deviation = Math.max(0, planned - p);
+  const deliveryDate = options?.deliveryDate ? clientFormatDateValue(options.deliveryDate) : '';
+  const noteText = options?.note ? String(options.note) : '';
+  const ringStyle = `background: conic-gradient(#0b9b7a 0 ${p}%, #efc14f ${p}% ${planned}%, #d4dce2 ${planned}% 100%)`;
   return `
     <div class="client-exec-gauge" style="--p:${p}">
-      <div class="client-exec-gauge-ring"></div>
+      <div class="client-exec-gauge-ring" style="${ringStyle}"></div>
       <div class="client-exec-gauge-center">
         <strong>${formatPercent(p)}</strong>
         <span>${escapeHtml(label)}</span>
+      </div>
+      <div class="client-exec-gauge-meta">
+        <small><i class="actual"></i>Realizado ${formatPercent(p)}</small>
+        <small><i class="deviation"></i>Desvio ${formatPercent(deviation)}</small>
+        ${noteText ? `<small><i class="planned"></i>${escapeHtml(noteText)}</small>` : ''}
+        ${deliveryDate ? `<small><i class="delivery"></i>Envio: ${escapeHtml(deliveryDate)}</small>` : ''}
       </div>
     </div>
   `;
@@ -3998,7 +4008,6 @@ function getClientAttentionPoints(project) {
   if (getClientFabricationProgress(project) >= 60 && painting <= 0) points.push('Pintura ainda não iniciada após avanço relevante da fabricação.');
   const delivery = getClientPackageProgress(project);
   if (daysToFinish <= 21 && daysToFinish >= 0 && actual < 80) points.push(`Término previsto em ${daysToFinish} dia(s) com progresso abaixo de 80%.`);
-  if (getClientDatabookProgress(project) <= 0 && delivery >= 50) points.push('Databook ainda sem avanço registrado.');
   const blocked = stages.find((stage) => stage.percent <= 0);
   if (blocked && planned > 20) points.push(`${blocked.label} sem progresso registrado.`);
   if (!points.length) points.push('Sem ponto crítico automático identificado neste momento.');
@@ -4060,6 +4069,8 @@ function openClientBspExecutive(project) {
   const attention = getClientAttentionPoints(project);
   const startDate = clientFormatDateValue(getClientAnalyticStartDate(project));
   const finishDate = clientFormatDateValue(getClientAnalyticFinishDate(project));
+  const shipmentDate = clientFormatDateValue(getProjectShipmentDate(project));
+  const deviationPercent = Math.max(0, plannedToday - overall);
 
   content.innerHTML = `
     <header class="client-exec-header">
@@ -4070,8 +4081,10 @@ function openClientBspExecutive(project) {
       </div>
       <div class="client-exec-dates">
         <span>Início: <strong>${escapeHtml(startDate || '—')}</strong></span>
-        <span>Término: <strong>${escapeHtml(finishDate || '—')}</strong></span>
+        <span>Término planejado: <strong>${escapeHtml(finishDate || '—')}</strong></span>
         <span>Planejado hoje: <strong>${formatPercent(plannedToday)}</strong></span>
+        <span>Desvio: <strong>${formatPercent(deviationPercent)}</strong></span>
+        <span>Envio efetivo: <strong>${escapeHtml(shipmentDate || '—')}</strong></span>
       </div>
     </header>
 
@@ -4088,12 +4101,12 @@ function openClientBspExecutive(project) {
 
     <div class="client-exec-grid client-exec-grid--top">
       <section class="client-exec-card">
-        <div class="client-exec-card-head"><h3>Overall Progress</h3><span>Concluído x restante</span></div>
-        ${renderClientGauge(overall, 'concluído')}
+        <div class="client-exec-card-head"><h3>Overall Progress</h3><span>Concluído x restante + desvio</span></div>
+        ${renderClientGauge(overall, 'concluído', plannedToday, { deliveryDate: shipmentDate, note: 'Meta até hoje' })}
       </section>
       <section class="client-exec-card">
-        <div class="client-exec-card-head"><h3>Fabrication Progress</h3><span>Fabricação ponderada</span></div>
-        ${renderClientGauge(fabrication, 'fabricação')}
+        <div class="client-exec-card-head"><h3>Fabrication Progress</h3><span>Fabricação ponderada + desvio</span></div>
+        ${renderClientGauge(fabrication, 'fabricação', plannedToday, { note: 'Meta até hoje' })}
       </section>
       <section class="client-exec-card client-exec-card--bars">
         <div class="client-exec-card-head"><h3>Progress by Production Stage</h3><span>Etapas principais</span></div>
