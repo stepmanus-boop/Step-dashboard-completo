@@ -406,6 +406,7 @@
               <span>Perfil</span>
               <select id="admin-user-role">
                 <option value="sector">Setor</option>
+                <option value="client">Cliente</option>
                 <option value="admin">Admin</option>
               </select>
             </label>
@@ -440,6 +441,21 @@
               <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="projetos" /> Projetos</label>
             </div>
           </label>
+          <div class="stack-two hidden" id="admin-user-client-fields">
+            <label class="stack-field">
+              <span>Cliente vinculado</span>
+              <input id="admin-user-client-key" type="text" placeholder="Ex.: PRIO" />
+            </label>
+            <label class="stack-field">
+              <span>Nome exibido no Portal</span>
+              <input id="admin-user-client-name" type="text" placeholder="Ex.: PRIO" />
+            </label>
+            <label class="stack-field stack-field--wide">
+              <span>Logo do cliente</span>
+              <input id="admin-user-client-logo-url" type="text" placeholder="URL da logo ou ./assets/client-logos/prio.png" />
+              <small>Opcional. Se ficar em branco, o portal usa a logo da STEP.</small>
+            </label>
+          </div>
           <label class="stack-field hidden" id="admin-user-project-pms-field">
             <span>PMs adicionais para visualizar</span>
             <div class="pm-select-box">

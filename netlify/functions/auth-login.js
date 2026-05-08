@@ -79,6 +79,10 @@ exports.handler = async (event) => {
         alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [],
         projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
         qualityCompetencies: Array.isArray(user.qualityCompetencies) ? user.qualityCompetencies : [],
+        clientKey: user.clientKey || '',
+        clientName: user.clientName || '',
+        clientLogoUrl: user.clientLogoUrl || '',
+        allowedClients: Array.isArray(user.allowedClients) ? user.allowedClients : [],
       },
     }, {
       headers: {

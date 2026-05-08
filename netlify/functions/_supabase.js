@@ -45,11 +45,15 @@ function mapUser(row) {
     name: row.name,
     username: row.username,
     passwordHash: row.password_hash,
-    role: row.role === 'admin' ? 'admin' : 'sector',
+    role: row.role === 'admin' ? 'admin' : (row.role === 'client' ? 'client' : 'sector'),
     sector: normalizeSectorValue(row.sector || (row.role === 'admin' ? 'all' : '')), 
     alertSectors: normalizeSectorList(row.sector || '', Array.isArray(row.alert_sectors) ? row.alert_sectors : []),
     projectPmAliases: Array.isArray(row.project_pm_aliases) ? row.project_pm_aliases.filter(Boolean) : [],
     qualityCompetencies: Array.isArray(row.quality_competencies) ? row.quality_competencies.filter(Boolean) : [],
+    clientKey: row.client_key || '',
+    clientName: row.client_name || row.client_key || '',
+    clientLogoUrl: row.client_logo_url || '',
+    allowedClients: Array.isArray(row.allowed_clients) ? row.allowed_clients.filter(Boolean) : [],
     active: row.active !== false,
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null,
@@ -69,7 +73,7 @@ function mapPresence(row) {
     userId: row.user_id,
     username: row.username || '',
     name: row.name || '',
-    role: row.role === 'admin' ? 'admin' : 'sector',
+    role: row.role === 'admin' ? 'admin' : (row.role === 'client' ? 'client' : 'sector'),
     sector: normalizeSectorValue(row.sector || ''),
     alertSectors: normalizeSectorList(row.sector || '', Array.isArray(row.alert_sectors) ? row.alert_sectors : []),
     status: online ? 'online' : 'offline',
@@ -188,6 +192,10 @@ async function insertUser(input) {
     alert_sectors: input.alertSectors || [],
     project_pm_aliases: Array.isArray(input.projectPmAliases) ? input.projectPmAliases : [],
     quality_competencies: Array.isArray(input.qualityCompetencies) ? input.qualityCompetencies : [],
+    client_key: input.clientKey || '',
+    client_name: input.clientName || input.clientKey || '',
+    client_logo_url: input.clientLogoUrl || '',
+    allowed_clients: Array.isArray(input.allowedClients) ? input.allowedClients : [],
     active: input.active !== false,
   };
   const rows = await supabaseFetch('/rest/v1/users?select=*', {
@@ -209,6 +217,10 @@ async function updateUser(userId, updates) {
   if ('alertSectors' in updates) payload.alert_sectors = updates.alertSectors || [];
   if ('projectPmAliases' in updates) payload.project_pm_aliases = Array.isArray(updates.projectPmAliases) ? updates.projectPmAliases : [];
   if ('qualityCompetencies' in updates) payload.quality_competencies = Array.isArray(updates.qualityCompetencies) ? updates.qualityCompetencies : [];
+  if ('clientKey' in updates) payload.client_key = updates.clientKey || '';
+  if ('clientName' in updates) payload.client_name = updates.clientName || updates.clientKey || '';
+  if ('clientLogoUrl' in updates) payload.client_logo_url = updates.clientLogoUrl || '';
+  if ('allowedClients' in updates) payload.allowed_clients = Array.isArray(updates.allowedClients) ? updates.allowedClients : [];
   if ('active' in updates) payload.active = updates.active !== false;
   const rows = await supabaseFetch(`/rest/v1/users?id=eq.${q}&select=*`, {
     method: 'PATCH',

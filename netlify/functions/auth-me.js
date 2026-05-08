@@ -21,6 +21,10 @@ exports.handler = async (event) => {
       alertSectors: Array.isArray(session.alertSectors) ? session.alertSectors : (session.sector && session.sector !== 'all' ? [session.sector] : []),
       projectPmAliases: Array.isArray(session.projectPmAliases) ? session.projectPmAliases : [],
       qualityCompetencies: Array.isArray(session.qualityCompetencies) ? session.qualityCompetencies : [],
+      clientKey: session.clientKey || '',
+      clientName: session.clientName || '',
+      clientLogoUrl: session.clientLogoUrl || '',
+      allowedClients: Array.isArray(session.allowedClients) ? session.allowedClients : [],
     },
   });
 };
