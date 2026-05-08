@@ -2,12 +2,17 @@ const { jsonResponse, requireSession } = require('./_auth');
 const API_BASE = process.env.SMARTSHEET_API_BASE || "https://api.smartsheet.com/2.0";
 const SHEET_NAME = process.env.SMARTSHEET_SHEET_NAME || "Progress Tracking Sheet - Piping Fabrication";
 const SHEET_ID_ENV = process.env.SMARTSHEET_SHEET_ID || "";
+const WIP_STEP_SHEET_NAME = process.env.SMARTSHEET_WIP_STEP_SHEET_NAME || "Work in Progress - STEP";
+const WIP_STEP_SHEET_ID_ENV = process.env.SMARTSHEET_WIP_STEP_SHEET_ID || process.env.SMARTSHEET_WORK_IN_PROGRESS_STEP_SHEET_ID || "";
 const TOKEN = process.env.SMARTSHEET_TOKEN || process.env.SMARTSHEET_ACCESS_TOKEN || process.env.SMARTSHEET_API_TOKEN || process.env.SMARTSHEET_BEARER_TOKEN || process.env.SMARTSHEET_PAT || process.env.SMARTSHEET_PERSONAL_ACCESS_TOKEN || "5pP36OjBaD1W2HWyxf6aoGxXasPvEl8gbqOmQ";
 
 const cache = global.__STEP_PROGRESS_CACHE__ || {
   sheetId: null,
   sheetName: null,
   version: null,
+  wipStepSheetId: null,
+  wipStepSheetName: null,
+  wipStepVersion: null,
   payload: null,
   lastSync: null,
 };
@@ -491,6 +496,31 @@ function parseProjectParts(projectText) {
   }
 
   return { prefix: "", number: cleaned, display: cleaned };
+}
+
+function normalizeBspLookupKey(value) {
+  const parsed = parseProjectParts(value);
+  const candidate = parsed.number || String(value || '');
+  const match = String(candidate || value || '').match(/\d{2}\s*-?\s*\d+(?:\s*-?\s*\d+)*/);
+  const source = match ? match[0] : candidate;
+  return String(source || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/(BSP|BPP|B3D)/gi, '')
+    .replace(/[^0-9]+/g, '')
+    .trim();
+}
+
+function getProjectPoDisplay(project) {
+  const list = Array.isArray(project?.customerPoList) ? project.customerPoList.filter(Boolean) : [];
+  if (!list.length) return 'Aguardando PO';
+  if (list.length === 1) return `PO ${list[0]}`;
+  return `POs ${list.join(' / ')}`;
+}
+
+function buildClientDisplayCode(project) {
+  const bsp = String(project?.projectDisplay || project?.projectNumber || 'BSP').trim() || 'BSP';
+  return `${bsp} - ${getProjectPoDisplay(project)}`;
 }
 
 function extractIsoDescription(drawingText) {
@@ -995,6 +1025,11 @@ function buildProject(summaryRow, childRows) {
     projectPrefix: parts.prefix,
     projectNumber: parts.number,
     projectDisplay: parts.display || projectText,
+    customerPo: '',
+    customerPoList: [],
+    customerPoDisplay: 'Aguardando PO',
+    customerPoStatus: 'waiting',
+    clientDisplayCode: `${parts.display || projectText || 'BSP'} - Aguardando PO`,
     quantitySpools,
     kilos: parseNumber(summaryRow, "Kilos"),
     weldedWeightKg,
@@ -1563,6 +1598,103 @@ async function resolveSheetId() {
   throw new Error(`Sheet "${SHEET_NAME}" não encontrada. Defina SMARTSHEET_SHEET_ID ou confira SMARTSHEET_SHEET_NAME.`);
 }
 
+async function resolveWipStepSheetId() {
+  if (cache.wipStepSheetId) return cache.wipStepSheetId;
+  if (WIP_STEP_SHEET_ID_ENV) {
+    cache.wipStepSheetId = String(WIP_STEP_SHEET_ID_ENV);
+    return cache.wipStepSheetId;
+  }
+
+  const target = normalizeName(WIP_STEP_SHEET_NAME);
+  let page = 1;
+  let fuzzyFound = null;
+
+  while (true) {
+    const response = await apiFetch(`/sheets?page=${page}&pageSize=100`);
+    const items = response.data || [];
+    const eligible = items.filter((item) => !normalizeName(item.name).includes('portugal'));
+
+    const exactFound = eligible.find((item) => normalizeName(item.name) === target);
+    if (exactFound) {
+      cache.wipStepSheetId = String(exactFound.id);
+      cache.wipStepSheetName = exactFound.name;
+      return cache.wipStepSheetId;
+    }
+
+    if (!fuzzyFound) {
+      fuzzyFound = eligible.find((item) => normalizeName(item.name).includes(target) || target.includes(normalizeName(item.name)));
+    }
+
+    if (!items.length || page >= (response.totalPages || 1)) break;
+    page += 1;
+  }
+
+  if (fuzzyFound) {
+    cache.wipStepSheetId = String(fuzzyFound.id);
+    cache.wipStepSheetName = fuzzyFound.name;
+    return cache.wipStepSheetId;
+  }
+
+  return null;
+}
+
+function collectWipPoValues(value) {
+  const raw = String(value || '').trim();
+  if (!raw || raw === 'N/A') return [];
+  return raw
+    .split(/[\n;,\/|]+/)
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .filter((item, index, arr) => arr.indexOf(item) === index);
+}
+
+function buildWipPoMap(rows) {
+  const poMap = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const projectRef = textValue(row, 'Project BSP/BPP/B3D*') || textValue(row, 'Project BSP/BPP/B3D') || textValue(row, 'Project BSP/BPP/B3D *');
+    const poValue = textValue(row, 'Customer PO*') || textValue(row, 'Customer PO') || textValue(row, 'Customer PO *');
+    const key = normalizeBspLookupKey(projectRef);
+    if (!key) continue;
+    const values = collectWipPoValues(poValue);
+    if (!values.length) continue;
+    const current = poMap.get(key) || [];
+    for (const value of values) {
+      if (!current.includes(value)) current.push(value);
+    }
+    poMap.set(key, current);
+  }
+  return poMap;
+}
+
+async function fetchWipStepPoMap() {
+  try {
+    const sheetId = await resolveWipStepSheetId();
+    if (!sheetId) return { poMap: new Map(), version: null, sheetName: WIP_STEP_SHEET_NAME, available: false };
+    const version = await fetchSheetVersion(sheetId);
+    const sheet = await fetchFullSheet(sheetId);
+    const rows = mapApiRows(sheet);
+    return { poMap: buildWipPoMap(rows), version, sheetName: sheet.name || cache.wipStepSheetName || WIP_STEP_SHEET_NAME, available: true };
+  } catch (error) {
+    console.warn('Não foi possível carregar Work in Progress - STEP para vínculo de PO:', error.message);
+    return { poMap: new Map(), version: null, sheetName: WIP_STEP_SHEET_NAME, available: false, error: error.message };
+  }
+}
+
+function enrichProjectsWithCustomerPo(projects, poMap) {
+  const map = poMap instanceof Map ? poMap : new Map();
+  return (Array.isArray(projects) ? projects : []).map((project) => {
+    const key = normalizeBspLookupKey(project?.projectDisplay || project?.projectNumber);
+    const list = (map.get(key) || []).filter(Boolean);
+    const uniqueList = Array.from(new Set(list));
+    project.customerPoList = uniqueList;
+    project.customerPo = uniqueList[0] || '';
+    project.customerPoDisplay = uniqueList.length ? getProjectPoDisplay(project) : 'Aguardando PO';
+    project.customerPoStatus = uniqueList.length ? 'found' : 'waiting';
+    project.clientDisplayCode = buildClientDisplayCode(project);
+    return project;
+  });
+}
+
 async function fetchSheetVersion(sheetId) {
   const versionData = await apiFetch(`/sheets/${sheetId}/version`);
   return versionData.version;
@@ -1577,14 +1709,15 @@ async function buildPayload() {
 
   const sheetId = await resolveSheetId();
   const version = await fetchSheetVersion(sheetId);
+  const wipPoData = await fetchWipStepPoMap();
 
-  if (cache.payload && cache.version === version) {
+  if (cache.payload && cache.version === version && cache.wipStepVersion === wipPoData.version) {
     return cache.payload;
   }
 
   const sheet = await fetchFullSheet(sheetId);
   const rows = mapApiRows(sheet);
-  const projects = buildProjects(rows);
+  const projects = enrichProjectsWithCustomerPo(buildProjects(rows), wipPoData.poMap);
   const stats = buildStats(projects);
   const alertData = buildAlerts(projects);
 
@@ -1594,6 +1727,9 @@ async function buildPayload() {
       sheetId,
       sheetName: sheet.name || cache.sheetName || SHEET_NAME,
       version,
+      wipStepSheetName: wipPoData.sheetName || WIP_STEP_SHEET_NAME,
+      wipStepVersion: wipPoData.version || null,
+      wipStepPoAvailable: Boolean(wipPoData.available),
       lastSync: new Date().toISOString(),
       stageOrder: STAGE_ORDER.filter((stage) => !stage.ignoredCurrentStage).map((stage) => ({
         key: stage.key,
@@ -1612,6 +1748,8 @@ async function buildPayload() {
   cache.sheetId = sheetId;
   cache.sheetName = payload.meta.sheetName;
   cache.version = version;
+  cache.wipStepSheetName = payload.meta.wipStepSheetName;
+  cache.wipStepVersion = payload.meta.wipStepVersion;
   cache.lastSync = payload.meta.lastSync;
   cache.payload = payload;
 

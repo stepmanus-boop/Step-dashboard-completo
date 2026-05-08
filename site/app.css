@@ -4836,7 +4836,11 @@ body.client-exec-open {
 
 .client-exec-gauge-center {
   position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
   text-align: center;
+  padding: 0 34px;
 }
 
 .client-exec-gauge-center strong {
@@ -5142,6 +5146,37 @@ body.client-exec-open {
   color: #6c4c02;
   border: 1px solid rgba(221, 164, 39, .25);
   font-weight: 700;
+}
+
+.client-stage-strip--executive {
+  margin-top: 8px;
+  margin-bottom: 18px;
+}
+
+.client-stage-strip--executive div {
+  background: rgba(211, 234, 248, .55);
+  border-color: rgba(17, 101, 158, .12);
+}
+
+.client-stage-strip--executive span {
+  color: #5e7d92;
+}
+
+.client-stage-strip--executive strong {
+  color: #08345d;
+}
+
+.client-exec-process-table {
+  background: rgba(255,255,255,.42);
+}
+
+.client-exec-process-detail .client-bsp-table th {
+  background: rgba(220, 238, 249, .95);
+  color: #0b3761;
+}
+
+.client-exec-process-detail .client-bsp-table td {
+  color: #27465d;
 }
 
 body:not(.client-mode) .client-exec-modal {

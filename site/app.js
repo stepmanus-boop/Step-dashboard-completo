@@ -1548,6 +1548,13 @@ async function downloadAlertsPdf() {
 }
 
 
+function getClientProjectDisplayCode(project) {
+  const base = String(project?.projectDisplay || project?.projectNumber || 'BSP').trim() || 'BSP';
+  const poDisplay = String(project?.customerPoDisplay || '').trim();
+  if (project?.clientDisplayCode) return String(project.clientDisplayCode).trim();
+  return `${base} - ${poDisplay || 'Aguardando PO'}`;
+}
+
 function projectDisplayWithClient(project) {
   const projectName = String(project?.projectDisplay || '').trim();
   const clientName = String(project?.client || '').trim();
@@ -3652,7 +3659,7 @@ function renderClientBspPanel() {
           const status = getProjectStatusPresentation(project);
           const selected = String(state.clientPortal.selectedProjectId || '') === String(project.rowId || '');
           return `<tr class="${selected ? 'is-selected' : ''}" data-client-project-id="${escapeHtml(project.rowId)}" title="Clique uma vez para selecionar; dê 2 cliques para abrir a visão executiva">
-            <td><strong>${escapeHtml(project.projectDisplay || '—')}</strong></td>
+            <td><strong>${escapeHtml(getClientProjectDisplayCode(project))}</strong></td>
             <td>${formatNumber(getProjectItemCount(project))}</td>
             <td>${formatNumber(project.kilos, 0)} kg</td>
             <td>${formatNumber(project.weldedWeightKg, 0)} kg</td>
@@ -3684,7 +3691,7 @@ function renderClientProjectDetail(project) {
   const spools = Array.isArray(project.spools) ? project.spools : [];
   detail.innerHTML = `
     <div class="client-detail-head">
-      <div><p class="client-kicker">Detalhamento da BSP</p><h3>${escapeHtml(project.projectDisplay || 'Projeto')}</h3><p>${escapeHtml(getProjectVesselLabel(project))} • ${escapeHtml(getProjectClientLabel(project))}</p></div>
+      <div><p class="client-kicker">Detalhamento da BSP</p><h3>${escapeHtml(getClientProjectDisplayCode(project))}</h3><p>${escapeHtml(getProjectVesselLabel(project))} • ${escapeHtml(getProjectClientLabel(project))}</p></div>
       <button class="primary-button" type="button" data-client-open-analytics="${escapeHtml(project.rowId)}">Abrir visão executiva</button>
     </div>
     <div class="client-summary-grid client-summary-grid--detail">
@@ -4071,12 +4078,15 @@ function openClientBspExecutive(project) {
   const finishDate = clientFormatDateValue(getClientAnalyticFinishDate(project));
   const shipmentDate = clientFormatDateValue(getProjectShipmentDate(project));
   const deviationPercent = Math.max(0, plannedToday - overall);
+  const stageValues = project.stageValues || {};
+  const spools = Array.isArray(project.spools) ? project.spools : [];
+  const detailStageKeys = ['Drawing Execution Advance%', 'Procuremnt Status %', 'Material Separation', 'Full welding execution', 'Non Destructive Examination (QC)', 'Hydro Test Pressure (QC)', 'Surface preparation and/or coating', 'Final Inspection', 'Package and Delivered'];
 
   content.innerHTML = `
     <header class="client-exec-header">
       <div>
         <p class="client-kicker">Visão Executiva da BSP</p>
-        <h2>${escapeHtml(project.projectDisplay || 'BSP')}</h2>
+        <h2>${escapeHtml(getClientProjectDisplayCode(project))}</h2>
         <p>${escapeHtml(getProjectClientLabel(project))} • ${escapeHtml(getProjectVesselLabel(project))} • <span class="cell-status cell-status--${status.state}">${escapeHtml(status.text)}</span></p>
       </div>
       <div class="client-exec-dates">
@@ -4151,6 +4161,22 @@ function openClientBspExecutive(project) {
     <section class="client-exec-card client-exec-attention">
       <div class="client-exec-card-head"><h3>S-Curve | Attention Points</h3><span>Análise automática</span></div>
       <ul>${attention.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
+    </section>
+
+    <section class="client-exec-card client-exec-process-detail">
+      <div class="client-exec-card-head"><h3>Detalhamento da obra</h3><span>Processos da BSP e evolução por etapa</span></div>
+      <div class="client-stage-strip client-stage-strip--executive">
+        ${detailStageKeys.map((key) => {
+          const label = (state.meta?.stageOrder || []).find((stage) => stage.key === key)?.label || key;
+          const value = stageValues[key];
+          return `<div><span>${escapeHtml(label)}</span><strong>${value == null || value === '' ? '—' : (String(value).includes('%') ? escapeHtml(value) : formatPercent(value))}</strong></div>`;
+        }).join('')}
+      </div>
+      <div class="client-table-wrap client-table-wrap--compact client-exec-process-table">
+        <table class="client-bsp-table"><thead><tr><th>Tag/ISO</th><th>Descrição</th><th>Status</th><th>Etapa</th><th>%</th><th>Peso</th></tr></thead><tbody>
+          ${spools.slice(0, 120).map((spool) => `<tr><td>${escapeHtml(spool.iso || '—')}</td><td>${escapeHtml(spool.description || '—')}</td><td>${escapeHtml(spool.currentStatus || spool.stage || uiStateLabel(spool.uiState))}</td><td>${escapeHtml(spool.currentSector || spool.operationalSector || '—')}</td><td>${formatPercent(spool.overallProgress)}</td><td>${formatNumber(spool.kilos, 2)} kg</td></tr>`).join('') || '<tr><td colspan="6" class="loading-cell">Nenhuma tag detalhada encontrada para esta BSP.</td></tr>'}
+        </tbody></table>
+      </div>
     </section>
   `;
 

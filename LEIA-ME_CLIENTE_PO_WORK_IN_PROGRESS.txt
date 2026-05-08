@@ -1,0 +1,20 @@
+ALTERAÇÃO: PO DO CLIENTE NO PORTAL
+
+Regra aplicada:
+- O Tracking continua sendo a fonte principal dos projetos/BSPs.
+- A planilha "Work in Progress - STEP" é usada apenas para buscar a PO do cliente.
+- A planilha "Work in Progress - STEP Portugal" é ignorada.
+
+Campos usados no Work in Progress - STEP:
+- Project BSP/BPP/B3D*
+- Customer PO*
+
+Exibição no Portal do Cliente:
+- Quando localizar a PO: BSP 25-732-03 - PO 4500121163
+- Quando não localizar a PO: BSP 25-732-03 - Aguardando PO
+
+Variáveis opcionais no Netlify:
+- SMARTSHEET_WIP_STEP_SHEET_ID = ID da planilha Work in Progress - STEP
+- SMARTSHEET_WIP_STEP_SHEET_NAME = Work in Progress - STEP
+
+Recomendado configurar o ID para evitar qualquer risco de localizar planilha errada.
