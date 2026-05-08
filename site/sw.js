@@ -1,4 +1,4 @@
-const CACHE_NAME = "step-gerencia-pwa-v11-portal-cliente-imagens-por-plataforma";
+const CACHE_NAME = "step-gerencia-pwa-v12-portal-cliente-ajustes-visuais-schema";
 const APP_SHELL = [
   "/",
   "/app.css",

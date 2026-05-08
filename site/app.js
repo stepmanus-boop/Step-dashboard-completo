@@ -5990,7 +5990,7 @@ async function importAdminClientPlatformImage() {
     return;
   }
   try {
-    const dataUrl = await readImageFileAsOptimizedDataUrl(file, { maxWidth: 900, maxHeight: 560, quality: 0.82 });
+    const dataUrl = await readImageFileAsOptimizedDataUrl(file, { maxWidth: 640, maxHeight: 420, quality: 0.74 });
     setClientPlatformImageLine(platformName, dataUrl);
     if (adminUserClientPlatformImageFileEl) adminUserClientPlatformImageFileEl.value = '';
     if (adminUserFeedbackEl) adminUserFeedbackEl.textContent = `Foto da plataforma ${platformName} importada. Salve o usuário para gravar.`;
@@ -7485,7 +7485,8 @@ async function importAdminClientImage(fileInput, targetInput, label) {
     return;
   }
   try {
-    const dataUrl = await readImageFileAsOptimizedDataUrl(file);
+    const isLogo = String(label || '').toLowerCase().includes('logo');
+    const dataUrl = await readImageFileAsOptimizedDataUrl(file, isLogo ? { maxWidth: 420, maxHeight: 220, quality: 0.78 } : { maxWidth: 640, maxHeight: 420, quality: 0.74 });
     if (targetInput) {
       targetInput.value = dataUrl;
       targetInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -7556,7 +7557,7 @@ function startEditUser(userId) {
   if (adminUserClientLogoFileEl) adminUserClientLogoFileEl.value = '';
   if (adminUserClientPlatformImageUrlEl) {
     const platformUrl = user.clientPlatformImageUrl || '';
-    adminUserClientPlatformImageUrlEl.value = platformUrl && platformUrl !== (user.clientLogoUrl || '') ? platformUrl : '';
+    adminUserClientPlatformImageUrlEl.value = ''; // imagem padrão desativada: use apenas fotos por plataforma
   }
   if (adminUserClientPlatformNameEl) adminUserClientPlatformNameEl.value = '';
   if (adminUserClientPlatformImagesEl) adminUserClientPlatformImagesEl.value = formatClientPlatformImages(user.clientPlatformImages || '');
@@ -8837,7 +8838,7 @@ async function handleAdminUserSubmit(event) {
       clientKey: adminUserClientKeyEl?.value || '',
       clientName: adminUserClientNameEl?.value || '',
       clientLogoUrl: adminUserClientLogoUrlEl?.value || '',
-      clientPlatformImageUrl: adminUserClientPlatformImageUrlEl?.value || '',
+      clientPlatformImageUrl: '',
       clientPlatformImages: parseClientPlatformImages(adminUserClientPlatformImagesEl?.value || ''),
     };
     const response = await fetch("/api/admin-users", {

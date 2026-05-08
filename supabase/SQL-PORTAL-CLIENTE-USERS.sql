@@ -1,5 +1,6 @@
--- Portal do Cliente - campos adicionais em users
--- Rode este SQL no Supabase antes de criar usuários do tipo client.
+-- Portal do Cliente - campos adicionais em public.users
+-- Rode este SQL no Supabase para habilitar cliente, logo e fotos por plataforma.
+-- Depois de executar, aguarde alguns segundos ou faça reload do schema cache da API.
 
 alter table if exists public.users
   add column if not exists client_key text,
@@ -26,3 +27,6 @@ end $$;
 
 alter table public.users
   add constraint users_role_check check (role in ('admin', 'sector', 'client'));
+
+-- Força o PostgREST/Supabase a recarregar o schema cache, evitando erro PGRST204.
+notify pgrst, 'reload schema';

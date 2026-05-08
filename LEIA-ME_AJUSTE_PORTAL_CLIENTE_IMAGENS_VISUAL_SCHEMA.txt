@@ -1,0 +1,36 @@
+AJUSTE PORTAL DO CLIENTE - IMAGENS POR PLATAFORMA, VISUAL E SUPABASE
+
+Alterações aplicadas:
+
+1) Logo e fotos das plataformas separadas
+- A logo do cliente fica apenas no topo do Portal do Cliente.
+- A logo não é mais usada como imagem dos cards de Vessel/Unidade.
+- Se uma plataforma não tiver imagem cadastrada, o card fica sem imagem lateral.
+
+2) Campo de imagem por plataforma
+- No cadastro do usuário cliente, use o campo "Fotos por plataforma / vessel".
+- Informe o nome da plataforma exatamente como aparece no card, selecione a imagem local e clique em "Adicionar foto dessa plataforma".
+- Exemplo:
+  FORTE=imagem
+  FRADE=imagem
+  BRAVO=imagem
+
+3) Supabase 400 / PGRST204
+- O SQL foi atualizado para criar a coluna client_platform_images e recarregar o schema cache.
+- O backend também recebeu fallback: se o Supabase ainda não tiver a coluna, ele salva temporariamente as imagens no campo client_platform_image_url como JSON interno, evitando quebra no cadastro.
+- Mesmo assim, rode o SQL atualizado em supabase/SQL-PORTAL-CLIENTE-USERS.sql.
+
+4) Ajuste visual
+- Cabeçalho superior menor e mais discreto.
+- Margens reduzidas.
+- Portal do Cliente com tom azul mais claro.
+- Logo do cliente ajustada ao quadro.
+- Cards de Vessel/Unidade com imagem mais equilibrada.
+
+5) Cache
+- Service Worker atualizado para forçar a nova versão.
+
+Após publicar:
+- Rode o SQL no Supabase.
+- Faça CTRL + F5 no navegador.
+- Se estiver usando como PWA, limpe cache/reinstale o app se ainda carregar layout antigo.

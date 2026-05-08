@@ -38,8 +38,53 @@ async function supabaseFetch(path, options = {}) {
   return response.text();
 }
 
+function parseClientPlatformImagesFallback(value) {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  const text = String(value || '').trim();
+  if (!text) return {};
+  const jsonText = text.startsWith('json:') ? text.slice(5) : text;
+  if (jsonText.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(jsonText);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (_) {}
+  }
+  return {};
+}
+
+function makeClientPlatformImagesFallback(images) {
+  if (!images || typeof images !== 'object' || Array.isArray(images) || !Object.keys(images).length) return '';
+  return `json:${JSON.stringify(images)}`;
+}
+
+function isMissingClientPlatformImagesColumn(error) {
+  const message = String(error?.message || error || '');
+  return message.includes('client_platform_images') && (message.includes('PGRST204') || message.includes('schema cache') || message.includes('Could not find'));
+}
+
+async function supabaseWriteWithClientPlatformFallback(path, options, payload, fallbackImages) {
+  try {
+    return await supabaseFetch(path, options);
+  } catch (error) {
+    if (!isMissingClientPlatformImagesColumn(error)) throw error;
+    const retryPayload = { ...(payload || {}) };
+    delete retryPayload.client_platform_images;
+    const fallback = makeClientPlatformImagesFallback(fallbackImages);
+    if (fallback) retryPayload.client_platform_image_url = fallback;
+    return supabaseFetch(path, {
+      ...options,
+      body: JSON.stringify(retryPayload),
+    });
+  }
+}
+
 function mapUser(row) {
   if (!row) return null;
+  const platformImages = row.client_platform_images && typeof row.client_platform_images === 'object'
+    ? row.client_platform_images
+    : parseClientPlatformImagesFallback(row.client_platform_image_url);
+  const platformImageUrl = String(row.client_platform_image_url || '').startsWith('json:') ? '' : (row.client_platform_image_url || '');
   return {
     id: row.id,
     name: row.name,
@@ -53,8 +98,8 @@ function mapUser(row) {
     clientKey: row.client_key || '',
     clientName: row.client_name || row.client_key || '',
     clientLogoUrl: row.client_logo_url || '',
-    clientPlatformImageUrl: row.client_platform_image_url || '',
-    clientPlatformImages: row.client_platform_images && typeof row.client_platform_images === 'object' ? row.client_platform_images : {},
+    clientPlatformImageUrl: platformImageUrl,
+    clientPlatformImages: platformImages,
     allowedClients: Array.isArray(row.allowed_clients) ? row.allowed_clients.filter(Boolean) : [],
     active: row.active !== false,
     createdAt: row.created_at || null,
@@ -202,11 +247,11 @@ async function insertUser(input) {
     allowed_clients: Array.isArray(input.allowedClients) ? input.allowedClients : [],
     active: input.active !== false,
   };
-  const rows = await supabaseFetch('/rest/v1/users?select=*', {
+  const rows = await supabaseWriteWithClientPlatformFallback('/rest/v1/users?select=*', {
     method: 'POST',
     headers: getSupabaseHeaders('return=representation'),
     body: JSON.stringify(payload),
-  });
+  }, payload, payload.client_platform_images);
   return mapUser(Array.isArray(rows) ? rows[0] : null);
 }
 
@@ -228,11 +273,11 @@ async function updateUser(userId, updates) {
   if ('clientPlatformImages' in updates) payload.client_platform_images = updates.clientPlatformImages && typeof updates.clientPlatformImages === 'object' ? updates.clientPlatformImages : {};
   if ('allowedClients' in updates) payload.allowed_clients = Array.isArray(updates.allowedClients) ? updates.allowedClients : [];
   if ('active' in updates) payload.active = updates.active !== false;
-  const rows = await supabaseFetch(`/rest/v1/users?id=eq.${q}&select=*`, {
+  const rows = await supabaseWriteWithClientPlatformFallback(`/rest/v1/users?id=eq.${q}&select=*`, {
     method: 'PATCH',
     headers: getSupabaseHeaders('return=representation'),
     body: JSON.stringify(payload),
-  });
+  }, payload, payload.client_platform_images);
   return mapUser(Array.isArray(rows) ? rows[0] : null);
 }
 
