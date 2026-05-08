@@ -1,5 +1,5 @@
 const PROJECTS_REFRESH_MS = 180000;
-const PROJECTS_CACHE_TTL_MS = 120000;
+const PROJECTS_CACHE_TTL_MS = 900000;
 const ALERTS_REFRESH_MS = 60000;
 const PRESENCE_HEARTBEAT_MS = 90000;
 const AUTH_REFRESH_MS = 300000;
@@ -3548,6 +3548,38 @@ function setClientText(id, value) {
   if (node) node.textContent = value;
 }
 
+function getCachedClientProjectsCount(cacheEntry) {
+  const projects = cacheEntry?.payload?.projects;
+  return Array.isArray(projects) ? projects.length : 0;
+}
+
+function renderClientDashboardSlowState(message = 'A API está demorando mais que o normal.') {
+  if (!isClientUser()) return;
+  const el = ensureClientDashboardEl();
+  el.classList.remove('hidden');
+  document.body.classList.add('client-mode');
+  const logo = document.getElementById('client-dashboard-logo');
+  if (logo) logo.src = getClientPortalLogo();
+  setClientText('client-dashboard-name', getClientPortalName());
+  setClientText('client-dashboard-meta', 'Carregamento em segundo plano ativo');
+  setClientText('client-dashboard-sync', 'API lenta • tentando novamente');
+  const grid = document.getElementById('client-vessel-grid');
+  if (grid && !state.projects.length) {
+    grid.innerHTML = `<div class="client-loading-state client-loading-state--slow"><strong>Conexão lenta com a planilha</strong><span>${escapeHtml(message)}</span><small>O painel continuará tentando em segundo plano. Você também pode forçar uma nova sincronização.</small><button class="mini-action-button" type="button" data-client-force-refresh>Atualizar agora</button></div>`;
+  }
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
+  if (typeof AbortController === 'undefined') return fetch(url, options);
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 function renderClientDashboardLoading(message = 'Carregando carteira do cliente...') {
   if (!isClientUser()) return;
   const el = ensureClientDashboardEl();
@@ -3586,7 +3618,7 @@ function scheduleClientProjectsRetry(message = 'Sincronizando carteira do client
   clearClientProjectRetry();
   state.clientPortal.retryCount = retryCount;
   renderClientDashboardLoading(message);
-  const delay = Math.min(6500, 1200 + retryCount * 900);
+  const delay = Math.min(3500, 700 + retryCount * 650);
   state.clientPortal.retryTimer = window.setTimeout(() => {
     loadProjects({ force: true, retryCount }).catch(() => {});
   }, delay);
@@ -4719,6 +4751,13 @@ function openClientBspExecutive(project) {
 }
 
 function handleClientDashboardClick(event) {
+  const forceRefreshButton = event.target.closest('[data-client-force-refresh]');
+  if (forceRefreshButton) {
+    forceRefreshButton.disabled = true;
+    forceRefreshButton.textContent = 'Atualizando...';
+    loadProjects({ force: true, retryCount: 0 }).catch(() => {});
+    return;
+  }
   const macroButton = event.target.closest('[data-client-open-macro-dashboard]');
   if (macroButton) {
     openClientMacroExecutive();
@@ -6469,15 +6508,15 @@ async function loadProjects(options = {}) {
   }
 
   const cached = readProjectsCache();
-  if (!force && cached?.payload) {
-    const cachedCount = Array.isArray(cached.payload.projects) ? cached.payload.projects.length : 0;
+  const cachedCount = getCachedClientProjectsCount(cached);
+  if (cached?.payload && (!force || (isClientUser() && cachedCount > 0 && options.allowCacheOnForce))) {
     if (!(isClientUser() && cachedCount === 0)) {
       applyProjectsPayload(cached.payload, { fromCache: true });
     }
-    if (isProjectsCacheFresh(cached) && !(isClientUser() && cachedCount === 0)) {
+    if (isProjectsCacheFresh(cached) && !(isClientUser() && cachedCount === 0) && !options.refreshInBackground) {
       state.lastProjectsFetchAt = Date.now();
       if (lastSyncEl && state.meta?.lastSync) {
-        lastSyncEl.textContent = `Última atualização: ${new Date(state.meta.lastSync).toLocaleString("pt-BR")} • cache econômico`;
+        lastSyncEl.textContent = `Última atualização: ${new Date(state.meta.lastSync).toLocaleString("pt-BR")} • cache local`;
       }
       return;
     }
@@ -6493,7 +6532,9 @@ async function loadProjects(options = {}) {
         refreshProjectsButtonEl.disabled = true;
         refreshProjectsButtonEl.textContent = force ? 'Atualizando...' : 'Sincronizando...';
       }
-      const response = await fetch("/api/projects", { cache: "no-store", credentials: "same-origin" });
+      const fastClientMode = isClientUser() && !force && !background;
+      const requestUrl = fastClientMode ? "/api/projects?fast=1" : "/api/projects";
+      const response = await fetchWithTimeout(requestUrl, { cache: "no-store", credentials: "same-origin" }, isClientUser() ? 10000 : 18000);
       let data = null;
 
       try {
@@ -6536,13 +6577,21 @@ async function loadProjects(options = {}) {
         return;
       }
 
-      if (isClientUser() && retryCount < 5 && !background) {
-        scheduleClientProjectsRetry('Conexão instável com a planilha. Tentando carregar novamente...', retryCount + 1);
+      if (isClientUser() && retryCount < 3 && !background) {
+        const message = error?.name === 'AbortError'
+          ? 'A API demorou para responder. Tentando novamente sem travar a tela...'
+          : 'Conexão instável com a planilha. Tentando carregar novamente...';
+        scheduleClientProjectsRetry(message, retryCount + 1);
         return;
       }
 
       if (isClientUser()) {
-        renderClientDashboardLoading(fallbackMessage);
+        renderClientDashboardSlowState(fallbackMessage);
+        if (!background) {
+          state.clientPortal.retryTimer = window.setTimeout(() => {
+            loadProjects({ force: true, retryCount: 0 }).catch(() => {});
+          }, 4500);
+        }
         return;
       }
 
@@ -10044,9 +10093,22 @@ async function init() {
       state.stageUpdatesSearchQuery = '';
       openStageUpdatesModal({ loading: true });
     }
-    await loadProjects({ force: isClientUser() });
-    keepInternalDashboardHiddenForClient();
-    finishAppBoot();
+    if (isClientUser()) {
+      const cached = readProjectsCache();
+      if (getCachedClientProjectsCount(cached) > 0) {
+        applyProjectsPayload(cached.payload, { fromCache: true });
+        keepInternalDashboardHiddenForClient();
+        finishAppBoot();
+        loadProjects({ force: true, background: true }).catch(() => {});
+      } else {
+        keepInternalDashboardHiddenForClient();
+        finishAppBoot();
+        loadProjects({ retryCount: 0 }).catch(() => {});
+      }
+    } else {
+      await loadProjects();
+      finishAppBoot();
+    }
     await syncPushSubscription(false).catch(() => {});
     await loadManualAlerts();
     await loadAlertResponses();

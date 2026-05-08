@@ -1922,7 +1922,26 @@ exports.handler = async (event) => {
     return jsonResponse(401, { ok: false, error: 'Faça login para visualizar o painel.' });
   }
 
+  const query = event?.queryStringParameters || {};
+  const fastMode = query.fast === '1' || query.fast === 'true';
+
   try {
+    if (fastMode && cache.payload) {
+      const payload = scopePayloadForSession(cache.payload, auth.session);
+      return jsonResponse(200, {
+        ...payload,
+        meta: {
+          ...(payload.meta || {}),
+          fastCache: true,
+          cacheServedAt: new Date().toISOString(),
+        },
+      }, {
+        headers: {
+          'cache-control': 'private, max-age=30, stale-while-revalidate=180',
+        },
+      });
+    }
+
     const payload = scopePayloadForSession(await buildPayload(), auth.session);
     return jsonResponse(200, payload, {
       headers: {
@@ -1930,6 +1949,22 @@ exports.handler = async (event) => {
       },
     });
   } catch (error) {
+    if (cache.payload) {
+      const payload = scopePayloadForSession(cache.payload, auth.session);
+      return jsonResponse(200, {
+        ...payload,
+        meta: {
+          ...(payload.meta || {}),
+          staleFallback: true,
+          fallbackReason: error.message,
+          cacheServedAt: new Date().toISOString(),
+        },
+      }, {
+        headers: {
+          'cache-control': 'private, max-age=15, stale-while-revalidate=120',
+        },
+      });
+    }
     return jsonResponse(500, { ok: false, error: error.message });
   }
 };

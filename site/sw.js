@@ -1,4 +1,4 @@
-const CACHE_NAME = "step-gerencia-pwa-v23-cliente-fluid-auto-retry";
+const CACHE_NAME = "step-gerencia-pwa-v24-cliente-fast-cache";
 const APP_SHELL = [
   "/",
   "/app.css",
