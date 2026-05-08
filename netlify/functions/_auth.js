@@ -71,12 +71,10 @@ function createSessionCookie(user) {
     alertSectors: normalizeSectorList(user.sector, user.alertSectors),
     projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
     qualityCompetencies: Array.isArray(user.qualityCompetencies) ? user.qualityCompetencies : [],
-    clientKey: user.clientKey || '',
     clientName: user.clientName || '',
-    clientLogoUrl: String(user.clientLogoUrl || '').startsWith('data:') ? '' : (user.clientLogoUrl || ''),
-    clientPlatformImageUrl: String(user.clientPlatformImageUrl || '').startsWith('data:') ? '' : (user.clientPlatformImageUrl || ''),
-    clientPlatformImages: {},
-    allowedClients: Array.isArray(user.allowedClients) ? user.allowedClients : [],
+    portalDisplayName: user.portalDisplayName || '',
+    clientLogoUrl: user.clientLogoUrl || '',
+    clientPlatformImageUrl: user.clientPlatformImageUrl || '',
     name: user.name,
     exp: Date.now() + SESSION_TTL_MS,
   };
@@ -146,7 +144,7 @@ function normalizeSectorValue(value) {
   if (['solda', 'welding'].includes(normalized)) return 'solda';
   if (['pcp', 'planejamento', 'planejamento_controle_producao', 'planning', 'planning_control'].includes(normalized)) return 'pcp';
   if (['projetos', 'projeto', 'project', 'projects', 'pm'].includes(normalized)) return 'projetos';
-  if (['all', 'todos', 'todo', 'geral', 'tudo'].includes(normalized)) return 'all';
+  if (normalized == 'all') return 'all';
   return normalized;
 }
 

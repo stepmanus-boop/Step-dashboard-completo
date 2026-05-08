@@ -38,69 +38,22 @@ async function supabaseFetch(path, options = {}) {
   return response.text();
 }
 
-function parseClientPlatformImagesFallback(value) {
-  if (!value) return {};
-  if (typeof value === 'object' && !Array.isArray(value)) return value;
-  const text = String(value || '').trim();
-  if (!text) return {};
-  const jsonText = text.startsWith('json:') ? text.slice(5) : text;
-  if (jsonText.startsWith('{')) {
-    try {
-      const parsed = JSON.parse(jsonText);
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    } catch (_) {}
-  }
-  return {};
-}
-
-function makeClientPlatformImagesFallback(images) {
-  if (!images || typeof images !== 'object' || Array.isArray(images) || !Object.keys(images).length) return '';
-  return `json:${JSON.stringify(images)}`;
-}
-
-function isMissingClientPlatformImagesColumn(error) {
-  const message = String(error?.message || error || '');
-  return message.includes('client_platform_images') && (message.includes('PGRST204') || message.includes('schema cache') || message.includes('Could not find'));
-}
-
-async function supabaseWriteWithClientPlatformFallback(path, options, payload, fallbackImages) {
-  try {
-    return await supabaseFetch(path, options);
-  } catch (error) {
-    if (!isMissingClientPlatformImagesColumn(error)) throw error;
-    const retryPayload = { ...(payload || {}) };
-    delete retryPayload.client_platform_images;
-    const fallback = makeClientPlatformImagesFallback(fallbackImages);
-    if (fallback) retryPayload.client_platform_image_url = fallback;
-    return supabaseFetch(path, {
-      ...options,
-      body: JSON.stringify(retryPayload),
-    });
-  }
-}
-
 function mapUser(row) {
   if (!row) return null;
-  const platformImages = row.client_platform_images && typeof row.client_platform_images === 'object'
-    ? row.client_platform_images
-    : parseClientPlatformImagesFallback(row.client_platform_image_url);
-  const platformImageUrl = String(row.client_platform_image_url || '').startsWith('json:') ? '' : (row.client_platform_image_url || '');
   return {
     id: row.id,
     name: row.name,
     username: row.username,
     passwordHash: row.password_hash,
-    role: row.role === 'admin' ? 'admin' : (row.role === 'client' ? 'client' : 'sector'),
+    role: row.role === 'admin' ? 'admin' : 'sector',
     sector: normalizeSectorValue(row.sector || (row.role === 'admin' ? 'all' : '')), 
     alertSectors: normalizeSectorList(row.sector || '', Array.isArray(row.alert_sectors) ? row.alert_sectors : []),
     projectPmAliases: Array.isArray(row.project_pm_aliases) ? row.project_pm_aliases.filter(Boolean) : [],
     qualityCompetencies: Array.isArray(row.quality_competencies) ? row.quality_competencies.filter(Boolean) : [],
-    clientKey: row.client_key || '',
-    clientName: row.client_name || row.client_key || '',
+    clientName: row.client_name || '',
+    portalDisplayName: row.portal_display_name || '',
     clientLogoUrl: row.client_logo_url || '',
-    clientPlatformImageUrl: platformImageUrl,
-    clientPlatformImages: platformImages,
-    allowedClients: Array.isArray(row.allowed_clients) ? row.allowed_clients.filter(Boolean) : [],
+    clientPlatformImageUrl: row.client_platform_image_url || '',
     active: row.active !== false,
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null,
@@ -120,7 +73,7 @@ function mapPresence(row) {
     userId: row.user_id,
     username: row.username || '',
     name: row.name || '',
-    role: row.role === 'admin' ? 'admin' : (row.role === 'client' ? 'client' : 'sector'),
+    role: row.role === 'admin' ? 'admin' : 'sector',
     sector: normalizeSectorValue(row.sector || ''),
     alertSectors: normalizeSectorList(row.sector || '', Array.isArray(row.alert_sectors) ? row.alert_sectors : []),
     status: online ? 'online' : 'offline',
@@ -239,19 +192,17 @@ async function insertUser(input) {
     alert_sectors: input.alertSectors || [],
     project_pm_aliases: Array.isArray(input.projectPmAliases) ? input.projectPmAliases : [],
     quality_competencies: Array.isArray(input.qualityCompetencies) ? input.qualityCompetencies : [],
-    client_key: input.clientKey || '',
-    client_name: input.clientName || input.clientKey || '',
+    client_name: input.clientName || '',
+    portal_display_name: input.portalDisplayName || '',
     client_logo_url: input.clientLogoUrl || '',
     client_platform_image_url: input.clientPlatformImageUrl || '',
-    client_platform_images: input.clientPlatformImages && typeof input.clientPlatformImages === 'object' ? input.clientPlatformImages : {},
-    allowed_clients: Array.isArray(input.allowedClients) ? input.allowedClients : [],
     active: input.active !== false,
   };
-  const rows = await supabaseWriteWithClientPlatformFallback('/rest/v1/users?select=*', {
+  const rows = await supabaseFetch('/rest/v1/users?select=*', {
     method: 'POST',
     headers: getSupabaseHeaders('return=representation'),
     body: JSON.stringify(payload),
-  }, payload, payload.client_platform_images);
+  });
   return mapUser(Array.isArray(rows) ? rows[0] : null);
 }
 
@@ -266,18 +217,16 @@ async function updateUser(userId, updates) {
   if ('alertSectors' in updates) payload.alert_sectors = updates.alertSectors || [];
   if ('projectPmAliases' in updates) payload.project_pm_aliases = Array.isArray(updates.projectPmAliases) ? updates.projectPmAliases : [];
   if ('qualityCompetencies' in updates) payload.quality_competencies = Array.isArray(updates.qualityCompetencies) ? updates.qualityCompetencies : [];
-  if ('clientKey' in updates) payload.client_key = updates.clientKey || '';
-  if ('clientName' in updates) payload.client_name = updates.clientName || updates.clientKey || '';
+  if ('clientName' in updates) payload.client_name = updates.clientName || '';
+  if ('portalDisplayName' in updates) payload.portal_display_name = updates.portalDisplayName || '';
   if ('clientLogoUrl' in updates) payload.client_logo_url = updates.clientLogoUrl || '';
   if ('clientPlatformImageUrl' in updates) payload.client_platform_image_url = updates.clientPlatformImageUrl || '';
-  if ('clientPlatformImages' in updates) payload.client_platform_images = updates.clientPlatformImages && typeof updates.clientPlatformImages === 'object' ? updates.clientPlatformImages : {};
-  if ('allowedClients' in updates) payload.allowed_clients = Array.isArray(updates.allowedClients) ? updates.allowedClients : [];
   if ('active' in updates) payload.active = updates.active !== false;
-  const rows = await supabaseWriteWithClientPlatformFallback(`/rest/v1/users?id=eq.${q}&select=*`, {
+  const rows = await supabaseFetch(`/rest/v1/users?id=eq.${q}&select=*`, {
     method: 'PATCH',
     headers: getSupabaseHeaders('return=representation'),
     body: JSON.stringify(payload),
-  }, payload, payload.client_platform_images);
+  });
   return mapUser(Array.isArray(rows) ? rows[0] : null);
 }
 
@@ -298,7 +247,7 @@ async function upsertUserPresence(input = {}) {
     user_id: String(input.userId || '').trim(),
     username: input.username || '',
     name: input.name || '',
-    role: input.role === 'admin' ? 'admin' : (input.role === 'client' ? 'client' : 'sector'),
+    role: input.role === 'admin' ? 'admin' : 'sector',
     sector: normalizeSectorValue(input.sector || ''),
     alert_sectors: normalizeSectorList(input.sector || '', Array.isArray(input.alertSectors) ? input.alertSectors : []),
     status: input.status === 'offline' ? 'offline' : 'online',
@@ -572,6 +521,64 @@ async function updateStageUpdate(updateId, updates) {
   return mapStageUpdate(Array.isArray(rows) ? rows[0] : null);
 }
 
+
+function mapClientUnitImage(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    clientName: row.client_name || '',
+    unitName: row.unit_name || '',
+    imageUrl: row.image_url || '',
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+async function listClientUnitImages(clientName) {
+  const q = encodeURIComponent(String(clientName || '').trim());
+  if (!q) return [];
+  try {
+    const rows = await supabaseFetch(`/rest/v1/client_unit_images?select=*&client_name=eq.${q}&order=unit_name.asc`);
+    return (Array.isArray(rows) ? rows : []).map(mapClientUnitImage).filter(Boolean);
+  } catch (error) {
+    if (String(error.message || '').includes('client_unit_images')) return [];
+    throw error;
+  }
+}
+
+async function upsertClientUnitImage(input = {}) {
+  const payload = {
+    client_name: String(input.clientName || '').trim(),
+    unit_name: String(input.unitName || '').trim(),
+    image_url: String(input.imageUrl || '').trim(),
+    updated_at: new Date().toISOString(),
+  };
+  if (!payload.client_name || !payload.unit_name) {
+    throw new Error('Cliente e unidade são obrigatórios para salvar imagem.');
+  }
+  const rows = await supabaseFetch('/rest/v1/client_unit_images?on_conflict=client_name,unit_name&select=*', {
+    method: 'POST',
+    headers: getSupabaseHeaders('resolution=merge-duplicates,return=representation'),
+    body: JSON.stringify(payload),
+  });
+  return mapClientUnitImage(Array.isArray(rows) ? rows[0] : null);
+}
+
+async function updateUserClientImages(userId, updates = {}) {
+  const q = encodeURIComponent(String(userId || '').trim());
+  if (!q) throw new Error('Usuário não informado.');
+  const payload = {};
+  if ('clientLogoUrl' in updates) payload.client_logo_url = updates.clientLogoUrl || '';
+  if ('clientPlatformImageUrl' in updates) payload.client_platform_image_url = updates.clientPlatformImageUrl || '';
+  const rows = await supabaseFetch(`/rest/v1/users?id=eq.${q}&select=*`, {
+    method: 'PATCH',
+    headers: getSupabaseHeaders('return=representation'),
+    body: JSON.stringify(payload),
+  });
+  return mapUser(Array.isArray(rows) ? rows[0] : null);
+}
+
+
 module.exports = {
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
@@ -581,6 +588,9 @@ module.exports = {
   getUserById,
   insertUser,
   updateUser,
+  listClientUnitImages,
+  upsertClientUnitImage,
+  updateUserClientImages,
   listManualAlerts,
   markUserPresenceOffline,
   upsertUserPresence,

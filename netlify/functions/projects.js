@@ -1618,68 +1618,6 @@ async function buildPayload() {
   return payload;
 }
 
-
-function normalizeClientScopeValue(value) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9]+/g, ' ')
-    .trim()
-    .toLowerCase();
-}
-
-function getClientScopeAliases(session = {}) {
-  const values = [
-    session.clientKey,
-    session.clientName,
-    ...(Array.isArray(session.allowedClients) ? session.allowedClients : []),
-  ];
-  const aliases = new Set();
-  values.forEach((value) => {
-    const normalized = normalizeClientScopeValue(value);
-    if (!normalized) return;
-    aliases.add(normalized);
-    normalized.split(/\s+/).forEach((part) => {
-      if (part && part.length >= 3) aliases.add(part);
-    });
-  });
-  return aliases;
-}
-
-function projectBelongsToClientScope(project, session = {}) {
-  if (!project) return false;
-  const aliases = getClientScopeAliases(session);
-  if (!aliases.size) return false;
-  const client = normalizeClientScopeValue(project.client);
-  if (!client) return false;
-  for (const alias of aliases) {
-    if (!alias) continue;
-    if (client === alias || client.includes(alias) || alias.includes(client)) return true;
-  }
-  return false;
-}
-
-function scopePayloadForSession(payload, session = {}) {
-  if (!payload || session.role !== 'client') return payload;
-  const projects = (Array.isArray(payload.projects) ? payload.projects : []).filter((project) => projectBelongsToClientScope(project, session));
-  const stats = buildStats(projects);
-  const alertData = buildAlerts(projects);
-  return {
-    ...payload,
-    stats,
-    alerts: alertData.alerts,
-    projects,
-    meta: {
-      ...(payload.meta || {}),
-      clientPortal: true,
-      clientName: session.clientName || session.clientKey || session.name || 'Cliente',
-      clientKey: session.clientKey || '',
-      clientLogoUrl: session.clientLogoUrl || '',
-      alertSignature: alertData.signature,
-    },
-  };
-}
-
 exports.handler = async (event) => {
   const auth = requireSession(event);
   if (!auth.ok) {
@@ -1687,7 +1625,7 @@ exports.handler = async (event) => {
   }
 
   try {
-    const payload = scopePayloadForSession(await buildPayload(), auth.session);
+    const payload = await buildPayload();
     return jsonResponse(200, payload, {
       headers: {
         'cache-control': 'private, max-age=60, stale-while-revalidate=120',

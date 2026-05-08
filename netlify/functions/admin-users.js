@@ -51,73 +51,6 @@ function normalizeQualityCompetencies(input) {
   return values;
 }
 
-
-function normalizeClientKey(input) {
-  const value = String(input || '').trim();
-  if (!value) return '';
-  return value.toUpperCase().replace(/\s+/g, ' ');
-}
-
-function normalizeClientLogoUrl(input) {
-  return String(input || '').trim();
-}
-
-
-function normalizeClientPlatformImageUrl(input) {
-  return String(input || '').trim();
-}
-
-function normalizeClientPlatformImages(input) {
-  if (!input) return {};
-  let source = input;
-  if (typeof source === 'string') {
-    const text = source.trim();
-    if (!text) return {};
-    if (text.startsWith('{')) {
-      try { source = JSON.parse(text); } catch (_) { source = {}; }
-    } else {
-      const mapped = {};
-      for (const line of text.split(/\n+/)) {
-        const raw = String(line || '').trim();
-        if (!raw) continue;
-        const separator = raw.includes('=') ? '=' : (raw.includes('|') ? '|' : ':');
-        const parts = raw.split(separator);
-        const key = String(parts.shift() || '').trim();
-        const value = parts.join(separator).trim();
-        if (key && value) mapped[key] = value;
-      }
-      source = mapped;
-    }
-  }
-  if (!source || typeof source !== 'object' || Array.isArray(source)) return {};
-  return Object.entries(source).reduce((acc, [key, value]) => {
-    const cleanKey = String(key || '').trim();
-    const cleanValue = String(value || '').trim();
-    if (cleanKey && cleanValue) acc[cleanKey] = cleanValue;
-    return acc;
-  }, {});
-}
-
-function normalizeAllowedClients(primary, input) {
-  const values = Array.isArray(input) ? input : String(input || '').split(/[\n;,|]+/);
-  const seen = new Set();
-  const result = [];
-  for (const value of [primary, ...values]) {
-    const item = normalizeClientKey(value);
-    const key = normalizeText(item);
-    if (!item || seen.has(key)) continue;
-    seen.add(key);
-    result.push(item);
-  }
-  return result;
-}
-
-function normalizeUserRole(input) {
-  if (input === 'admin') return 'admin';
-  if (input === 'client') return 'client';
-  return 'sector';
-}
-
 function isQualityUser(role, sector, alertSectors = []) {
   if (role === 'admin') return false;
   return normalizeSectorValue(sector) === 'inspecao' || normalizeSectorList('', alertSectors).includes('inspecao');
@@ -150,12 +83,10 @@ exports.handler = async (event) => {
           alertSectors: normalizeSectorList('', user.alertSectors),
           projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
           qualityCompetencies: Array.isArray(user.qualityCompetencies) ? user.qualityCompetencies : [],
-          clientKey: user.clientKey || '',
           clientName: user.clientName || '',
+          portalDisplayName: user.portalDisplayName || '',
           clientLogoUrl: user.clientLogoUrl || '',
           clientPlatformImageUrl: user.clientPlatformImageUrl || '',
-          clientPlatformImages: user.clientPlatformImages || {},
-          allowedClients: Array.isArray(user.allowedClients) ? user.allowedClients : [],
           active: Boolean(user.active),
           createdAt: user.createdAt || null,
           presence,
@@ -189,26 +120,21 @@ exports.handler = async (event) => {
       const name = String(body.name || '').trim();
       const username = String(body.username || '').trim();
       const password = String(body.password || '');
-      const role = normalizeUserRole(body.role);
-      const sector = role === 'admin' ? 'all' : (role === 'client' ? 'all' : normalizeSectorValue(body.sector));
-      const alertSectors = role !== 'sector' ? [] : normalizeSectorList('', body.alertSectors);
+      const role = body.role === 'admin' ? 'admin' : 'sector';
+      const sector = role === 'admin' ? 'all' : normalizeSectorValue(body.sector);
+      const alertSectors = role === 'admin' ? [] : normalizeSectorList('', body.alertSectors);
       const projectPmAliases = isProjectsUser(role, sector, alertSectors) ? normalizeProjectPmAliases(body.projectPmAliases) : [];
       const qualityCompetencies = isQualityUser(role, sector, alertSectors) ? normalizeQualityCompetencies(body.qualityCompetencies) : [];
-      const clientKey = role === 'client' ? normalizeClientKey(body.clientKey || body.clientName || username) : '';
-      const clientName = role === 'client' ? String(body.clientName || clientKey).trim() : '';
-      const clientLogoUrl = role === 'client' ? normalizeClientLogoUrl(body.clientLogoUrl) : '';
-      const clientPlatformImageUrl = role === 'client' ? normalizeClientPlatformImageUrl(body.clientPlatformImageUrl) : '';
-      const clientPlatformImages = role === 'client' ? normalizeClientPlatformImages(body.clientPlatformImages) : {};
-      const allowedClients = role === 'client' ? normalizeAllowedClients(clientKey, body.allowedClients) : [];
+      const clientName = String(body.clientName || '').trim();
+      const portalDisplayName = String(body.portalDisplayName || '').trim();
+      const clientLogoUrl = String(body.clientLogoUrl || '').trim();
+      const clientPlatformImageUrl = String(body.clientPlatformImageUrl || '').trim();
 
       if (!name || !username) {
         return jsonResponse(400, { ok: false, error: 'Preencha nome e usuário.' });
       }
-      if (role === 'sector' && !sector && !alertSectors.length) {
+      if (role !== 'admin' && !sector && !alertSectors.length) {
         return jsonResponse(400, { ok: false, error: 'Selecione ao menos um setor monitorado ou setor principal.' });
-      }
-      if (role === 'client' && !clientKey) {
-        return jsonResponse(400, { ok: false, error: 'Informe o cliente vinculado ao Portal do Cliente.' });
       }
 
       const exists = users.some((user) => user.id !== userId && normalizeText(user.username) === normalizeText(username));
@@ -227,12 +153,6 @@ exports.handler = async (event) => {
         alertSectors: role === 'admin' ? [] : alertSectors,
         projectPmAliases,
         qualityCompetencies,
-        clientKey,
-        clientName,
-        clientLogoUrl,
-        clientPlatformImageUrl,
-        clientPlatformImages,
-        allowedClients,
         active: body.active === false ? false : true,
         ...(password ? { passwordHash: hashPassword(password) } : {}),
       });
@@ -247,7 +167,7 @@ exports.handler = async (event) => {
     try {
       const body = JSON.parse(event.body || '{}');
       const userId = String(body.userId || '').trim();
-      const nextRole = normalizeUserRole(body.role);
+      const nextRole = body.role === 'admin' ? 'admin' : 'sector';
       if (!userId) {
         return jsonResponse(400, { ok: false, error: 'Usuário não informado.' });
       }
@@ -261,10 +181,10 @@ exports.handler = async (event) => {
       }
       const saved = await updateUser(userId, {
         role: nextRole,
-        sector: nextRole === 'admin' ? 'all' : (nextRole === 'client' ? 'all' : (current.sector && current.sector !== 'all' ? current.sector : '')),
-        alertSectors: nextRole !== 'sector' ? [] : normalizeSectorList('', current.alertSectors),
-        projectPmAliases: nextRole !== 'sector' ? [] : (isProjectsUser(nextRole, current.sector, current.alertSectors) ? normalizeProjectPmAliases(current.projectPmAliases) : []),
-        qualityCompetencies: nextRole !== 'sector' ? [] : (isQualityUser(nextRole, current.sector, current.alertSectors) ? normalizeQualityCompetencies(current.qualityCompetencies) : []),
+        sector: nextRole === 'admin' ? 'all' : (current.sector && current.sector !== 'all' ? current.sector : ''),
+        alertSectors: nextRole === 'admin' ? [] : normalizeSectorList('', current.alertSectors),
+        projectPmAliases: nextRole === 'admin' ? [] : (isProjectsUser(nextRole, current.sector, current.alertSectors) ? normalizeProjectPmAliases(current.projectPmAliases) : []),
+        qualityCompetencies: nextRole === 'admin' ? [] : (isQualityUser(nextRole, current.sector, current.alertSectors) ? normalizeQualityCompetencies(current.qualityCompetencies) : []),
       });
       return jsonResponse(200, { ok: true, user: saved });
     } catch (error) {
@@ -281,26 +201,21 @@ exports.handler = async (event) => {
     const name = String(body.name || '').trim();
     const username = String(body.username || '').trim();
     const password = String(body.password || '');
-    const role = normalizeUserRole(body.role);
-    const sector = role === 'admin' ? 'all' : (role === 'client' ? 'all' : normalizeSectorValue(body.sector));
-    const alertSectors = role !== 'sector' ? [] : normalizeSectorList('', body.alertSectors);
+    const role = body.role === 'admin' ? 'admin' : 'sector';
+    const sector = role === 'admin' ? 'all' : normalizeSectorValue(body.sector);
+    const alertSectors = role === 'admin' ? [] : normalizeSectorList('', body.alertSectors);
     const projectPmAliases = isProjectsUser(role, sector, alertSectors) ? normalizeProjectPmAliases(body.projectPmAliases) : [];
     const qualityCompetencies = isQualityUser(role, sector, alertSectors) ? normalizeQualityCompetencies(body.qualityCompetencies) : [];
-    const clientKey = role === 'client' ? normalizeClientKey(body.clientKey || body.clientName || username) : '';
-    const clientName = role === 'client' ? String(body.clientName || clientKey).trim() : '';
-    const clientLogoUrl = role === 'client' ? normalizeClientLogoUrl(body.clientLogoUrl) : '';
-    const clientPlatformImageUrl = role === 'client' ? normalizeClientPlatformImageUrl(body.clientPlatformImageUrl) : '';
-    const clientPlatformImages = role === 'client' ? normalizeClientPlatformImages(body.clientPlatformImages) : {};
-    const allowedClients = role === 'client' ? normalizeAllowedClients(clientKey, body.allowedClients) : [];
+    const clientName = String(body.clientName || '').trim();
+    const portalDisplayName = String(body.portalDisplayName || '').trim();
+    const clientLogoUrl = String(body.clientLogoUrl || '').trim();
+    const clientPlatformImageUrl = String(body.clientPlatformImageUrl || '').trim();
 
     if (!name || !username || !password) {
       return jsonResponse(400, { ok: false, error: 'Preencha nome, usuário e senha.' });
     }
-    if (role === 'sector' && !sector && !alertSectors.length) {
+    if (role !== 'admin' && !sector && !alertSectors.length) {
       return jsonResponse(400, { ok: false, error: 'Selecione ao menos um setor monitorado ou setor principal.' });
-    }
-    if (role === 'client' && !clientKey) {
-      return jsonResponse(400, { ok: false, error: 'Informe o cliente vinculado ao Portal do Cliente.' });
     }
 
     const users = await listUsers();
@@ -319,12 +234,10 @@ exports.handler = async (event) => {
       alertSectors,
       projectPmAliases,
       qualityCompetencies,
-      clientKey,
       clientName,
+      portalDisplayName,
       clientLogoUrl,
       clientPlatformImageUrl,
-      clientPlatformImages,
-      allowedClients,
       active: true,
     });
 
