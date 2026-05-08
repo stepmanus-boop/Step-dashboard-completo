@@ -1,0 +1,59 @@
+AJUSTES APLICADOS - PORTAL DO CLIENTE FASE 1
+
+Base utilizada: step_dashboard_tracking_PORTAL_CLIENTE_FASE1.zip
+
+Alterações feitas:
+
+1. Card de Vessel / Unidade com imagem
+- Os cards do Portal do Cliente agora mostram uma imagem na lateral direita.
+- A imagem usada vem do campo "Foto da plataforma / vessel" no cadastro do usuário cliente.
+- Se a foto da plataforma não estiver cadastrada, o sistema usa a logo do cliente.
+- Se a logo também não estiver cadastrada, usa a logo padrão da STEP.
+
+2. Importar imagem pelo cadastro
+No cadastro/edição de usuário, quando o perfil for "Cliente", foram adicionados botões para importar imagem local:
+- Importar logo do computador
+- Importar foto da plataforma
+
+Como usar:
+- Selecione o arquivo no campo de imagem.
+- Clique no botão de importar.
+- O sistema converte a imagem para o formato correto.
+- Clique em "Criar usuário" ou "Salvar usuário" para gravar.
+
+3. Setor com opção Todos
+- O campo Setor agora possui a opção "Todos".
+- Quando o perfil for "Cliente", o sistema seleciona "Todos" automaticamente.
+- No backend, usuários clientes agora ficam com sector = all.
+
+4. Banco de dados / Supabase
+Foi atualizado o arquivo:
+supabase/SQL-PORTAL-CLIENTE-USERS.sql
+
+Ele agora inclui a coluna:
+client_platform_image_url
+
+Rode esse SQL no Supabase antes de salvar usuários cliente com foto da plataforma.
+
+5. Segurança de sessão
+Para evitar cookie pesado quando a imagem importada for grande:
+- a sessão não carrega imagem base64 grande dentro do cookie;
+- o auth-me busca os dados atualizados do usuário no Supabase.
+
+6. Cache / PWA
+- Atualizado o cache do PWA para forçar carregar a nova versão.
+
+Arquivos alterados:
+- site/index.html
+- site/app.js
+- site/app.css
+- site/sw.js
+- netlify/functions/_auth.js
+- netlify/functions/_supabase.js
+- netlify/functions/auth-login.js
+- netlify/functions/auth-me.js
+- netlify/functions/admin-users.js
+- supabase/SQL-PORTAL-CLIENTE-USERS.sql
+
+Validação:
+- node --check executado nos arquivos JS principais sem erro de sintaxe.

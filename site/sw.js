@@ -1,4 +1,4 @@
-const CACHE_NAME = "step-gerencia-pwa-v11-client-lighter-theme";
+const CACHE_NAME = "step-gerencia-pwa-v11-cliente-visual-isolado-imagens";
 const APP_SHELL = [
   "/",
   "/app.css",

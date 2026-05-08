@@ -39,10 +39,6 @@ exports.handler = async (event) => {
       alertSectors: [],
       projectPmAliases: [],
       qualityCompetencies: [],
-      clientName: '',
-      portalDisplayName: '',
-      clientLogoUrl: '',
-      clientPlatformImageUrl: '',
       active: true,
       passwordHash: 'admin123',
     };
@@ -83,10 +79,12 @@ exports.handler = async (event) => {
         alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [],
         projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
         qualityCompetencies: Array.isArray(user.qualityCompetencies) ? user.qualityCompetencies : [],
+        clientKey: user.clientKey || '',
         clientName: user.clientName || '',
-        portalDisplayName: user.portalDisplayName || '',
         clientLogoUrl: user.clientLogoUrl || '',
         clientPlatformImageUrl: user.clientPlatformImageUrl || '',
+        clientPlatformImages: user.clientPlatformImages || {},
+        allowedClients: Array.isArray(user.allowedClients) ? user.allowedClients : [],
       },
     }, {
       headers: {
