@@ -3529,6 +3529,7 @@ function ensureClientDashboardEl() {
   if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(el, anchor.nextSibling);
   else document.querySelector('.page-shell')?.appendChild(el);
   el.addEventListener('click', handleClientDashboardClick);
+  el.addEventListener('dblclick', handleClientDashboardDblClick);
   return el;
 }
 
@@ -3684,7 +3685,7 @@ function renderClientProjectDetail(project) {
   detail.innerHTML = `
     <div class="client-detail-head">
       <div><p class="client-kicker">Detalhamento da BSP</p><h3>${escapeHtml(project.projectDisplay || 'Projeto')}</h3><p>${escapeHtml(getProjectVesselLabel(project))} • ${escapeHtml(getProjectClientLabel(project))}</p></div>
-      <button class="primary-button" type="button" data-client-open-modal="${escapeHtml(project.rowId)}">Abrir detalhamento completo</button>
+      <button class="primary-button" type="button" data-client-open-analytics="${escapeHtml(project.rowId)}">Abrir visão executiva</button>
     </div>
     <div class="client-summary-grid client-summary-grid--detail">
       <article><span>Tags</span><strong>${formatNumber(getProjectItemCount(project))}</strong></article>
@@ -3709,6 +3710,441 @@ function renderClientProjectDetail(project) {
   `;
 }
 
+
+function clampClientPercent(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.max(0, Math.min(100, num));
+}
+
+function clientFormatDateValue(value) {
+  const parsed = parseDateObject(value);
+  const date = parsed || (value instanceof Date && !Number.isNaN(value.getTime()) ? value : null);
+  if (date) return date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+  return value ? String(value) : '';
+}
+
+function clientPercentValue(value) {
+  if (value == null || value === '' || value === 'N/A') return 0;
+  if (typeof value === 'number') {
+    if (value >= 0 && value <= 1) return clampClientPercent(value * 100);
+    return clampClientPercent(value);
+  }
+  const raw = String(value || '').trim();
+  if (!raw) return 0;
+  const cleaned = raw.replace('%', '').replace(/\./g, '').replace(',', '.').replace(/[^\d.-]/g, '');
+  const parsed = Number(cleaned);
+  if (!Number.isFinite(parsed)) return 0;
+  if (parsed >= 0 && parsed <= 1 && !raw.includes('%')) return clampClientPercent(parsed * 100);
+  return clampClientPercent(parsed);
+}
+
+function getClientStageValue(project, keys) {
+  const stageValues = project?.stageValues || {};
+  for (const key of keys) {
+    const value = stageValues[key];
+    if (value != null && value !== '' && value !== 'N/A') return clientPercentValue(value);
+  }
+  return 0;
+}
+
+function getClientFabricationProgress(project) {
+  const stages = [
+    { keys: ['Welding Preparation', 'Spool Assemble and tack weld'], weight: 10 },
+    { keys: ['Initial Dimensional Inspection/3D'], weight: 8 },
+    { keys: ['Full welding execution'], weight: 25 },
+    { keys: ['Non Destructive Examination (QC)'], weight: 12 },
+    { keys: ['Final Dimensional Inpection/3D (QC)'], weight: 8 },
+    { keys: ['Hydro Test Pressure (QC)'], weight: 7 },
+    { keys: ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)'], weight: 15 },
+    { keys: ['Final Inspection'], weight: 8 },
+    { keys: ['Package and Delivered'], weight: 7 },
+  ];
+  const totalWeight = stages.reduce((sum, item) => sum + item.weight, 0);
+  if (!totalWeight) return 0;
+  return clampClientPercent(stages.reduce((sum, item) => sum + getClientStageValue(project, item.keys) * item.weight, 0) / totalWeight);
+}
+
+function getClientDatabookProgress(project) {
+  return getClientStageValue(project, [
+    'Databook Issuance',
+    'Databook',
+    'DATA BOOK',
+    'Data Book',
+    'DataBook',
+  ]);
+}
+
+function getClientPackageProgress(project) {
+  return getClientStageValue(project, ['Package and Delivered', 'Final Inspection']);
+}
+
+function getClientProductionStages(project) {
+  const engineering = getClientStageValue(project, ['Drawing Execution Advance%', 'Drawing']);
+  const procurement = Math.max(
+    getClientStageValue(project, ['Procuremnt Status %', 'Procurement Status %', 'Procurement']),
+    getClientStageValue(project, ['Material Separation']),
+    getClientStageValue(project, ['Material Release to Fabrication'])
+  );
+  const fabrication = getClientFabricationProgress(project);
+  const packageDelivery = getClientPackageProgress(project);
+  const databook = getClientDatabookProgress(project);
+  return [
+    { key: 'engineering', label: 'Engineering / Drawing', percent: engineering, weight: 15 },
+    { key: 'procurement', label: 'Procurement', percent: procurement, weight: 15 },
+    { key: 'fabrication', label: 'Fabrication', percent: fabrication, weight: 60 },
+    { key: 'package', label: 'Package / Delivery', percent: packageDelivery, weight: 5 },
+    { key: 'databook', label: 'Databook', percent: databook, weight: 5 },
+  ];
+}
+
+function getClientOverallProgress(project) {
+  const direct = clientPercentValue(project?.overallProgress);
+  if (direct > 0) return direct;
+  const stages = getClientProductionStages(project);
+  const totalWeight = stages.reduce((sum, stage) => sum + stage.weight, 0) || 100;
+  return clampClientPercent(stages.reduce((sum, stage) => sum + stage.percent * stage.weight, 0) / totalWeight);
+}
+
+function getClientAnalyticStartDate(project) {
+  const candidates = [
+    project?.plannedStartDate,
+    project?.startDate,
+    project?.stageValues?.['Project Start Date'],
+    project?.stageValues?.['Fabrication Start Date'],
+    project?.stageValues?.['Drawing Start Date'],
+  ];
+  for (const value of candidates) {
+    const parsed = parseDateObject(value);
+    if (parsed) return parsed;
+  }
+  const today = getCurrentBrazilDate();
+  const fallback = new Date(today);
+  fallback.setUTCDate(today.getUTCDate() - 30);
+  return fallback;
+}
+
+function getClientAnalyticFinishDate(project) {
+  const candidates = [
+    project?.plannedFinishDate,
+    project?.projectFinishDate,
+    project?.stageValues?.['Project Finish Date'],
+    getProjectShipmentDate(project),
+  ];
+  for (const value of candidates) {
+    const parsed = parseDateObject(value);
+    if (parsed) return parsed;
+  }
+  const start = getClientAnalyticStartDate(project);
+  const fallback = new Date(start);
+  fallback.setUTCDate(start.getUTCDate() + 120);
+  return fallback;
+}
+
+function addUtcDays(date, days) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function clientDaysBetween(start, end) {
+  return Math.max(1, Math.round((end - start) / 86400000));
+}
+
+function clientSchedulePlannedPercent(progressRatio) {
+  const x = Math.max(0, Math.min(1, Number(progressRatio) || 0));
+  const segments = [
+    { start: 0.00, end: 0.15, base: 0, weight: 15 },
+    { start: 0.15, end: 0.30, base: 15, weight: 15 },
+    { start: 0.30, end: 0.90, base: 30, weight: 60 },
+    { start: 0.90, end: 0.95, base: 90, weight: 5 },
+    { start: 0.95, end: 1.00, base: 95, weight: 5 },
+  ];
+  let total = 0;
+  for (const segment of segments) {
+    if (x >= segment.end) {
+      total = segment.base + segment.weight;
+      continue;
+    }
+    if (x > segment.start) {
+      const local = (x - segment.start) / Math.max(0.001, segment.end - segment.start);
+      const smooth = local * local * (3 - 2 * local);
+      return clampClientPercent(segment.base + smooth * segment.weight);
+    }
+    return clampClientPercent(total);
+  }
+  return 100;
+}
+
+function getClientPlannedToday(project) {
+  const start = getClientAnalyticStartDate(project);
+  const finish = getClientAnalyticFinishDate(project);
+  const today = getCurrentBrazilDate();
+  if (today <= start) return 0;
+  if (today >= finish) return 100;
+  return clientSchedulePlannedPercent((today - start) / Math.max(1, finish - start));
+}
+
+function buildClientSCurveData(project) {
+  const start = getClientAnalyticStartDate(project);
+  let finish = getClientAnalyticFinishDate(project);
+  if (finish <= start) finish = addUtcDays(start, 30);
+  const duration = clientDaysBetween(start, finish);
+  const step = Math.max(1, Math.ceil(duration / 14));
+  const today = getCurrentBrazilDate();
+  const actualNow = getClientOverallProgress(project);
+  const plannedToday = getClientPlannedToday(project);
+  const points = [];
+  for (let day = 0; day <= duration; day += step) {
+    const date = addUtcDays(start, day);
+    const ratio = day / duration;
+    const planned = clientSchedulePlannedPercent(ratio);
+    let actual = null;
+    if (date <= today) {
+      if (plannedToday > 0) {
+        actual = clampClientPercent((planned / plannedToday) * actualNow);
+      } else {
+        actual = actualNow > 0 ? actualNow : 0;
+      }
+    }
+    points.push({ date, planned, actual });
+  }
+  if (points[points.length - 1]?.date < finish) {
+    points.push({ date: finish, planned: 100, actual: finish <= today ? actualNow : null });
+  }
+  return points;
+}
+
+function clientSvgPolyline(points, width, height, getValue) {
+  const pad = { left: 42, right: 16, top: 18, bottom: 38 };
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const usable = points.filter((point) => getValue(point) != null);
+  if (!usable.length) return '';
+  return usable.map((point, index) => {
+    const x = pad.left + (points.indexOf(point) / Math.max(1, points.length - 1)) * innerW;
+    const y = pad.top + (1 - clampClientPercent(getValue(point)) / 100) * innerH;
+    return `${index ? 'L' : 'M'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+  }).join(' ');
+}
+
+function renderClientSCurveSvg(project) {
+  const points = buildClientSCurveData(project);
+  const width = 760;
+  const height = 260;
+  const pad = { left: 42, right: 16, top: 18, bottom: 38 };
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const plannedPath = clientSvgPolyline(points, width, height, (point) => point.planned);
+  const actualPath = clientSvgPolyline(points, width, height, (point) => point.actual);
+  const grid = [0, 25, 50, 75, 100].map((value) => {
+    const y = pad.top + (1 - value / 100) * innerH;
+    return `<line x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}" class="client-chart-grid" /><text x="8" y="${y + 4}" class="client-chart-label">${value}%</text>`;
+  }).join('');
+  const first = points[0]?.date ? clientFormatDateValue(points[0].date) : '';
+  const mid = points[Math.floor(points.length / 2)]?.date ? clientFormatDateValue(points[Math.floor(points.length / 2)].date) : '';
+  const last = points[points.length - 1]?.date ? clientFormatDateValue(points[points.length - 1].date) : '';
+  const actualCircle = (() => {
+    const lastActualIndex = points.map((point, index) => ({ point, index })).filter((item) => item.point.actual != null).pop();
+    if (!lastActualIndex) return '';
+    const x = pad.left + (lastActualIndex.index / Math.max(1, points.length - 1)) * innerW;
+    const y = pad.top + (1 - clampClientPercent(lastActualIndex.point.actual) / 100) * innerH;
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="client-chart-dot" />`;
+  })();
+  return `
+    <svg class="client-scurve-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Curva S planejado versus realizado">
+      ${grid}
+      <line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" class="client-chart-axis" />
+      <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" class="client-chart-axis" />
+      <path d="${plannedPath}" class="client-chart-planned" />
+      ${actualPath ? `<path d="${actualPath}" class="client-chart-actual" />${actualCircle}` : ''}
+      <text x="${pad.left}" y="${height - 12}" class="client-chart-date">${escapeHtml(first)}</text>
+      <text x="${pad.left + innerW / 2 - 38}" y="${height - 12}" class="client-chart-date">${escapeHtml(mid)}</text>
+      <text x="${width - pad.right - 72}" y="${height - 12}" class="client-chart-date">${escapeHtml(last)}</text>
+    </svg>
+  `;
+}
+
+function renderClientGauge(percent, label) {
+  const p = clampClientPercent(percent);
+  return `
+    <div class="client-exec-gauge" style="--p:${p}">
+      <div class="client-exec-gauge-ring"></div>
+      <div class="client-exec-gauge-center">
+        <strong>${formatPercent(p)}</strong>
+        <span>${escapeHtml(label)}</span>
+      </div>
+    </div>
+  `;
+}
+
+function getClientCompletedTags(project) {
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  if (!spools.length) return 0;
+  return spools.filter((spool) => clientPercentValue(spool?.overallProgress) >= 100 || String(spool?.uiState || '').toLowerCase() === 'completed').length;
+}
+
+function getClientAttentionPoints(project) {
+  const actual = getClientOverallProgress(project);
+  const planned = getClientPlannedToday(project);
+  const stages = getClientProductionStages(project);
+  const finish = getClientAnalyticFinishDate(project);
+  const today = getCurrentBrazilDate();
+  const daysToFinish = Math.round((finish - today) / 86400000);
+  const points = [];
+  if (planned - actual >= 10) points.push(`Realizado ${formatPercent(actual)} contra planejado ${formatPercent(planned)}: desvio de ${formatPercent(planned - actual)}.`);
+  if (getClientFabricationProgress(project) < 25 && planned > 35) points.push('Fabricação abaixo do ritmo planejado para a data atual.');
+  const painting = getClientStageValue(project, ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)']);
+  if (getClientFabricationProgress(project) >= 60 && painting <= 0) points.push('Pintura ainda não iniciada após avanço relevante da fabricação.');
+  const delivery = getClientPackageProgress(project);
+  if (daysToFinish <= 21 && daysToFinish >= 0 && actual < 80) points.push(`Término previsto em ${daysToFinish} dia(s) com progresso abaixo de 80%.`);
+  if (getClientDatabookProgress(project) <= 0 && delivery >= 50) points.push('Databook ainda sem avanço registrado.');
+  const blocked = stages.find((stage) => stage.percent <= 0);
+  if (blocked && planned > 20) points.push(`${blocked.label} sem progresso registrado.`);
+  if (!points.length) points.push('Sem ponto crítico automático identificado neste momento.');
+  return points;
+}
+
+function getClientStageTimeline(project) {
+  const stages = getClientProductionStages(project);
+  return stages.map((stage) => ({
+    ...stage,
+    state: stage.percent >= 100 ? 'done' : stage.percent > 0 ? 'active' : 'future',
+  }));
+}
+
+function ensureClientBspExecutiveModalEl() {
+  let modal = document.getElementById('client-bsp-executive-modal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'client-bsp-executive-modal';
+  modal.className = 'client-exec-modal hidden';
+  modal.innerHTML = `
+    <div class="client-exec-backdrop" data-client-exec-close></div>
+    <section class="client-exec-shell" role="dialog" aria-modal="true" aria-label="Visão Executiva da BSP">
+      <button type="button" class="client-exec-close" data-client-exec-close>×</button>
+      <div id="client-bsp-executive-content"></div>
+    </section>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', (event) => {
+    if (event.target.closest('[data-client-exec-close]')) closeClientBspExecutive();
+  });
+  return modal;
+}
+
+function closeClientBspExecutive() {
+  const modal = document.getElementById('client-bsp-executive-modal');
+  if (modal) modal.classList.add('hidden');
+  document.body.classList.remove('client-exec-open');
+}
+
+function openClientBspExecutive(project) {
+  if (!project || !isClientUser()) return;
+  const modal = ensureClientBspExecutiveModalEl();
+  const content = modal.querySelector('#client-bsp-executive-content');
+  if (!content) return;
+
+  const status = getProjectStatusPresentation(project);
+  const stages = getClientProductionStages(project);
+  const overall = getClientOverallProgress(project);
+  const fabrication = getClientFabricationProgress(project);
+  const plannedToday = getClientPlannedToday(project);
+  const completedTags = getClientCompletedTags(project);
+  const totalTags = getProjectItemCount(project);
+  const remainingTags = Math.max(0, totalTags - completedTags);
+  const weight = Number(project.kilos || 0);
+  const welded = Number(project.weldedWeightKg || 0);
+  const pending = Math.max(0, weight - welded);
+  const timeline = getClientStageTimeline(project);
+  const attention = getClientAttentionPoints(project);
+  const startDate = clientFormatDateValue(getClientAnalyticStartDate(project));
+  const finishDate = clientFormatDateValue(getClientAnalyticFinishDate(project));
+
+  content.innerHTML = `
+    <header class="client-exec-header">
+      <div>
+        <p class="client-kicker">Visão Executiva da BSP</p>
+        <h2>${escapeHtml(project.projectDisplay || 'BSP')}</h2>
+        <p>${escapeHtml(getProjectClientLabel(project))} • ${escapeHtml(getProjectVesselLabel(project))} • <span class="cell-status cell-status--${status.state}">${escapeHtml(status.text)}</span></p>
+      </div>
+      <div class="client-exec-dates">
+        <span>Início: <strong>${escapeHtml(startDate || '—')}</strong></span>
+        <span>Término: <strong>${escapeHtml(finishDate || '—')}</strong></span>
+        <span>Planejado hoje: <strong>${formatPercent(plannedToday)}</strong></span>
+      </div>
+    </header>
+
+    <div class="client-exec-kpis">
+      <article><span>Progresso geral</span><strong>${formatPercent(overall)}</strong></article>
+      <article><span>Peso programado</span><strong>${formatNumber(weight, 0)} kg</strong></article>
+      <article><span>Peso soldado</span><strong>${formatNumber(welded, 0)} kg</strong></article>
+      <article><span>Peso restante</span><strong>${formatNumber(pending, 0)} kg</strong></article>
+      <article><span>Tags totais</span><strong>${formatNumber(totalTags)}</strong></article>
+      <article><span>Tags restantes</span><strong>${formatNumber(remainingTags)}</strong></article>
+      <article><span>M² programada</span><strong>${formatNumber(project.m2Painting, 3)}</strong></article>
+      <article><span>Etapa atual</span><strong>${escapeHtml(getProjectCurrentStageDisplay(project))}</strong></article>
+    </div>
+
+    <div class="client-exec-grid client-exec-grid--top">
+      <section class="client-exec-card">
+        <div class="client-exec-card-head"><h3>Overall Progress</h3><span>Concluído x restante</span></div>
+        ${renderClientGauge(overall, 'concluído')}
+      </section>
+      <section class="client-exec-card">
+        <div class="client-exec-card-head"><h3>Fabrication Progress</h3><span>Fabricação ponderada</span></div>
+        ${renderClientGauge(fabrication, 'fabricação')}
+      </section>
+      <section class="client-exec-card client-exec-card--bars">
+        <div class="client-exec-card-head"><h3>Progress by Production Stage</h3><span>Etapas principais</span></div>
+        <div class="client-exec-bars">
+          ${stages.map((stage) => `<div class="client-exec-bar-row"><span>${escapeHtml(stage.label)}</span><div><i style="width:${clampClientPercent(stage.percent)}%"></i></div><strong>${formatPercent(stage.percent)}</strong></div>`).join('')}
+        </div>
+      </section>
+    </div>
+
+    <div class="client-exec-grid client-exec-grid--main">
+      <section class="client-exec-card client-exec-card--curve">
+        <div class="client-exec-card-head"><h3>Curva S | Planejado x Realizado</h3><span>Baseada na data inicial e final da BSP</span></div>
+        <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span></div>
+        ${renderClientSCurveSvg(project)}
+      </section>
+      <aside class="client-exec-side">
+        <section class="client-exec-card">
+          <div class="client-exec-card-head"><h3>Spool / Tags</h3><span>Resumo da BSP</span></div>
+          <div class="client-exec-mini-table">
+            <div><span>Total</span><strong>${formatNumber(totalTags)}</strong></div>
+            <div><span>Finalizadas</span><strong>${formatNumber(completedTags)}</strong></div>
+            <div><span>Restantes</span><strong>${formatNumber(remainingTags)}</strong></div>
+          </div>
+        </section>
+        <section class="client-exec-card">
+          <div class="client-exec-card-head"><h3>Weight</h3><span>Programado x soldado</span></div>
+          <div class="client-weight-bars">
+            <div><span>Soldado</span><div><i style="width:${weight ? clampClientPercent((welded / weight) * 100) : 0}%"></i></div><strong>${formatNumber(welded, 0)} kg</strong></div>
+            <div><span>Restante</span><div><i class="remaining" style="width:${weight ? clampClientPercent((pending / weight) * 100) : 0}%"></i></div><strong>${formatNumber(pending, 0)} kg</strong></div>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <section class="client-exec-card">
+      <div class="client-exec-card-head"><h3>Timeline operacional</h3><span>Resumo dos passos do schedule</span></div>
+      <div class="client-exec-timeline">
+        ${timeline.map((item) => `<div class="client-exec-step is-${item.state}"><span></span><strong>${escapeHtml(item.label)}</strong><small>${formatPercent(item.percent)}</small></div>`).join('')}
+      </div>
+    </section>
+
+    <section class="client-exec-card client-exec-attention">
+      <div class="client-exec-card-head"><h3>S-Curve | Attention Points</h3><span>Análise automática</span></div>
+      <ul>${attention.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
+    </section>
+  `;
+
+  modal.classList.remove('hidden');
+  document.body.classList.add('client-exec-open');
+}
+
 function handleClientDashboardClick(event) {
   const vesselButton = event.target.closest('[data-client-vessel]');
   if (vesselButton) {
@@ -3730,11 +4166,19 @@ function handleClientDashboardClick(event) {
     renderClientBspPanel();
     return;
   }
-  const modalButton = event.target.closest('[data-client-open-modal]');
-  if (modalButton) {
-    const project = state.projects.find((item) => String(item.rowId) === String(modalButton.dataset.clientOpenModal));
-    if (project) openProjectModal(project);
+  const analyticsButton = event.target.closest('[data-client-open-analytics]');
+  if (analyticsButton) {
+    const project = state.projects.find((item) => String(item.rowId) === String(analyticsButton.dataset.clientOpenAnalytics));
+    if (project) openClientBspExecutive(project);
   }
+}
+
+function handleClientDashboardDblClick(event) {
+  const row = event.target.closest('[data-client-project-id]');
+  if (!row || !isClientUser()) return;
+  event.preventDefault();
+  const project = state.projects.find((item) => String(item.rowId) === String(row.dataset.clientProjectId));
+  if (project) openClientBspExecutive(project);
 }
 
 function incrementTrailingNumberLabel(value, index) {
