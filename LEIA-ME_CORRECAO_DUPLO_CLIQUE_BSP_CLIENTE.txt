@@ -1,0 +1,8 @@
+Correção aplicada
+
+- Corrigido o duplo clique na lista de BSPs do Portal do Cliente.
+- O primeiro clique agora aguarda alguns milissegundos antes de redesenhar a tabela, evitando que o redesenho da linha bloqueie o evento de duplo clique do navegador.
+- 1 clique: seleciona a BSP e mostra o detalhamento simples.
+- 2 cliques: abre a Visão Executiva da BSP com gráficos.
+- Adicionado aviso no hover da linha: clique uma vez para selecionar; dê 2 cliques para abrir a visão executiva.
+- Cache do PWA atualizado para forçar carregamento do novo app.js.

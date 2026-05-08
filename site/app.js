@@ -14,7 +14,7 @@ const state = {
   filteredProjects: [],
   projectView: 'all',
   projectDrill: { open: false, mode: 'total', selectedClientKey: '', selectedVesselKey: '' },
-  clientPortal: { selectedVesselKey: '', selectedProjectId: null },
+  clientPortal: { selectedVesselKey: '', selectedProjectId: null, rowClickTimer: null },
   sectorScopedView: false,
   stats: null,
   meta: null,
@@ -3651,7 +3651,7 @@ function renderClientBspPanel() {
         ${projects.map((project) => {
           const status = getProjectStatusPresentation(project);
           const selected = String(state.clientPortal.selectedProjectId || '') === String(project.rowId || '');
-          return `<tr class="${selected ? 'is-selected' : ''}" data-client-project-id="${escapeHtml(project.rowId)}">
+          return `<tr class="${selected ? 'is-selected' : ''}" data-client-project-id="${escapeHtml(project.rowId)}" title="Clique uma vez para selecionar; dê 2 cliques para abrir a visão executiva">
             <td><strong>${escapeHtml(project.projectDisplay || '—')}</strong></td>
             <td>${formatNumber(getProjectItemCount(project))}</td>
             <td>${formatNumber(project.kilos, 0)} kg</td>
@@ -4162,8 +4162,13 @@ function handleClientDashboardClick(event) {
   }
   const row = event.target.closest('[data-client-project-id]');
   if (row) {
-    state.clientPortal.selectedProjectId = Number(row.dataset.clientProjectId || 0);
-    renderClientBspPanel();
+    const projectId = Number(row.dataset.clientProjectId || 0);
+    window.clearTimeout(state.clientPortal.rowClickTimer);
+    state.clientPortal.rowClickTimer = window.setTimeout(() => {
+      state.clientPortal.selectedProjectId = projectId;
+      renderClientBspPanel();
+      state.clientPortal.rowClickTimer = null;
+    }, 230);
     return;
   }
   const analyticsButton = event.target.closest('[data-client-open-analytics]');
@@ -4177,8 +4182,15 @@ function handleClientDashboardDblClick(event) {
   const row = event.target.closest('[data-client-project-id]');
   if (!row || !isClientUser()) return;
   event.preventDefault();
+  event.stopPropagation();
+  window.clearTimeout(state.clientPortal.rowClickTimer);
+  state.clientPortal.rowClickTimer = null;
+  const projectId = Number(row.dataset.clientProjectId || 0);
   const project = state.projects.find((item) => String(item.rowId) === String(row.dataset.clientProjectId));
-  if (project) openClientBspExecutive(project);
+  if (!project) return;
+  state.clientPortal.selectedProjectId = projectId;
+  renderClientBspPanel();
+  openClientBspExecutive(project);
 }
 
 function incrementTrailingNumberLabel(value, index) {
