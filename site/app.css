@@ -5217,6 +5217,33 @@ body.client-exec-open {
   color: #27465d;
 }
 
+.client-exec-schedule-table {
+  background: rgba(255,255,255,.42);
+}
+
+.client-bsp-table--schedule th {
+  background: rgba(220, 238, 249, .95);
+  color: #0b3761;
+}
+
+.client-bsp-table--schedule td {
+  color: #27465d;
+  vertical-align: middle;
+}
+
+.client-schedule-row--group td {
+  font-weight: 800;
+  background: rgba(221, 235, 246, .55);
+}
+
+.client-schedule-row--child td:first-child {
+  padding-left: 28px;
+}
+
+.client-schedule-child {
+  color: #34556f;
+}
+
 .client-spool-row--not-started td {
   background: rgba(226, 93, 93, .08);
 }

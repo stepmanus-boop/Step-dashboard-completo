@@ -1,4 +1,4 @@
-const CACHE_NAME = "step-gerencia-pwa-v20-cliente-detalhe-lateral";
+const CACHE_NAME = "step-gerencia-pwa-v21-cliente-schedule-executivo";
 const APP_SHELL = [
   "/",
   "/app.css",

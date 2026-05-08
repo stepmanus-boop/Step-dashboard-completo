@@ -4061,6 +4061,151 @@ function getClientAttentionPoints(project) {
   return points;
 }
 
+function countBusinessDaysInclusive(startValue, endValue) {
+  const start = parseDateObject(startValue);
+  const end = parseDateObject(endValue);
+  if (!start || !end) return 0;
+  let current = new Date(start.getTime());
+  let finish = new Date(end.getTime());
+  if (current > finish) [current, finish] = [finish, current];
+  let total = 0;
+  while (current <= finish) {
+    const day = current.getUTCDay();
+    if (day !== 0 && day !== 6) total += 1;
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+  return total;
+}
+
+function addBusinessDaysUtc(dateValue, amount) {
+  const date = parseDateObject(dateValue);
+  if (!date) return null;
+  const result = new Date(date.getTime());
+  let remaining = Number(amount || 0);
+  const direction = remaining >= 0 ? 1 : -1;
+  remaining = Math.abs(remaining);
+  while (remaining > 0) {
+    result.setUTCDate(result.getUTCDate() + direction);
+    const day = result.getUTCDay();
+    if (day !== 0 && day !== 6) remaining -= 1;
+  }
+  return result;
+}
+
+function formatClientDateShort(value) {
+  return clientFormatDateValue(value) || '—';
+}
+
+function scaleDurationVector(baseItems, targetTotal) {
+  const totalBase = baseItems.reduce((sum, item) => sum + Number(item.base || 0), 0) || 1;
+  const safeTarget = Math.max(baseItems.length, Number(targetTotal || 0));
+  const raw = baseItems.map((item) => ({ ...item, raw: (Number(item.base || 0) / totalBase) * safeTarget }));
+  let rows = raw.map((item) => ({ ...item, duration: Math.max(1, Math.floor(item.raw)), fraction: item.raw - Math.floor(item.raw) }));
+  let currentTotal = rows.reduce((sum, item) => sum + item.duration, 0);
+  if (currentTotal < safeTarget) {
+    rows.sort((a, b) => b.fraction - a.fraction);
+    for (let i = 0; currentTotal < safeTarget && rows.length; i = (i + 1) % rows.length) {
+      rows[i].duration += 1;
+      currentTotal += 1;
+    }
+  } else if (currentTotal > safeTarget) {
+    rows.sort((a, b) => a.fraction - b.fraction);
+    for (let i = 0; currentTotal > safeTarget && rows.length; i = (i + 1) % rows.length) {
+      if (rows[i].duration > 1) {
+        rows[i].duration -= 1;
+        currentTotal -= 1;
+      }
+    }
+  }
+  return baseItems.map((item) => rows.find((row) => row.key === item.key) || { ...item, duration: Math.max(1, Number(item.base || 1)) });
+}
+
+function buildClientExecutiveSchedule(project) {
+  const start = getClientAnalyticStartDate(project);
+  const finish = getClientAnalyticFinishDate(project) || getProjectShipmentDate(project);
+  const totalBusinessDays = Math.max(5, countBusinessDaysInclusive(start, finish) || 116);
+
+  const groupTemplate = [
+    { key: 'engineering', label: 'ENGINEERING', base: 15, percent: getClientStageValue(project, ['Drawing Execution Advance%', 'Drawing']) },
+    { key: 'procurement', label: 'MATERIAL PROCUREMENT', base: 15, percent: Math.max(getClientStageValue(project, ['Procuremnt Status %', 'Procurement Status %', 'Procurement']), getClientStageValue(project, ['Material Separation']), getClientStageValue(project, ['Material Release to Fabrication'])) },
+    { key: 'fabrication', label: 'FABRICATION', base: 81, percent: getClientFabricationProgress(project) },
+    { key: 'databook', label: 'DATABOOK', base: 3, percent: getClientDatabookProgress(project) },
+    { key: 'delivery', label: 'DELIVERY', base: 2, percent: getClientPackageProgress(project) },
+  ];
+  const groupDurations = scaleDurationVector(groupTemplate, totalBusinessDays);
+
+  const fabricationTemplate = [
+    { key: 'fitup', label: 'Fit up', base: 15, percent: Math.max(getClientStageValue(project, ['Welding Preparation', 'Spool Assemble and tack weld']), 0) },
+    { key: 'initial-dimensional', label: 'Initial Dimensional Inspection', base: 10, percent: getClientStageValue(project, ['Initial Dimensional Inspection/3D']) },
+    { key: 'weld', label: 'Weld', base: 10, percent: getClientStageValue(project, ['Full welding execution']) },
+    { key: 'nde', label: 'Non Destructive Examination', base: 8, percent: getClientStageValue(project, ['Non Destructive Examination (QC)']) },
+    { key: 'final-dimensional', label: 'Final Dimensional Inspection', base: 8, percent: getClientStageValue(project, ['Final Dimensional Inpection/3D (QC)']) },
+    { key: 'hydro', label: 'Hydro Testing', base: 6, percent: getClientStageValue(project, ['Hydro Test Pressure (QC)']) },
+    { key: 'painting', label: 'Painting', base: 14, percent: getClientStageValue(project, ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)']) },
+    { key: 'packing', label: 'Packing', base: 5, percent: getClientStageValue(project, ['Package and Delivered']) },
+    { key: 'final-inspection', label: 'Final Inspection', base: 5, percent: getClientStageValue(project, ['Final Inspection']) },
+  ];
+  const fabricationGroup = groupDurations.find((item) => item.key === 'fabrication');
+  const fabricationDurations = scaleDurationVector(fabricationTemplate, fabricationGroup?.duration || 81);
+
+  const rows = [];
+  let cursor = parseDateObject(start) || parseDateObject(getProjectShipmentDate(project)) || new Date();
+  for (const group of groupDurations) {
+    const groupStart = new Date(cursor.getTime());
+    const groupFinish = addBusinessDaysUtc(groupStart, Math.max(0, (group.duration || 1) - 1)) || groupStart;
+    rows.push({ type: 'group', label: group.label, progress: group.percent, duration: group.duration, start: groupStart, finish: groupFinish });
+    let children = [];
+    if (group.key === 'engineering') {
+      children = [{ label: 'Drawings', progress: group.percent, duration: group.duration }];
+    } else if (group.key === 'procurement') {
+      children = [{ label: 'Materials for Application Acquisition', progress: group.percent, duration: group.duration }];
+    } else if (group.key === 'fabrication') {
+      children = fabricationDurations.map((item) => ({ label: item.label, progress: item.percent, duration: item.duration }));
+    } else if (group.key === 'databook') {
+      children = [{ label: 'Databook Issuance', progress: group.percent, duration: group.duration }];
+    } else if (group.key === 'delivery') {
+      children = [{ label: 'Delivery', progress: group.percent, duration: group.duration }];
+    }
+
+    let childCursor = new Date(groupStart.getTime());
+    for (const child of children) {
+      const childStart = new Date(childCursor.getTime());
+      const childFinish = addBusinessDaysUtc(childStart, Math.max(0, (child.duration || 1) - 1)) || childStart;
+      rows.push({ type: 'child', label: child.label, progress: child.progress, duration: child.duration, start: childStart, finish: childFinish });
+      childCursor = addBusinessDaysUtc(childFinish, 1) || childFinish;
+    }
+
+    cursor = addBusinessDaysUtc(groupFinish, 1) || groupFinish;
+  }
+  return rows;
+}
+
+function getClientScheduleVisualState(progress) {
+  const value = clampClientPercent(progress);
+  if (value >= 99.9) return 'completed';
+  if (value <= 0) return 'not-started';
+  return 'in-progress';
+}
+
+function renderClientExecutiveSchedule(project) {
+  const rows = buildClientExecutiveSchedule(project);
+  if (!rows.length) return '<div class="client-empty-state">Schedule não disponível para esta BSP.</div>';
+  return `
+    <div class="client-table-wrap client-table-wrap--compact client-exec-schedule-table">
+      <table class="client-bsp-table client-bsp-table--schedule">
+        <thead><tr><th>Etapa</th><th>%</th><th>Prazo médio</th><th>Início</th><th>Término</th><th>Status</th></tr></thead>
+        <tbody>
+          ${rows.map((row) => {
+            const state = getClientScheduleVisualState(row.progress);
+            const label = row.type === 'group' ? `<strong>${escapeHtml(row.label)}</strong>` : `<span class="client-schedule-child">${escapeHtml(row.label)}</span>`;
+            return `<tr class="client-schedule-row client-schedule-row--${state} client-schedule-row--${row.type}"><td>${label}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(row.progress)}</span></td><td>${formatNumber(row.duration, 0)}d</td><td>${formatClientDateShort(row.start)}</td><td>${formatClientDateShort(row.finish)}</td><td><span class="client-spool-chip client-spool-chip--${state}">${state === 'completed' ? 'Concluído' : state === 'in-progress' ? 'Em andamento' : 'Não iniciado'}</span></td></tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 function getClientStageTimeline(project) {
   const stages = getClientProductionStages(project);
   return stages.map((stage) => ({
@@ -4486,6 +4631,11 @@ function openClientBspExecutive(project) {
       <div class="client-exec-timeline">
         ${timeline.map((item) => `<div class="client-exec-step is-${item.state}"><span></span><strong>${escapeHtml(item.label)}</strong><small>${formatPercent(item.percent)}</small></div>`).join('')}
       </div>
+    </section>
+
+    <section class="client-exec-card client-exec-schedule-card">
+      <div class="client-exec-card-head"><h3>Schedule Executivo da BSP</h3><span>Prazos médios por etapa com base na data inicial e final</span></div>
+      ${renderClientExecutiveSchedule(project)}
     </section>
 
     <section class="client-exec-card client-exec-attention">
