@@ -1,4 +1,4 @@
-const CACHE_NAME = "step-gerencia-pwa-v17-cliente-po-wip";
+const CACHE_NAME = "step-gerencia-pwa-v19-cliente-visao-macro";
 const APP_SHELL = [
   "/",
   "/app.css",

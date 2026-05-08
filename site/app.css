@@ -5179,6 +5179,52 @@ body.client-exec-open {
   color: #27465d;
 }
 
+.client-spool-row--not-started td {
+  background: rgba(226, 93, 93, .08);
+}
+
+.client-spool-row--in-progress td {
+  background: rgba(230, 181, 62, .10);
+}
+
+.client-spool-row--completed td {
+  background: rgba(41, 163, 118, .10);
+}
+
+.client-spool-chip,
+.client-spool-progress {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: .02em;
+}
+
+.client-spool-chip--not-started,
+.client-spool-progress--not-started {
+  color: #9b3b3b;
+  background: rgba(226, 93, 93, .14);
+  border: 1px solid rgba(180, 73, 73, .14);
+}
+
+.client-spool-chip--in-progress,
+.client-spool-progress--in-progress {
+  color: #8a6614;
+  background: rgba(230, 181, 62, .18);
+  border: 1px solid rgba(196, 148, 29, .14);
+}
+
+.client-spool-chip--completed,
+.client-spool-progress--completed {
+  color: #197453;
+  background: rgba(41, 163, 118, .16);
+  border: 1px solid rgba(28, 126, 91, .14);
+}
+
 body:not(.client-mode) .client-exec-modal {
   display: none !important;
 }
@@ -5221,4 +5267,47 @@ body:not(.client-mode) .client-exec-modal {
   .client-exec-timeline {
     grid-template-columns: 1fr;
   }
+}
+
+/* Portal Cliente - visão macro clicável */
+.client-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.client-macro-button {
+  white-space: nowrap;
+}
+
+.client-summary-card-button {
+  cursor: pointer;
+  position: relative;
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+
+.client-summary-card-button:hover {
+  transform: translateY(-2px);
+  border-color: rgba(118, 207, 255, .7) !important;
+  box-shadow: 0 16px 36px rgba(20, 140, 210, .18);
+}
+
+.client-summary-card-button small {
+  display: block;
+  margin-top: 8px;
+  color: #80d9ff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.client-exec-header--macro {
+  background: linear-gradient(135deg, rgba(255,255,255,.82), rgba(233, 247, 255, .78));
+}
+
+.client-exec-header--macro h2 {
+  letter-spacing: -.02em;
 }

@@ -3508,10 +3508,11 @@ function ensureClientDashboardEl() {
       </div>
       <div class="client-hero-actions">
         <span id="client-dashboard-sync">Atualização: --</span>
+        <button class="mini-action-button client-macro-button" type="button" data-client-open-macro-dashboard>Visão macro do projeto</button>
       </div>
     </div>
     <div class="client-summary-grid">
-      <article><span>BSPs</span><strong id="client-stat-bsps">--</strong></article>
+      <article class="client-summary-card-button" data-client-open-macro-dashboard title="Abrir visão macro de todas as BSPs"><span>BSPs</span><strong id="client-stat-bsps">--</strong><small>abrir visão macro</small></article>
       <article><span>Tags</span><strong id="client-stat-tags">--</strong></article>
       <article><span>Peso programado</span><strong id="client-stat-weight">--</strong></article>
       <article><span>Peso soldado</span><strong id="client-stat-welded">--</strong></article>
@@ -3677,6 +3678,43 @@ function renderClientBspPanel() {
   renderClientProjectDetail(selectedProject);
 }
 
+function getClientSpoolProgress(spool) {
+  return clampClientPercent(spool?.overallProgress);
+}
+
+function isClientSpoolFinished(spool) {
+  const progress = getClientSpoolProgress(spool);
+  const statusText = normalizeText(spool?.currentStatus || spool?.stage || uiStateLabel(spool?.uiState));
+  const uiState = normalizeCompactText(spool?.uiState || '');
+  return progress >= 99.9 || uiState === 'completed' || /finalizado|concluido|completed|finished|enviado|delivered/.test(statusText);
+}
+
+function getClientSpoolVisualState(spool) {
+  const progress = getClientSpoolProgress(spool);
+  if (isClientSpoolFinished(spool)) return 'completed';
+  if (progress <= 0) return 'not-started';
+  return 'in-progress';
+}
+
+function compareClientSpoolsByPriority(a, b) {
+  const aFinished = isClientSpoolFinished(a);
+  const bFinished = isClientSpoolFinished(b);
+  if (aFinished !== bFinished) return aFinished ? 1 : -1;
+  const progressDiff = getClientSpoolProgress(a) - getClientSpoolProgress(b);
+  if (Math.abs(progressDiff) > 0.001) return progressDiff;
+  return String(a?.iso || '').localeCompare(String(b?.iso || ''), 'pt-BR', { numeric: true, sensitivity: 'base' });
+}
+
+function renderClientSpoolRows(spools, limit = 120) {
+  const items = (Array.isArray(spools) ? [...spools] : []).sort(compareClientSpoolsByPriority).slice(0, limit);
+  if (!items.length) return '<tr><td colspan="6" class="loading-cell">Nenhuma tag detalhada encontrada para esta BSP.</td></tr>';
+  return items.map((spool) => {
+    const state = getClientSpoolVisualState(spool);
+    const statusText = spool?.currentStatus || spool?.stage || uiStateLabel(spool?.uiState);
+    return `<tr class="client-spool-row client-spool-row--${state}"><td><strong>${escapeHtml(spool.iso || '—')}</strong></td><td>${escapeHtml(spool.description || '—')}</td><td><span class="client-spool-chip client-spool-chip--${state}">${escapeHtml(statusText)}</span></td><td>${escapeHtml(spool.currentSector || spool.operationalSector || '—')}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(spool.overallProgress)}</span></td><td>${formatNumber(spool.kilos, 2)} kg</td></tr>`;
+  }).join('');
+}
+
 function renderClientProjectDetail(project) {
   const detail = document.getElementById('client-project-detail');
   if (!detail) return;
@@ -3711,7 +3749,7 @@ function renderClientProjectDetail(project) {
     </div>
     <div class="client-table-wrap client-table-wrap--compact">
       <table class="client-bsp-table"><thead><tr><th>Tag/ISO</th><th>Descrição</th><th>Status</th><th>Etapa</th><th>%</th><th>Peso</th></tr></thead><tbody>
-        ${spools.slice(0, 80).map((spool) => `<tr><td>${escapeHtml(spool.iso || '—')}</td><td>${escapeHtml(spool.description || '—')}</td><td>${escapeHtml(spool.currentStatus || spool.stage || uiStateLabel(spool.uiState))}</td><td>${escapeHtml(spool.currentSector || spool.operationalSector || '—')}</td><td>${formatPercent(spool.overallProgress)}</td><td>${formatNumber(spool.kilos, 2)} kg</td></tr>`).join('') || '<tr><td colspan="6" class="loading-cell">Nenhuma tag detalhada encontrada para esta BSP.</td></tr>'}
+        ${renderClientSpoolRows(spools, 80)}
       </tbody></table>
     </div>
   `;
@@ -4055,6 +4093,296 @@ function closeClientBspExecutive() {
   document.body.classList.remove('client-exec-open');
 }
 
+function getClientMacroProjects(projects = state.projects) {
+  return (Array.isArray(projects) ? projects : []).filter(Boolean);
+}
+
+function getClientMacroTotals(projects = state.projects) {
+  const list = getClientMacroProjects(projects);
+  return list.reduce((acc, project) => {
+    const totalTags = getProjectItemCount(project);
+    const completedTags = getClientCompletedTags(project);
+    const weight = Number(project.kilos || 0);
+    const welded = Number(project.weldedWeightKg || 0);
+    acc.bsps += 1;
+    acc.tags += totalTags;
+    acc.completedTags += completedTags;
+    acc.remainingTags += Math.max(0, totalTags - completedTags);
+    acc.weight += weight;
+    acc.welded += welded;
+    acc.pending += Math.max(0, weight - welded);
+    acc.m2 += Number(project.m2Painting || 0);
+    acc.progress += getClientOverallProgress(project);
+    acc.fabrication += getClientFabricationProgress(project);
+    acc.planned += getClientPlannedToday(project);
+    return acc;
+  }, { bsps: 0, tags: 0, completedTags: 0, remainingTags: 0, weight: 0, welded: 0, pending: 0, m2: 0, progress: 0, fabrication: 0, planned: 0 });
+}
+
+function getClientMacroAverage(value, count) {
+  return count ? clampClientPercent(value / count) : 0;
+}
+
+function getClientMacroDateRange(projects = state.projects) {
+  const list = getClientMacroProjects(projects);
+  const starts = [];
+  const finishes = [];
+  for (const project of list) {
+    const start = getClientAnalyticStartDate(project);
+    const finish = getClientAnalyticFinishDate(project);
+    if (start) starts.push(start);
+    if (finish) finishes.push(finish);
+  }
+  const start = starts.length ? new Date(Math.min(...starts.map((date) => date.getTime()))) : getCurrentBrazilDate();
+  const finish = finishes.length ? new Date(Math.max(...finishes.map((date) => date.getTime()))) : addUtcDays(start, 120);
+  return { start, finish: finish <= start ? addUtcDays(start, 30) : finish };
+}
+
+function getClientMacroProductionStages(projects = state.projects) {
+  const list = getClientMacroProjects(projects);
+  const template = [
+    { key: 'engineering', label: 'Engineering / Drawing', weight: 15 },
+    { key: 'procurement', label: 'Procurement', weight: 15 },
+    { key: 'fabrication', label: 'Fabrication', weight: 65 },
+    { key: 'package', label: 'Package / Delivery', weight: 5 },
+  ];
+  if (!list.length) return template.map((stage) => ({ ...stage, percent: 0 }));
+  return template.map((stage) => {
+    const total = list.reduce((sum, project) => {
+      const match = getClientProductionStages(project).find((item) => item.key === stage.key);
+      return sum + Number(match?.percent || 0);
+    }, 0);
+    return { ...stage, percent: clampClientPercent(total / list.length) };
+  });
+}
+
+function getClientMacroPlannedToday(projects = state.projects) {
+  const totals = getClientMacroTotals(projects);
+  return getClientMacroAverage(totals.planned, totals.bsps);
+}
+
+function getClientMacroOverallProgress(projects = state.projects) {
+  const totals = getClientMacroTotals(projects);
+  return getClientMacroAverage(totals.progress, totals.bsps);
+}
+
+function getClientMacroFabricationProgress(projects = state.projects) {
+  const totals = getClientMacroTotals(projects);
+  return getClientMacroAverage(totals.fabrication, totals.bsps);
+}
+
+function buildClientMacroSCurveData(projects = state.projects) {
+  const { start, finish } = getClientMacroDateRange(projects);
+  const duration = clientDaysBetween(start, finish);
+  const step = Math.max(1, Math.ceil(duration / 14));
+  const today = getCurrentBrazilDate();
+  const actualNow = getClientMacroOverallProgress(projects);
+  const plannedToday = getClientMacroPlannedToday(projects);
+  const points = [];
+  for (let day = 0; day <= duration; day += step) {
+    const date = addUtcDays(start, day);
+    const ratio = day / duration;
+    const planned = clientSchedulePlannedPercent(ratio);
+    let actual = null;
+    if (date <= today) {
+      actual = plannedToday > 0 ? clampClientPercent((planned / plannedToday) * actualNow) : actualNow;
+    }
+    points.push({ date, planned, actual });
+  }
+  if (points[points.length - 1]?.date < finish) points.push({ date: finish, planned: 100, actual: finish <= today ? actualNow : null });
+  return points;
+}
+
+function renderClientMacroSCurveSvg(projects = state.projects) {
+  const points = buildClientMacroSCurveData(projects);
+  const width = 760;
+  const height = 260;
+  const pad = { left: 42, right: 16, top: 18, bottom: 38 };
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const plannedPath = clientSvgPolyline(points, width, height, (point) => point.planned);
+  const actualPath = clientSvgPolyline(points, width, height, (point) => point.actual);
+  const grid = [0, 25, 50, 75, 100].map((value) => {
+    const y = pad.top + (1 - value / 100) * innerH;
+    return `<line x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}" class="client-chart-grid" /><text x="8" y="${y + 4}" class="client-chart-label">${value}%</text>`;
+  }).join('');
+  const first = points[0]?.date ? clientFormatDateValue(points[0].date) : '';
+  const mid = points[Math.floor(points.length / 2)]?.date ? clientFormatDateValue(points[Math.floor(points.length / 2)].date) : '';
+  const last = points[points.length - 1]?.date ? clientFormatDateValue(points[points.length - 1].date) : '';
+  const actualCircle = (() => {
+    const lastActualIndex = points.map((point, index) => ({ point, index })).filter((item) => item.point.actual != null).pop();
+    if (!lastActualIndex) return '';
+    const x = pad.left + (lastActualIndex.index / Math.max(1, points.length - 1)) * innerW;
+    const y = pad.top + (1 - clampClientPercent(lastActualIndex.point.actual) / 100) * innerH;
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="client-chart-dot" />`;
+  })();
+  return `
+    <svg class="client-scurve-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Curva S macro planejado versus realizado">
+      ${grid}
+      <line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" class="client-chart-axis" />
+      <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" class="client-chart-axis" />
+      <path d="${plannedPath}" class="client-chart-planned" />
+      ${actualPath ? `<path d="${actualPath}" class="client-chart-actual" />${actualCircle}` : ''}
+      <text x="${pad.left}" y="${height - 12}" class="client-chart-date">${escapeHtml(first)}</text>
+      <text x="${pad.left + innerW / 2 - 38}" y="${height - 12}" class="client-chart-date">${escapeHtml(mid)}</text>
+      <text x="${width - pad.right - 72}" y="${height - 12}" class="client-chart-date">${escapeHtml(last)}</text>
+    </svg>
+  `;
+}
+
+function getClientMacroAttentionPoints(projects = state.projects) {
+  const list = getClientMacroProjects(projects);
+  const actual = getClientMacroOverallProgress(list);
+  const planned = getClientMacroPlannedToday(list);
+  const points = [];
+  if (planned - actual >= 10) points.push(`Carteira realizada em ${formatPercent(actual)} contra planejado ${formatPercent(planned)}: desvio macro de ${formatPercent(planned - actual)}.`);
+  const notStarted = list.filter((project) => getClientOverallProgress(project) <= 0).length;
+  const finished = list.filter((project) => getClientOverallProgress(project) >= 99.9 || isProjectFinishedForTotal(project)).length;
+  const delayed = list.filter((project) => getClientPlannedToday(project) - getClientOverallProgress(project) >= 10).length;
+  if (notStarted) points.push(`${formatNumber(notStarted)} BSP(s) ainda sem avanço registrado.`);
+  if (delayed) points.push(`${formatNumber(delayed)} BSP(s) com desvio maior ou igual a 10% em relação ao planejado.`);
+  if (finished) points.push(`${formatNumber(finished)} BSP(s) finalizada(s) na carteira.`);
+  if (!points.length) points.push('Carteira sem ponto crítico automático identificado neste momento.');
+  return points;
+}
+
+function getClientProjectVisualState(project) {
+  const progress = getClientOverallProgress(project);
+  if (progress >= 99.9 || isProjectFinishedForTotal(project)) return 'completed';
+  if (progress <= 0) return 'not-started';
+  return 'in-progress';
+}
+
+function renderClientMacroProjectRows(projects = state.projects) {
+  const list = getClientMacroProjects(projects)
+    .sort((a, b) => {
+      const aDone = getClientProjectVisualState(a) === 'completed';
+      const bDone = getClientProjectVisualState(b) === 'completed';
+      if (aDone !== bDone) return aDone ? 1 : -1;
+      return getClientOverallProgress(a) - getClientOverallProgress(b);
+    })
+    .slice(0, 180);
+  if (!list.length) return '<tr><td colspan="8" class="loading-cell">Nenhuma BSP encontrada para este cliente.</td></tr>';
+  return list.map((project) => {
+    const status = getProjectStatusPresentation(project);
+    const visualState = getClientProjectVisualState(project);
+    return `<tr class="client-spool-row client-spool-row--${visualState}"><td><strong>${escapeHtml(getClientProjectDisplayCode(project))}</strong></td><td>${escapeHtml(getProjectVesselLabel(project) || '—')}</td><td>${formatNumber(getProjectItemCount(project))}</td><td>${formatNumber(project.kilos, 0)} kg</td><td>${formatNumber(project.weldedWeightKg, 0)} kg</td><td><span class="client-spool-chip client-spool-chip--${visualState}">${escapeHtml(status.text)}</span></td><td><span class="client-spool-progress client-spool-progress--${visualState}">${formatPercent(getClientOverallProgress(project))}</span></td><td>${escapeHtml(project.plannedFinishDate || '—')}</td></tr>`;
+  }).join('');
+}
+
+function openClientMacroExecutive(projects = state.projects) {
+  if (!isClientUser()) return;
+  const list = getClientMacroProjects(projects);
+  const modal = ensureClientBspExecutiveModalEl();
+  const content = modal.querySelector('#client-bsp-executive-content');
+  if (!content) return;
+
+  const totals = getClientMacroTotals(list);
+  const overall = getClientMacroOverallProgress(list);
+  const fabrication = getClientMacroFabricationProgress(list);
+  const plannedToday = getClientMacroPlannedToday(list);
+  const stages = getClientMacroProductionStages(list);
+  const attention = getClientMacroAttentionPoints(list);
+  const range = getClientMacroDateRange(list);
+  const deviationPercent = Math.max(0, plannedToday - overall);
+  const vesselGroups = getClientVesselGroups(list);
+  const finishedBsps = list.filter((project) => getClientOverallProgress(project) >= 99.9 || isProjectFinishedForTotal(project)).length;
+  const pendingBsps = Math.max(0, totals.bsps - finishedBsps);
+  const timeline = stages.map((stage) => ({ ...stage, state: stage.percent >= 100 ? 'done' : stage.percent > 0 ? 'active' : 'future' }));
+
+  content.innerHTML = `
+    <header class="client-exec-header client-exec-header--macro">
+      <div>
+        <p class="client-kicker">Visão Macro do Projeto</p>
+        <h2>${escapeHtml(getClientPortalName())}</h2>
+        <p>Carteira completa do cliente • ${formatNumber(totals.bsps)} BSP(s) • ${formatNumber(totals.tags)} tag(s)</p>
+      </div>
+      <div class="client-exec-dates">
+        <span>Início macro: <strong>${escapeHtml(clientFormatDateValue(range.start) || '—')}</strong></span>
+        <span>Término macro: <strong>${escapeHtml(clientFormatDateValue(range.finish) || '—')}</strong></span>
+        <span>Planejado hoje: <strong>${formatPercent(plannedToday)}</strong></span>
+        <span>Desvio: <strong>${formatPercent(deviationPercent)}</strong></span>
+      </div>
+    </header>
+
+    <div class="client-exec-kpis">
+      <article><span>BSPs</span><strong>${formatNumber(totals.bsps)}</strong></article>
+      <article><span>Tags totais</span><strong>${formatNumber(totals.tags)}</strong></article>
+      <article><span>Tags restantes</span><strong>${formatNumber(totals.remainingTags)}</strong></article>
+      <article><span>Peso programado</span><strong>${formatNumber(totals.weight, 0)} kg</strong></article>
+      <article><span>Peso soldado</span><strong>${formatNumber(totals.welded, 0)} kg</strong></article>
+      <article><span>Peso restante</span><strong>${formatNumber(totals.pending, 0)} kg</strong></article>
+      <article><span>M² programada</span><strong>${formatNumber(totals.m2, 3)}</strong></article>
+      <article><span>BSPs pendentes</span><strong>${formatNumber(pendingBsps)}</strong></article>
+    </div>
+
+    <div class="client-exec-grid client-exec-grid--top">
+      <section class="client-exec-card">
+        <div class="client-exec-card-head"><h3>Overall Progress</h3><span>Carteira geral + desvio</span></div>
+        ${renderClientGauge(overall, 'carteira', plannedToday, { note: 'Meta macro até hoje' })}
+      </section>
+      <section class="client-exec-card">
+        <div class="client-exec-card-head"><h3>Fabrication Progress</h3><span>Fabricação ponderada da carteira</span></div>
+        ${renderClientGauge(fabrication, 'fabricação', plannedToday, { note: 'Meta macro até hoje' })}
+      </section>
+      <section class="client-exec-card client-exec-card--bars">
+        <div class="client-exec-card-head"><h3>Progress by Production Stage</h3><span>Etapas principais da carteira</span></div>
+        <div class="client-exec-bars">
+          ${stages.map((stage) => `<div class="client-exec-bar-row"><span>${escapeHtml(stage.label)}</span><div><i style="width:${clampClientPercent(stage.percent)}%"></i></div><strong>${formatPercent(stage.percent)}</strong></div>`).join('')}
+        </div>
+      </section>
+    </div>
+
+    <div class="client-exec-grid client-exec-grid--main">
+      <section class="client-exec-card client-exec-card--curve">
+        <div class="client-exec-card-head"><h3>Curva S | Macro do Projeto</h3><span>Planejado x realizado de todas as BSPs</span></div>
+        <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span></div>
+        ${renderClientMacroSCurveSvg(list)}
+      </section>
+      <aside class="client-exec-side">
+        <section class="client-exec-card">
+          <div class="client-exec-card-head"><h3>Resumo BSPs</h3><span>Carteira consolidada</span></div>
+          <div class="client-exec-mini-table">
+            <div><span>Total</span><strong>${formatNumber(totals.bsps)}</strong></div>
+            <div><span>Finalizadas</span><strong>${formatNumber(finishedBsps)}</strong></div>
+            <div><span>Pendentes</span><strong>${formatNumber(pendingBsps)}</strong></div>
+          </div>
+        </section>
+        <section class="client-exec-card">
+          <div class="client-exec-card-head"><h3>Unidades</h3><span>BSPs por vessel</span></div>
+          <div class="client-exec-mini-table">
+            ${vesselGroups.slice(0, 8).map((group) => `<div><span>${escapeHtml(group.label)}</span><strong>${formatNumber(group.projects.length)} BSP(s)</strong></div>`).join('') || '<div><span>Sem unidade</span><strong>—</strong></div>'}
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <section class="client-exec-card">
+      <div class="client-exec-card-head"><h3>Timeline macro</h3><span>Resumo das etapas da carteira</span></div>
+      <div class="client-exec-timeline">
+        ${timeline.map((item) => `<div class="client-exec-step is-${item.state}"><span></span><strong>${escapeHtml(item.label)}</strong><small>${formatPercent(item.percent)}</small></div>`).join('')}
+      </div>
+    </section>
+
+    <section class="client-exec-card client-exec-attention">
+      <div class="client-exec-card-head"><h3>S-Curve | Attention Points</h3><span>Análise automática da carteira</span></div>
+      <ul>${attention.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
+    </section>
+
+    <section class="client-exec-card client-exec-process-detail">
+      <div class="client-exec-card-head"><h3>Detalhamento macro das BSPs</h3><span>Menor progresso primeiro; finalizadas no final</span></div>
+      <div class="client-table-wrap client-table-wrap--compact client-exec-process-table">
+        <table class="client-bsp-table"><thead><tr><th>BSP / PO</th><th>Unidade</th><th>Tags</th><th>Peso</th><th>Soldado</th><th>Status</th><th>% Geral</th><th>Término</th></tr></thead><tbody>
+          ${renderClientMacroProjectRows(list)}
+        </tbody></table>
+      </div>
+    </section>
+  `;
+
+  modal.classList.remove('hidden');
+  document.body.classList.add('client-exec-open');
+}
+
 function openClientBspExecutive(project) {
   if (!project || !isClientUser()) return;
   const modal = ensureClientBspExecutiveModalEl();
@@ -4174,7 +4502,7 @@ function openClientBspExecutive(project) {
       </div>
       <div class="client-table-wrap client-table-wrap--compact client-exec-process-table">
         <table class="client-bsp-table"><thead><tr><th>Tag/ISO</th><th>Descrição</th><th>Status</th><th>Etapa</th><th>%</th><th>Peso</th></tr></thead><tbody>
-          ${spools.slice(0, 120).map((spool) => `<tr><td>${escapeHtml(spool.iso || '—')}</td><td>${escapeHtml(spool.description || '—')}</td><td>${escapeHtml(spool.currentStatus || spool.stage || uiStateLabel(spool.uiState))}</td><td>${escapeHtml(spool.currentSector || spool.operationalSector || '—')}</td><td>${formatPercent(spool.overallProgress)}</td><td>${formatNumber(spool.kilos, 2)} kg</td></tr>`).join('') || '<tr><td colspan="6" class="loading-cell">Nenhuma tag detalhada encontrada para esta BSP.</td></tr>'}
+          ${renderClientSpoolRows(spools, 120)}
         </tbody></table>
       </div>
     </section>
@@ -4185,6 +4513,11 @@ function openClientBspExecutive(project) {
 }
 
 function handleClientDashboardClick(event) {
+  const macroButton = event.target.closest('[data-client-open-macro-dashboard]');
+  if (macroButton) {
+    openClientMacroExecutive();
+    return;
+  }
   const vesselButton = event.target.closest('[data-client-vessel]');
   if (vesselButton) {
     state.clientPortal.selectedVesselKey = vesselButton.dataset.clientVessel || '';

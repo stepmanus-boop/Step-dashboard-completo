@@ -499,16 +499,39 @@ function parseProjectParts(projectText) {
 }
 
 function normalizeBspLookupKey(value) {
-  const parsed = parseProjectParts(value);
-  const candidate = parsed.number || String(value || '');
-  const match = String(candidate || value || '').match(/\d{2}\s*-?\s*\d+(?:\s*-?\s*\d+)*/);
-  const source = match ? match[0] : candidate;
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  // Captura somente o código da BSP/BPP/B3D, sem deixar a PO entrar na chave.
+  // Exemplos válidos:
+  // BSP 25-732-03, 25-732-03, BPP 25-732-03, B3D 25-732-03.
+  const match = raw.match(/(?:\b(?:BSP|BPP|B3D)\b\s*)?(\d{2}\s*-?\s*\d+(?:\s*-?\s*\d+)*)/i);
+  const source = match ? match[1] : raw;
   return String(source || '')
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/(BSP|BPP|B3D)/gi, '')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\b(BSP|BPP|B3D)\b/gi, '')
     .replace(/[^0-9]+/g, '')
     .trim();
+}
+
+function getProjectBspLookupKeys(project) {
+  const candidates = [
+    project?.projectDisplay,
+    project?.projectNumber,
+    project?.projectCode,
+    project?.project,
+    project?.rawProject,
+    project?.stageValues?.['Project BSP/BPP/B3D*'],
+    project?.stageValues?.['Project BSP/BPP/B3D'],
+  ].filter(Boolean);
+
+  const keys = [];
+  for (const candidate of candidates) {
+    const key = normalizeBspLookupKey(candidate);
+    if (key && !keys.includes(key)) keys.push(key);
+  }
+  return keys;
 }
 
 function getProjectPoDisplay(project) {
@@ -1648,11 +1671,64 @@ function collectWipPoValues(value) {
     .filter((item, index, arr) => arr.indexOf(item) === index);
 }
 
+function findTextValueByNormalizedColumn(row, exactNames = [], includesNames = []) {
+  if (!row?.values) return '';
+  const exact = new Set(exactNames.map(normalizeColumnTitle).filter(Boolean));
+  const includes = includesNames.map(normalizeColumnTitle).filter(Boolean);
+
+  for (const [title, cell] of Object.entries(row.values)) {
+    const normalized = normalizeColumnTitle(title);
+    if (!normalized) continue;
+    const isExact = exact.has(normalized);
+    const isIncluded = includes.some((needle) => normalized.includes(needle));
+    if (!isExact && !isIncluded) continue;
+    const value = cell?.display ?? cell?.raw;
+    if (value != null && String(value).trim() && String(value).trim() !== 'N/A') {
+      return String(value).trim();
+    }
+  }
+
+  return '';
+}
+
+function getWipProjectRef(row) {
+  return findTextValueByNormalizedColumn(
+    row,
+    [
+      'Project BSP/BPP/B3D*',
+      'Project BSP/BPP/B3D',
+      'Project BSP/BPP/B3D *',
+      'Project',
+    ],
+    [
+      'Project BSP',
+      'BSP/BPP/B3D',
+      'BSP BPP B3D',
+    ]
+  );
+}
+
+function getWipCustomerPo(row) {
+  return findTextValueByNormalizedColumn(
+    row,
+    [
+      'Customer PO*',
+      'Customer PO',
+      'Customer PO *',
+      'PO Cliente',
+    ],
+    [
+      'Customer PO',
+      'Cliente PO',
+    ]
+  );
+}
+
 function buildWipPoMap(rows) {
   const poMap = new Map();
   for (const row of Array.isArray(rows) ? rows : []) {
-    const projectRef = textValue(row, 'Project BSP/BPP/B3D*') || textValue(row, 'Project BSP/BPP/B3D') || textValue(row, 'Project BSP/BPP/B3D *');
-    const poValue = textValue(row, 'Customer PO*') || textValue(row, 'Customer PO') || textValue(row, 'Customer PO *');
+    const projectRef = getWipProjectRef(row);
+    const poValue = getWipCustomerPo(row);
     const key = normalizeBspLookupKey(projectRef);
     if (!key) continue;
     const values = collectWipPoValues(poValue);
@@ -1664,6 +1740,26 @@ function buildWipPoMap(rows) {
     poMap.set(key, current);
   }
   return poMap;
+}
+
+function getPoListForProject(project, poMap) {
+  const keys = getProjectBspLookupKeys(project);
+  for (const key of keys) {
+    const direct = poMap.get(key);
+    if (direct?.length) return direct;
+  }
+
+  // Fallback seguro para casos em que a BSP venha com prefixo/sufixo diferente.
+  for (const key of keys) {
+    for (const [mapKey, values] of poMap.entries()) {
+      if (!values?.length) continue;
+      if (mapKey === key || (mapKey.length >= 6 && key.length >= 6 && (mapKey.endsWith(key) || key.endsWith(mapKey)))) {
+        return values;
+      }
+    }
+  }
+
+  return [];
 }
 
 async function fetchWipStepPoMap() {
@@ -1683,8 +1779,7 @@ async function fetchWipStepPoMap() {
 function enrichProjectsWithCustomerPo(projects, poMap) {
   const map = poMap instanceof Map ? poMap : new Map();
   return (Array.isArray(projects) ? projects : []).map((project) => {
-    const key = normalizeBspLookupKey(project?.projectDisplay || project?.projectNumber);
-    const list = (map.get(key) || []).filter(Boolean);
+    const list = getPoListForProject(project, map).filter(Boolean);
     const uniqueList = Array.from(new Set(list));
     project.customerPoList = uniqueList;
     project.customerPo = uniqueList[0] || '';
