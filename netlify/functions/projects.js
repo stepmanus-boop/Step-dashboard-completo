@@ -1865,6 +1865,9 @@ function getClientScopeAliases(session = {}) {
   const values = [
     session.clientKey,
     session.clientName,
+    session.name,
+    session.username,
+    session.email,
     ...(Array.isArray(session.allowedClients) ? session.allowedClients : []),
   ];
   const aliases = new Set();
@@ -1905,8 +1908,8 @@ function scopePayloadForSession(payload, session = {}) {
     meta: {
       ...(payload.meta || {}),
       clientPortal: true,
-      clientName: session.clientName || session.clientKey || session.name || 'Cliente',
-      clientKey: session.clientKey || '',
+      clientName: session.clientName || session.clientKey || session.name || session.username || 'Cliente',
+      clientKey: session.clientKey || session.clientName || session.name || session.username || '',
       clientLogoUrl: session.clientLogoUrl || '',
       alertSignature: alertData.signature,
     },

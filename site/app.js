@@ -3433,7 +3433,7 @@ function isClientUser(user = state.user) {
 }
 
 function getClientPortalName(user = state.user) {
-  return String(user?.clientName || user?.clientKey || user?.name || 'Cliente').trim() || 'Cliente';
+  return String(user?.clientName || user?.clientKey || user?.name || user?.username || 'Cliente').trim() || 'Cliente';
 }
 
 function getClientPortalLogo(user = state.user) {
@@ -6317,7 +6317,10 @@ function shouldSkipBackgroundRequest(options = {}) {
 function getProjectsCacheKey(user = state.user) {
   const role = String(user?.role || 'guest').trim().toLowerCase();
   const username = normalizeText(user?.username || user?.name || 'guest').replace(/[^a-z0-9]+/g, '_') || 'guest';
-  const client = normalizeText(user?.clientKey || user?.clientName || '').replace(/[^a-z0-9]+/g, '_');
+  const clientSource = role === 'client'
+    ? (user?.clientKey || user?.clientName || user?.name || user?.username || '')
+    : (user?.clientKey || user?.clientName || '');
+  const client = normalizeText(clientSource).replace(/[^a-z0-9]+/g, '_');
   return `${PROJECTS_CACHE_KEY}:${role}:${username}:${client}`;
 }
 

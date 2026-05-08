@@ -1,4 +1,4 @@
-const CACHE_NAME = "step-gerencia-pwa-v21-cliente-schedule-executivo";
+const CACHE_NAME = "step-gerencia-pwa-v22-cliente-mac-fallback";
 const APP_SHELL = [
   "/",
   "/app.css",
