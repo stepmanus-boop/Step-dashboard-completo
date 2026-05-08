@@ -324,6 +324,8 @@ const adminUserClientLogoImportEl = document.getElementById("admin-user-client-l
 const adminUserClientPlatformImageUrlEl = document.getElementById("admin-user-client-platform-image-url");
 const adminUserClientPlatformImageFileEl = document.getElementById("admin-user-client-platform-image-file");
 const adminUserClientPlatformImageImportEl = document.getElementById("admin-user-client-platform-image-import");
+const adminUserClientPlatformNameEl = document.getElementById("admin-user-client-platform-name");
+const adminUserClientPlatformImagesEl = document.getElementById("admin-user-client-platform-images");
 const adminTabTriggerEls = Array.from(document.querySelectorAll('[data-admin-tab-trigger]'));
 const adminTabPanelEls = Array.from(document.querySelectorAll('[data-admin-tab-panel]'));
 const projectSignalModalEl = document.getElementById('project-signal-modal');
@@ -3431,8 +3433,59 @@ function getClientPortalLogo(user = state.user) {
   return String(user?.clientLogoUrl || '').trim() || './assets/step-logo.png';
 }
 
-function getClientPortalPlatformImage(user = state.user) {
-  return String(user?.clientPlatformImageUrl || '').trim() || getClientPortalLogo(user);
+
+function parseClientPlatformImages(value) {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return Object.entries(value).reduce((acc, [key, src]) => {
+      const cleanKey = String(key || '').trim();
+      const cleanSrc = String(src || '').trim();
+      if (cleanKey && cleanSrc) acc[cleanKey] = cleanSrc;
+      return acc;
+    }, {});
+  }
+
+  const text = String(value || '').trim();
+  if (!text) return {};
+
+  if (text.startsWith('{')) {
+    try { return parseClientPlatformImages(JSON.parse(text)); } catch (_) {}
+  }
+
+  return text.split(/\n+/).reduce((acc, line) => {
+    const raw = String(line || '').trim();
+    if (!raw) return acc;
+    const separator = raw.includes('=') ? '=' : (raw.includes('|') ? '|' : ':');
+    const parts = raw.split(separator);
+    const key = String(parts.shift() || '').trim();
+    const src = parts.join(separator).trim();
+    if (key && src) acc[key] = src;
+    return acc;
+  }, {});
+}
+
+function formatClientPlatformImages(value) {
+  const map = parseClientPlatformImages(value);
+  return Object.entries(map).map(([key, src]) => `${key}=${src}`).join('\n');
+}
+
+function getClientPlatformImages(user = state.user) {
+  return parseClientPlatformImages(user?.clientPlatformImages || user?.clientPlatformImagesText || '');
+}
+
+function getClientPortalPlatformImage(vesselLabel = '', user = state.user) {
+  const images = getClientPlatformImages(user);
+  const vesselKey = normalizeText(vesselLabel || '');
+  for (const [key, src] of Object.entries(images)) {
+    if (normalizeText(key) === vesselKey) return String(src || '').trim();
+  }
+  // Imagem padrão opcional. Não usa a logo do cliente/STEP como foto da plataforma.
+  const defaultImage = String(user?.clientPlatformImageUrl || '').trim();
+  const logo = String(user?.clientLogoUrl || '').trim();
+  if (!defaultImage) return '';
+  if (logo && defaultImage === logo) return '';
+  if (defaultImage.includes('step-logo.png') || defaultImage.includes('step-logo.svg')) return '';
+  return defaultImage;
 }
 
 function ensureClientDashboardEl() {
@@ -3553,15 +3606,20 @@ function renderClientDashboard() {
   const grid = document.getElementById('client-vessel-grid');
   if (grid) {
     grid.innerHTML = groups.length ? groups.map((group) => `
-      <button type="button" class="client-vessel-card ${state.clientPortal.selectedVesselKey === group.key ? 'is-active' : ''}" data-client-vessel="${escapeHtml(group.key)}">
-        <div class="client-vessel-info">
-          <span>${escapeHtml(group.label)}</span>
-          <strong>${formatNumber(group.projects.length)} BSP(s)</strong>
-          <small>${formatNumber(group.tags)} tag(s) • ${formatNumber(group.weight, 0)} kg programado</small>
-          <small>${formatNumber(group.welded, 0)} kg soldado • ${formatPercent(group.avgProgress)}</small>
-        </div>
-        <div class="client-vessel-media"><img src="${escapeHtml(getClientPortalPlatformImage())}" alt="Foto da plataforma" /></div>
-      </button>
+      ${(() => {
+        const platformImage = getClientPortalPlatformImage(group.label);
+        return `
+          <button type="button" class="client-vessel-card ${platformImage ? 'has-media' : 'no-media'} ${state.clientPortal.selectedVesselKey === group.key ? 'is-active' : ''}" data-client-vessel="${escapeHtml(group.key)}">
+            <div class="client-vessel-info">
+              <span>${escapeHtml(group.label)}</span>
+              <strong>${formatNumber(group.projects.length)} BSP(s)</strong>
+              <small>${formatNumber(group.tags)} tag(s) • ${formatNumber(group.weight, 0)} kg programado</small>
+              <small>${formatNumber(group.welded, 0)} kg soldado • ${formatPercent(group.avgProgress)}</small>
+            </div>
+            ${platformImage ? `<div class="client-vessel-media"><img src="${escapeHtml(platformImage)}" alt="Foto da plataforma ${escapeHtml(group.label)}" /></div>` : ''}
+          </button>
+        `;
+      })()}
     `).join('') : '<div class="client-empty">Nenhuma demanda encontrada para este cliente.</div>';
   }
   renderClientBspPanel();
@@ -5909,8 +5967,40 @@ if (adminUserClientLogoImportEl) {
   adminUserClientLogoImportEl.addEventListener('click', () => importAdminClientImage(adminUserClientLogoFileEl, adminUserClientLogoUrlEl, 'logo do cliente'));
 }
 
+
+function setClientPlatformImageLine(platformName, imageUrl) {
+  const key = String(platformName || '').trim();
+  const src = String(imageUrl || '').trim();
+  if (!key || !src || !adminUserClientPlatformImagesEl) return;
+  const map = parseClientPlatformImages(adminUserClientPlatformImagesEl.value || '');
+  map[key] = src;
+  adminUserClientPlatformImagesEl.value = formatClientPlatformImages(map);
+  adminUserClientPlatformImagesEl.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+async function importAdminClientPlatformImage() {
+  const platformName = adminUserClientPlatformNameEl?.value || '';
+  if (!String(platformName || '').trim()) {
+    window.alert('Informe o nome da plataforma/vessel antes de importar a imagem. Ex.: FORTE, FRADE, BRAVO.');
+    return;
+  }
+  const file = adminUserClientPlatformImageFileEl?.files?.[0];
+  if (!file) {
+    window.alert('Selecione a imagem da plataforma primeiro.');
+    return;
+  }
+  try {
+    const dataUrl = await readImageFileAsOptimizedDataUrl(file, { maxWidth: 900, maxHeight: 560, quality: 0.82 });
+    setClientPlatformImageLine(platformName, dataUrl);
+    if (adminUserClientPlatformImageFileEl) adminUserClientPlatformImageFileEl.value = '';
+    if (adminUserFeedbackEl) adminUserFeedbackEl.textContent = `Foto da plataforma ${platformName} importada. Salve o usuário para gravar.`;
+  } catch (error) {
+    window.alert(error.message || 'Falha ao importar foto da plataforma.');
+  }
+}
+
 if (adminUserClientPlatformImageImportEl) {
-  adminUserClientPlatformImageImportEl.addEventListener('click', () => importAdminClientImage(adminUserClientPlatformImageFileEl, adminUserClientPlatformImageUrlEl, 'foto da plataforma'));
+  adminUserClientPlatformImageImportEl.addEventListener('click', importAdminClientPlatformImage);
 }
 
 document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
@@ -7415,6 +7505,8 @@ function updateAdminClientFieldsVisibility() {
   if (adminUserClientLogoFileEl) adminUserClientLogoFileEl.disabled = role !== 'client';
   if (adminUserClientLogoImportEl) adminUserClientLogoImportEl.disabled = role !== 'client';
   if (adminUserClientPlatformImageUrlEl) adminUserClientPlatformImageUrlEl.disabled = role !== 'client';
+  if (adminUserClientPlatformNameEl) adminUserClientPlatformNameEl.disabled = role !== 'client';
+  if (adminUserClientPlatformImagesEl) adminUserClientPlatformImagesEl.disabled = role !== 'client';
   if (adminUserClientPlatformImageFileEl) adminUserClientPlatformImageFileEl.disabled = role !== 'client';
   if (adminUserClientPlatformImageImportEl) adminUserClientPlatformImageImportEl.disabled = role !== 'client';
 }
@@ -7435,6 +7527,8 @@ function resetAdminUserForm() {
   if (adminUserClientLogoUrlEl) adminUserClientLogoUrlEl.value = '';
   if (adminUserClientLogoFileEl) adminUserClientLogoFileEl.value = '';
   if (adminUserClientPlatformImageUrlEl) adminUserClientPlatformImageUrlEl.value = '';
+  if (adminUserClientPlatformNameEl) adminUserClientPlatformNameEl.value = '';
+  if (adminUserClientPlatformImagesEl) adminUserClientPlatformImagesEl.value = '';
   if (adminUserClientPlatformImageFileEl) adminUserClientPlatformImageFileEl.value = '';
   updateAdminClientFieldsVisibility();
   updateAdminProjectPmAliasesVisibility();
@@ -7460,7 +7554,12 @@ function startEditUser(userId) {
   if (adminUserClientNameEl) adminUserClientNameEl.value = user.clientName || '';
   if (adminUserClientLogoUrlEl) adminUserClientLogoUrlEl.value = user.clientLogoUrl || '';
   if (adminUserClientLogoFileEl) adminUserClientLogoFileEl.value = '';
-  if (adminUserClientPlatformImageUrlEl) adminUserClientPlatformImageUrlEl.value = user.clientPlatformImageUrl || '';
+  if (adminUserClientPlatformImageUrlEl) {
+    const platformUrl = user.clientPlatformImageUrl || '';
+    adminUserClientPlatformImageUrlEl.value = platformUrl && platformUrl !== (user.clientLogoUrl || '') ? platformUrl : '';
+  }
+  if (adminUserClientPlatformNameEl) adminUserClientPlatformNameEl.value = '';
+  if (adminUserClientPlatformImagesEl) adminUserClientPlatformImagesEl.value = formatClientPlatformImages(user.clientPlatformImages || '');
   if (adminUserClientPlatformImageFileEl) adminUserClientPlatformImageFileEl.value = '';
   updateAdminClientFieldsVisibility();
   updateAdminProjectPmAliasesVisibility();
@@ -8739,6 +8838,7 @@ async function handleAdminUserSubmit(event) {
       clientName: adminUserClientNameEl?.value || '',
       clientLogoUrl: adminUserClientLogoUrlEl?.value || '',
       clientPlatformImageUrl: adminUserClientPlatformImageUrlEl?.value || '',
+      clientPlatformImages: parseClientPlatformImages(adminUserClientPlatformImagesEl?.value || ''),
     };
     const response = await fetch("/api/admin-users", {
       method: editingId ? "PUT" : "POST",
@@ -8762,6 +8862,8 @@ async function handleAdminUserSubmit(event) {
       clientKey: payload.clientKey,
       clientName: payload.clientName,
       clientLogoUrl: payload.clientLogoUrl,
+      clientPlatformImageUrl: payload.clientPlatformImageUrl,
+      clientPlatformImages: payload.clientPlatformImages,
       active: true,
       createdAt: new Date().toISOString(),
     };

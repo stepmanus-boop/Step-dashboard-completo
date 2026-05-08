@@ -54,6 +54,7 @@ function mapUser(row) {
     clientName: row.client_name || row.client_key || '',
     clientLogoUrl: row.client_logo_url || '',
     clientPlatformImageUrl: row.client_platform_image_url || '',
+    clientPlatformImages: row.client_platform_images && typeof row.client_platform_images === 'object' ? row.client_platform_images : {},
     allowedClients: Array.isArray(row.allowed_clients) ? row.allowed_clients.filter(Boolean) : [],
     active: row.active !== false,
     createdAt: row.created_at || null,
@@ -197,6 +198,7 @@ async function insertUser(input) {
     client_name: input.clientName || input.clientKey || '',
     client_logo_url: input.clientLogoUrl || '',
     client_platform_image_url: input.clientPlatformImageUrl || '',
+    client_platform_images: input.clientPlatformImages && typeof input.clientPlatformImages === 'object' ? input.clientPlatformImages : {},
     allowed_clients: Array.isArray(input.allowedClients) ? input.allowedClients : [],
     active: input.active !== false,
   };
@@ -223,6 +225,7 @@ async function updateUser(userId, updates) {
   if ('clientName' in updates) payload.client_name = updates.clientName || updates.clientKey || '';
   if ('clientLogoUrl' in updates) payload.client_logo_url = updates.clientLogoUrl || '';
   if ('clientPlatformImageUrl' in updates) payload.client_platform_image_url = updates.clientPlatformImageUrl || '';
+  if ('clientPlatformImages' in updates) payload.client_platform_images = updates.clientPlatformImages && typeof updates.clientPlatformImages === 'object' ? updates.clientPlatformImages : {};
   if ('allowedClients' in updates) payload.allowed_clients = Array.isArray(updates.allowedClients) ? updates.allowedClients : [];
   if ('active' in updates) payload.active = updates.active !== false;
   const rows = await supabaseFetch(`/rest/v1/users?id=eq.${q}&select=*`, {

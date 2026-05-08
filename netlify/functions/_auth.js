@@ -75,6 +75,7 @@ function createSessionCookie(user) {
     clientName: user.clientName || '',
     clientLogoUrl: String(user.clientLogoUrl || '').startsWith('data:') ? '' : (user.clientLogoUrl || ''),
     clientPlatformImageUrl: String(user.clientPlatformImageUrl || '').startsWith('data:') ? '' : (user.clientPlatformImageUrl || ''),
+    clientPlatformImages: {},
     allowedClients: Array.isArray(user.allowedClients) ? user.allowedClients : [],
     name: user.name,
     exp: Date.now() + SESSION_TTL_MS,

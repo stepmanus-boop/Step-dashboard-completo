@@ -62,8 +62,40 @@ function normalizeClientLogoUrl(input) {
   return String(input || '').trim();
 }
 
+
 function normalizeClientPlatformImageUrl(input) {
   return String(input || '').trim();
+}
+
+function normalizeClientPlatformImages(input) {
+  if (!input) return {};
+  let source = input;
+  if (typeof source === 'string') {
+    const text = source.trim();
+    if (!text) return {};
+    if (text.startsWith('{')) {
+      try { source = JSON.parse(text); } catch (_) { source = {}; }
+    } else {
+      const mapped = {};
+      for (const line of text.split(/\n+/)) {
+        const raw = String(line || '').trim();
+        if (!raw) continue;
+        const separator = raw.includes('=') ? '=' : (raw.includes('|') ? '|' : ':');
+        const parts = raw.split(separator);
+        const key = String(parts.shift() || '').trim();
+        const value = parts.join(separator).trim();
+        if (key && value) mapped[key] = value;
+      }
+      source = mapped;
+    }
+  }
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return {};
+  return Object.entries(source).reduce((acc, [key, value]) => {
+    const cleanKey = String(key || '').trim();
+    const cleanValue = String(value || '').trim();
+    if (cleanKey && cleanValue) acc[cleanKey] = cleanValue;
+    return acc;
+  }, {});
 }
 
 function normalizeAllowedClients(primary, input) {
@@ -122,6 +154,7 @@ exports.handler = async (event) => {
           clientName: user.clientName || '',
           clientLogoUrl: user.clientLogoUrl || '',
           clientPlatformImageUrl: user.clientPlatformImageUrl || '',
+          clientPlatformImages: user.clientPlatformImages || {},
           allowedClients: Array.isArray(user.allowedClients) ? user.allowedClients : [],
           active: Boolean(user.active),
           createdAt: user.createdAt || null,
@@ -165,6 +198,7 @@ exports.handler = async (event) => {
       const clientName = role === 'client' ? String(body.clientName || clientKey).trim() : '';
       const clientLogoUrl = role === 'client' ? normalizeClientLogoUrl(body.clientLogoUrl) : '';
       const clientPlatformImageUrl = role === 'client' ? normalizeClientPlatformImageUrl(body.clientPlatformImageUrl) : '';
+      const clientPlatformImages = role === 'client' ? normalizeClientPlatformImages(body.clientPlatformImages) : {};
       const allowedClients = role === 'client' ? normalizeAllowedClients(clientKey, body.allowedClients) : [];
 
       if (!name || !username) {
@@ -197,6 +231,7 @@ exports.handler = async (event) => {
         clientName,
         clientLogoUrl,
         clientPlatformImageUrl,
+        clientPlatformImages,
         allowedClients,
         active: body.active === false ? false : true,
         ...(password ? { passwordHash: hashPassword(password) } : {}),
@@ -255,6 +290,7 @@ exports.handler = async (event) => {
     const clientName = role === 'client' ? String(body.clientName || clientKey).trim() : '';
     const clientLogoUrl = role === 'client' ? normalizeClientLogoUrl(body.clientLogoUrl) : '';
     const clientPlatformImageUrl = role === 'client' ? normalizeClientPlatformImageUrl(body.clientPlatformImageUrl) : '';
+    const clientPlatformImages = role === 'client' ? normalizeClientPlatformImages(body.clientPlatformImages) : {};
     const allowedClients = role === 'client' ? normalizeAllowedClients(clientKey, body.allowedClients) : [];
 
     if (!name || !username || !password) {
@@ -287,6 +323,7 @@ exports.handler = async (event) => {
       clientName,
       clientLogoUrl,
       clientPlatformImageUrl,
+      clientPlatformImages,
       allowedClients,
       active: true,
     });

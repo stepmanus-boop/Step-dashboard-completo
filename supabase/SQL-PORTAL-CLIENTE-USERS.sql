@@ -6,6 +6,7 @@ alter table if exists public.users
   add column if not exists client_name text,
   add column if not exists client_logo_url text,
   add column if not exists client_platform_image_url text,
+  add column if not exists client_platform_images jsonb default '{}'::jsonb,
   add column if not exists allowed_clients text[] default '{}';
 
 -- Ajusta a constraint do campo role para aceitar o perfil client.
