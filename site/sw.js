@@ -1,4 +1,4 @@
-const CACHE_NAME = "step-gerencia-pwa-v9-performance-base-estavel";
+const CACHE_NAME = "step-gerencia-pwa-v22-cliente-rapido-restaurado";
 const APP_SHELL = [
   "/",
   "/app.css",

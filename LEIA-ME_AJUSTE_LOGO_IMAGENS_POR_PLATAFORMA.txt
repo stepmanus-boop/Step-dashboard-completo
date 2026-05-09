@@ -1,0 +1,36 @@
+AJUSTE APLICADO - PORTAL DO CLIENTE
+
+1. A logo do cliente foi separada das fotos das plataformas.
+   - A logo aparece somente no topo do Portal do Cliente.
+   - A logo não é mais usada automaticamente nos cards das plataformas.
+
+2. Cards das plataformas/vessels:
+   - Cada plataforma pode ter sua própria foto.
+   - Se uma plataforma não tiver foto cadastrada, o card fica sem imagem lateral.
+   - Não aparece mais a logo do cliente como foto da plataforma.
+
+3. Cadastro de usuário cliente:
+   - Mantido campo de Logo do Cliente.
+   - Criado campo de Foto padrão da plataforma, opcional.
+   - Criado campo Fotos por plataforma / vessel.
+   - Para importar uma foto específica:
+     a) Preencha o nome da plataforma igual ao card, exemplo: FORTE.
+     b) Selecione a imagem no computador.
+     c) Clique em Adicionar foto dessa plataforma.
+     d) Salve o usuário.
+
+4. Formato aceito no campo Fotos por plataforma / vessel:
+   FORTE=imagem_ou_base64
+   FRADE=imagem_ou_base64
+   BRAVO=imagem_ou_base64
+
+5. Setor para cliente:
+   - Quando o perfil for Cliente, o setor fica como Todos.
+   - Isso evita travar o cliente em um setor específico.
+
+6. Supabase:
+   Rode novamente o SQL abaixo antes de testar os novos campos:
+   supabase/SQL-PORTAL-CLIENTE-USERS.sql
+
+7. Cache/PWA:
+   O cache foi atualizado. Depois de publicar, use Ctrl + F5 ou reinstale/limpe o PWA se ainda aparecer versão antiga.

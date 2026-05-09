@@ -1,0 +1,19 @@
+PORTAL DO CLIENTE - FASE 1
+
+Alterações aplicadas:
+1. Usuário com perfil client passa a abrir o Portal do Cliente.
+2. API /api/projects filtra os projetos no backend pelo cliente vinculado ao login.
+3. Cliente vê apenas demandas da empresa dele.
+4. Dashboard do cliente mostra cards por Vessel/Unidade.
+5. Clique no Vessel abre as BSPs.
+6. Clique na BSP mostra o detalhamento na parte inferior.
+7. Cadastro de usuário ganhou campos: cliente vinculado, nome exibido e URL/logo do cliente.
+
+IMPORTANTE:
+Rode o SQL supabase/SQL-PORTAL-CLIENTE-USERS.sql no Supabase antes de criar usuários do tipo Cliente.
+
+Exemplo de cadastro:
+Perfil: Cliente
+Cliente vinculado: PRIO
+Nome exibido: PRIO
+Logo: ./assets/client-logos/prio.png ou uma URL https://...
