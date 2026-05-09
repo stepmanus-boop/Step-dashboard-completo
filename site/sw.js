@@ -1,4 +1,9 @@
-const CACHE_NAME = "step-gerencia-pwa-v23-cliente-dados-scope-fix";
+const CACHE_NAME = "step-gerencia-pwa-v24-client-session-hydration";
+// Versão v24: Correção de reidratação de sessão cliente e normalização de filtros
+// - Melhoria na chave de cache local para usuários cliente
+// - Validação robusta de cache vazio
+// - Normalização mais tolerante de nomes de clientes
+// - Força novo carregamento de dados ao detectar cache inválido
 const APP_SHELL = [
   "/",
   "/app.css",

@@ -6314,7 +6314,15 @@ function shouldSkipBackgroundRequest(options = {}) {
 function getProjectsCacheKey(user = state.user) {
   const role = String(user?.role || 'guest').trim().toLowerCase();
   const username = normalizeText(user?.username || user?.name || 'guest').replace(/[^a-z0-9]+/g, '_') || 'guest';
-  const client = normalizeText(user?.clientKey || user?.clientName || '').replace(/[^a-z0-9]+/g, '_');
+  // Para usuários cliente, usar clientKey ou clientName como parte da chave.
+  // Se ambos estiverem vazios, usar o ID do usuário como fallback para evitar cache compartilhado.
+  let client = normalizeText(user?.clientKey || user?.clientName || '').replace(/[^a-z0-9]+/g, '_');
+  if (!client && user?.id) {
+    client = normalizeText(user.id).replace(/[^a-z0-9]+/g, '_').substring(0, 16);
+  }
+  if (!client && user?.sub) {
+    client = normalizeText(user.sub).replace(/[^a-z0-9]+/g, '_').substring(0, 16);
+  }
   return `${PROJECTS_CACHE_KEY}:${role}:${username}:${client}`;
 }
 
@@ -6360,7 +6368,15 @@ function shouldIgnoreCachedProjectsPayload(cacheEntry) {
   const cachedProjects = Array.isArray(cacheEntry.payload.projects) ? cacheEntry.payload.projects : [];
   // Evita reaproveitar cache vazio criado por versão anterior do Portal do Cliente.
   // Cache vazio de cliente travava os cards em "--" até expirar.
-  if (isClientUser() && cachedProjects.length === 0) return true;
+  if (isClientUser() && cachedProjects.length === 0) {
+    console.warn('[Cache] Ignorando cache vazio para usuário cliente');
+    return true;
+  }
+  // Validação adicional: se o cache tem meta.clientPortal=true mas nenhum projeto, é inválido.
+  if (isClientUser() && cacheEntry.payload.meta?.clientPortal && cachedProjects.length === 0) {
+    console.warn('[Cache] Ignorando cache com clientPortal=true mas sem projetos');
+    return true;
+  }
   return false;
 }
 
@@ -6409,10 +6425,10 @@ async function loadProjects(options = {}) {
     return;
   }
 
-  if (background && shouldSkipBackgroundRequest(options)) return;
-
+   if (background && shouldSkipBackgroundRequest(options)) return;
   const cached = readProjectsCache();
-  if (!force && cached?.payload && !shouldIgnoreCachedProjectsPayload(cached)) {
+  const shouldUseCache = !force && cached?.payload && !shouldIgnoreCachedProjectsPayload(cached);
+  if (shouldUseCache) {
     applyProjectsPayload(cached.payload, { fromCache: true });
     if (isProjectsCacheFresh(cached)) {
       state.lastProjectsFetchAt = Date.now();
@@ -6421,6 +6437,9 @@ async function loadProjects(options = {}) {
       }
       return;
     }
+  }
+  if (isClientUser() && !shouldUseCache && cached) {
+    console.warn('[LoadProjects] Cache rejeitado para usuário cliente, forçando API call');
   }
 
   if (!force && state.loadingProjectsRequest) {
@@ -6455,10 +6474,12 @@ async function loadProjects(options = {}) {
       if (!response.ok || !data.ok) {
         throw new Error(data?.error || "Falha ao carregar projetos.");
       }
-
+      if (isClientUser() && (!data.projects || data.projects.length === 0)) {
+        console.warn('[LoadProjects] Aviso: usuário cliente recebeu 0 projetos da API');
+      }
       state.lastProjectsFetchAt = Date.now();
       writeProjectsCache(data);
-      applyProjectsPayload(data, { fromCache: false });
+      applyProjectsPayload(data, { fromCache: false });;
     } catch (error) {
       const fallbackMessage = error?.message || "Falha ao atualizar dados operacionais.";
 

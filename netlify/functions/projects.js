@@ -1905,12 +1905,14 @@ async function buildPayload(options = {}) {
 
 
 function normalizeClientScopeValue(value) {
-  return String(value || '')
+  const normalized = String(value || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .replace(/[^a-zA-Z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
+  return normalized;
 }
 
 function getClientScopeAliases(session = {}) {
@@ -1937,9 +1939,24 @@ function projectBelongsToClientScope(project, session = {}) {
   if (!aliases.size) return false;
   const client = normalizeClientScopeValue(project.client);
   if (!client) return false;
+  
+  // Teste de compatibilidade: verifica se algum alias corresponde ao cliente do projeto
   for (const alias of aliases) {
     if (!alias) continue;
-    if (client === alias || client.includes(alias) || alias.includes(client)) return true;
+    
+    // Teste 1: igualdade exata
+    if (client === alias) return true;
+    
+    // Teste 2: um está contido no outro
+    if (client.includes(alias) || alias.includes(client)) return true;
+    
+    // Teste 3: palavras-chave compartilhadas (pelo menos 2 palavras em comum)
+    const clientWords = client.split(/\s+/).filter(w => w.length >= 3);
+    const aliasWords = alias.split(/\s+/).filter(w => w.length >= 3);
+    if (clientWords.length > 0 && aliasWords.length > 0) {
+      const commonWords = clientWords.filter(w => aliasWords.includes(w));
+      if (commonWords.length > 0) return true;
+    }
   }
   return false;
 }
