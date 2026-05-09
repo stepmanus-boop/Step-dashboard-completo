@@ -5,7 +5,7 @@ const PRESENCE_HEARTBEAT_MS = 90000;
 const AUTH_REFRESH_MS = 300000;
 const ADMIN_REFRESH_MS = 60000;
 const ALERT_NOTIFICATION_COOLDOWN_MS = 4 * 60 * 60 * 1000;
-const PROJECTS_CACHE_KEY = 'step_dashboard_projects_cache_v3';
+const PROJECTS_CACHE_KEY = 'step_dashboard_projects_cache_v4_client_scope';
 
 let adminResponsesPollTimer = null;
 
@@ -6355,6 +6355,15 @@ function isProjectsCacheFresh(cacheEntry) {
   return savedAt > 0 && Date.now() - savedAt <= PROJECTS_CACHE_TTL_MS;
 }
 
+function shouldIgnoreCachedProjectsPayload(cacheEntry) {
+  if (!cacheEntry?.payload) return true;
+  const cachedProjects = Array.isArray(cacheEntry.payload.projects) ? cacheEntry.payload.projects : [];
+  // Evita reaproveitar cache vazio criado por versão anterior do Portal do Cliente.
+  // Cache vazio de cliente travava os cards em "--" até expirar.
+  if (isClientUser() && cachedProjects.length === 0) return true;
+  return false;
+}
+
 function applyProjectsPayload(data, options = {}) {
   state.projects = enrichProjects(data.projects || []);
   renderAdminProjectPmAliasOptions();
@@ -6388,7 +6397,7 @@ function updateMeta() {
   if (!state.meta) return;
   sheetNameEl.textContent = state.meta.clientPortal ? 'Base operacional' : (state.meta.sheetName || "Smartsheet");
   lastSyncEl.textContent = `Última atualização: ${new Date(state.meta.lastSync).toLocaleString("pt-BR")}`;
-  footerVersionEl.textContent = state.meta.clientPortal ? `Versão dos dados: ${state.meta.version}` : `Versão da sheet: ${state.meta.version}`;
+  footerVersionEl.textContent = (state.meta.clientPortal || isClientUser()) ? `Versão dos dados: ${state.meta.version || '--'}` : `Versão da sheet: ${state.meta.version}`;
 }
 
 async function loadProjects(options = {}) {
@@ -6403,7 +6412,7 @@ async function loadProjects(options = {}) {
   if (background && shouldSkipBackgroundRequest(options)) return;
 
   const cached = readProjectsCache();
-  if (!force && cached?.payload) {
+  if (!force && cached?.payload && !shouldIgnoreCachedProjectsPayload(cached)) {
     applyProjectsPayload(cached.payload, { fromCache: true });
     if (isProjectsCacheFresh(cached)) {
       state.lastProjectsFetchAt = Date.now();

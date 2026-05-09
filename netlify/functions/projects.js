@@ -1,4 +1,5 @@
 const { jsonResponse, requireSession } = require('./_auth');
+const { isSupabaseConfigured, getUserById } = require('./_supabase');
 const API_BASE = process.env.SMARTSHEET_API_BASE || "https://api.smartsheet.com/2.0";
 const SHEET_NAME = process.env.SMARTSHEET_SHEET_NAME || "Progress Tracking Sheet - Piping Fabrication";
 const SHEET_ID_ENV = process.env.SMARTSHEET_SHEET_ID || "";
@@ -1943,6 +1944,45 @@ function projectBelongsToClientScope(project, session = {}) {
   return false;
 }
 
+
+async function hydrateClientSession(session = {}) {
+  if (!session || session.role !== 'client') return session;
+
+  const hasClientScope = Boolean(
+    String(session.clientKey || '').trim()
+    || String(session.clientName || '').trim()
+    || (Array.isArray(session.allowedClients) && session.allowedClients.length)
+  );
+
+  // Sessões antigas podem estar sem clientKey/clientName no cookie.
+  // O frontend mostra o usuário correto via /api/auth-me, mas /api/projects usa o cookie.
+  // Para evitar carteira vazia no Portal do Cliente, reidratamos a sessão pelo Supabase.
+  if (!isSupabaseConfigured() || !session.sub) return session;
+
+  try {
+    const freshUser = await getUserById(session.sub);
+    if (!freshUser) return session;
+    return {
+      ...session,
+      ...freshUser,
+      sub: session.sub,
+      username: freshUser.username || session.username,
+      role: freshUser.role || session.role,
+      clientKey: freshUser.clientKey || session.clientKey || '',
+      clientName: freshUser.clientName || session.clientName || freshUser.clientKey || '',
+      clientLogoUrl: freshUser.clientLogoUrl || session.clientLogoUrl || '',
+      clientPlatformImageUrl: freshUser.clientPlatformImageUrl || session.clientPlatformImageUrl || '',
+      clientPlatformImages: freshUser.clientPlatformImages || session.clientPlatformImages || {},
+      allowedClients: Array.isArray(freshUser.allowedClients) && freshUser.allowedClients.length
+        ? freshUser.allowedClients
+        : (Array.isArray(session.allowedClients) ? session.allowedClients : []),
+    };
+  } catch (error) {
+    // Se o Supabase oscilar, mantém a sessão do cookie para não bloquear o painel.
+    return session;
+  }
+}
+
 function scopePayloadForSession(payload, session = {}) {
   if (!payload || session.role !== 'client') return payload;
   const projects = (Array.isArray(payload.projects) ? payload.projects : []).filter((project) => projectBelongsToClientScope(project, session));
@@ -1972,7 +2012,8 @@ exports.handler = async (event) => {
 
   try {
     const force = String(event.queryStringParameters?.force || "") === "1";
-    const payload = scopePayloadForSession(await buildPayload({ force }), auth.session);
+    const session = await hydrateClientSession(auth.session);
+    const payload = scopePayloadForSession(await buildPayload({ force }), session);
     return jsonResponse(200, payload, {
       headers: {
         'cache-control': 'private, max-age=60, stale-while-revalidate=120',

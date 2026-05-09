@@ -52,7 +52,8 @@ exports.handler = async (event) => {
       return jsonResponse(401, { ok: false, error: 'Usuário ou senha inválidos.' });
     }
 
-    await upsertUserPresence({
+    // Otimização: presença não bloqueia o login.
+    Promise.resolve().then(() => upsertUserPresence({
       userId: user.id,
       username: user.username,
       name: user.name,
@@ -66,7 +67,7 @@ exports.handler = async (event) => {
       lastViewTitle: 'STEP - Painel Operacional',
       userAgent: getUserAgent(event),
       ipAddress: getClientIp(event),
-    }).catch(() => null);
+    })).catch(() => null);
 
     return jsonResponse(200, {
       ok: true,
