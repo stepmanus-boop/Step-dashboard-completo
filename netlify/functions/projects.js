@@ -1,6 +1,4 @@
 const { jsonResponse, requireSession } = require('./_auth');
-const fs = require('fs');
-const path = require('path');
 const API_BASE = process.env.SMARTSHEET_API_BASE || "https://api.smartsheet.com/2.0";
 const SHEET_NAME = process.env.SMARTSHEET_SHEET_NAME || "Progress Tracking Sheet - Piping Fabrication";
 const SHEET_ID_ENV = process.env.SMARTSHEET_SHEET_ID || "";
@@ -16,19 +14,9 @@ const cache = global.__STEP_PROGRESS_CACHE__ || {
   wipStepSheetName: null,
   wipStepVersion: null,
   payload: null,
-  snapshotPayload: null,
-  wipPoMap: null,
-  payloadSyncedAt: 0,
   lastSync: null,
 };
 global.__STEP_PROGRESS_CACHE__ = cache;
-
-const SERVER_MEMORY_CACHE_TTL_MS = Number(process.env.STEP_SERVER_MEMORY_CACHE_TTL_MS || 90000);
-// PERFORMANCE: a leitura da base complementar de PO não pode bloquear a abertura do painel.
-// Por padrão, o painel carrega a base principal primeiro e usa PO em cache quando disponível.
-// Para forçar leitura bloqueante da PO, defina STEP_ENABLE_WIP_PO_BLOCKING=true.
-const WIP_PO_BLOCKING_ENABLED = String(process.env.STEP_ENABLE_WIP_PO_BLOCKING || '').toLowerCase() === 'true';
-const WIP_PO_MAX_WAIT_MS = Number(process.env.STEP_WIP_PO_MAX_WAIT_MS || 6000);
 
 const STAGE_ORDER = [
   { key: "Drawing Execution Advance%", label: "AG. Emissão de detalhamento", type: "percent" },
@@ -546,16 +534,17 @@ function getProjectBspLookupKeys(project) {
   return keys;
 }
 
-function getProjectPoDisplay(project) {
+function getProjectPoDisplay(project, poSourceAvailable = true) {
   const list = Array.isArray(project?.customerPoList) ? project.customerPoList.filter(Boolean) : [];
-  if (!list.length) return 'Aguardando PO';
+  if (!list.length) return poSourceAvailable ? 'Aguardando PO' : '';
   if (list.length === 1) return `PO ${list[0]}`;
   return `POs ${list.join(' / ')}`;
 }
 
-function buildClientDisplayCode(project) {
+function buildClientDisplayCode(project, poSourceAvailable = true) {
   const bsp = String(project?.projectDisplay || project?.projectNumber || 'BSP').trim() || 'BSP';
-  return `${bsp} - ${getProjectPoDisplay(project)}`;
+  const poDisplay = getProjectPoDisplay(project, poSourceAvailable);
+  return poDisplay ? `${bsp} - ${poDisplay}` : bsp;
 }
 
 function extractIsoDescription(drawingText) {
@@ -1062,9 +1051,9 @@ function buildProject(summaryRow, childRows) {
     projectDisplay: parts.display || projectText,
     customerPo: '',
     customerPoList: [],
-    customerPoDisplay: 'Aguardando PO',
-    customerPoStatus: 'waiting',
-    clientDisplayCode: `${parts.display || projectText || 'BSP'} - Aguardando PO`,
+    customerPoDisplay: '',
+    customerPoStatus: 'pending',
+    clientDisplayCode: `${parts.display || projectText || 'BSP'}`,
     quantitySpools,
     kilos: parseNumber(summaryRow, "Kilos"),
     weldedWeightKg,
@@ -1774,80 +1763,30 @@ function getPoListForProject(project, poMap) {
   return [];
 }
 
-function getCachedWipPoData() {
-  if (cache.wipPoMap) {
-    return {
-      poMap: cache.wipPoMap,
-      version: cache.wipStepVersion || null,
-      sheetName: cache.wipStepSheetName || WIP_STEP_SHEET_NAME,
-      available: true,
-      fromCache: true,
-    };
-  }
-  return { poMap: new Map(), version: null, sheetName: WIP_STEP_SHEET_NAME, available: false, skipped: true };
-}
-
-function withTimeout(promise, timeoutMs, fallbackValue) {
-  const limit = Number(timeoutMs || 0);
-  if (!limit || limit <= 0) return promise;
-  return Promise.race([
-    promise,
-    new Promise((resolve) => {
-      setTimeout(() => resolve({ ...fallbackValue, timedOut: true, available: Boolean(fallbackValue?.available) }), limit);
-    }),
-  ]);
-}
-
-async function getWipPoDataForPayload({ includeWip = false } = {}) {
-  const cached = getCachedWipPoData();
-  if (!includeWip && !WIP_PO_BLOCKING_ENABLED) return cached;
-  return withTimeout(fetchWipStepPoMap(), WIP_PO_MAX_WAIT_MS, cached);
-}
-
 async function fetchWipStepPoMap() {
   try {
     const sheetId = await resolveWipStepSheetId();
     if (!sheetId) return { poMap: new Map(), version: null, sheetName: WIP_STEP_SHEET_NAME, available: false };
     const version = await fetchSheetVersion(sheetId);
-
-    // Evita reler a planilha complementar inteira quando nada mudou.
-    if (cache.wipPoMap && cache.wipStepVersion === version && cache.wipStepSheetId === sheetId) {
-      return {
-        poMap: cache.wipPoMap,
-        version,
-        sheetName: cache.wipStepSheetName || WIP_STEP_SHEET_NAME,
-        available: true,
-        fromCache: true,
-      };
-    }
-
     const sheet = await fetchFullSheet(sheetId);
     const rows = mapApiRows(sheet);
-    const poMap = buildWipPoMap(rows);
-    cache.wipStepSheetId = sheetId;
-    cache.wipStepSheetName = sheet.name || cache.wipStepSheetName || WIP_STEP_SHEET_NAME;
-    cache.wipStepVersion = version;
-    cache.wipPoMap = poMap;
-    return { poMap, version, sheetName: cache.wipStepSheetName, available: true };
+    return { poMap: buildWipPoMap(rows), version, sheetName: sheet.name || cache.wipStepSheetName || WIP_STEP_SHEET_NAME, available: true };
   } catch (error) {
-    console.warn('Não foi possível carregar vínculo de PO:', error.message);
-    if (cache.wipPoMap) {
-      return { poMap: cache.wipPoMap, version: cache.wipStepVersion || null, sheetName: cache.wipStepSheetName || WIP_STEP_SHEET_NAME, available: true, fromCache: true, error: error.message };
-    }
+    console.warn('Não foi possível carregar Work in Progress - STEP para vínculo de PO:', error.message);
     return { poMap: new Map(), version: null, sheetName: WIP_STEP_SHEET_NAME, available: false, error: error.message };
   }
 }
 
-function enrichProjectsWithCustomerPo(projects, poMap) {
+function enrichProjectsWithCustomerPo(projects, poMap, poSourceAvailable = true) {
   const map = poMap instanceof Map ? poMap : new Map();
   return (Array.isArray(projects) ? projects : []).map((project) => {
     const list = getPoListForProject(project, map).filter(Boolean);
     const uniqueList = Array.from(new Set(list));
     project.customerPoList = uniqueList;
     project.customerPo = uniqueList[0] || '';
-    project.customerPoDisplay = uniqueList.length ? getProjectPoDisplay(project) : 'Aguardando PO';
-    project.customerPoStatus = uniqueList.length ? 'found' : 'waiting';
-    project.clientDisplayCode = buildClientDisplayCode(project);
+    project.customerPoDisplay = uniqueList.length ? getProjectPoDisplay(project, poSourceAvailable) : (poSourceAvailable ? 'Aguardando PO' : '');
+    project.customerPoStatus = uniqueList.length ? 'found' : (poSourceAvailable ? 'waiting' : 'unavailable');
+    project.clientDisplayCode = buildClientDisplayCode(project, poSourceAvailable);
     return project;
   });
 }
@@ -1861,28 +1800,21 @@ async function fetchFullSheet(sheetId) {
   return apiFetch(`/sheets/${sheetId}?includeAll=true`);
 }
 
-async function buildPayload(options = {}) {
+async function buildPayload() {
   if (!TOKEN) throw new Error("SMARTSHEET_TOKEN não configurado.");
-
-  // Em ambiente serverless, a leitura completa do Smartsheet pode variar bastante.
-  // Se já existe payload recente na memória da função, devolvemos imediatamente.
-  if (cache.payload && cache.payloadSyncedAt && (Date.now() - Number(cache.payloadSyncedAt)) <= SERVER_MEMORY_CACHE_TTL_MS) {
-    return cache.payload;
-  }
 
   const sheetId = await resolveSheetId();
   const version = await fetchSheetVersion(sheetId);
-  const includeWip = Boolean(options.includeWip || WIP_PO_BLOCKING_ENABLED);
-  const wipPoData = await getWipPoDataForPayload({ includeWip });
+  const wipPoData = await fetchWipStepPoMap();
 
-  if (cache.payload && cache.version === version && (!includeWip || cache.wipStepVersion === wipPoData.version)) {
-    cache.payloadSyncedAt = Date.now();
-    return cache.payload;
+  if (cache.payload && cache.version === version) {
+    if (!wipPoData.available) return cache.payload;
+    if (cache.wipStepVersion === wipPoData.version) return cache.payload;
   }
 
   const sheet = await fetchFullSheet(sheetId);
   const rows = mapApiRows(sheet);
-  const projects = enrichProjectsWithCustomerPo(buildProjects(rows), wipPoData.poMap);
+  const projects = enrichProjectsWithCustomerPo(buildProjects(rows), wipPoData.poMap, Boolean(wipPoData.available));
   const stats = buildStats(projects);
   const alertData = buildAlerts(projects);
 
@@ -1916,7 +1848,6 @@ async function buildPayload(options = {}) {
   cache.wipStepSheetName = payload.meta.wipStepSheetName;
   cache.wipStepVersion = payload.meta.wipStepVersion;
   cache.lastSync = payload.meta.lastSync;
-  cache.payloadSyncedAt = Date.now();
   cache.payload = payload;
 
   return payload;
@@ -1987,125 +1918,21 @@ function scopePayloadForSession(payload, session = {}) {
   };
 }
 
-function loadFallbackSnapshotPayload() {
-  if (cache.snapshotPayload) return cache.snapshotPayload;
-  const candidates = [
-    path.join(__dirname, '..', 'data', 'fallback-projects.json'),
-    path.join(process.cwd(), 'netlify', 'data', 'fallback-projects.json'),
-  ];
-
-  for (const filePath of candidates) {
-    try {
-      if (!fs.existsSync(filePath)) continue;
-      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-      if (!parsed || !Array.isArray(parsed.projects)) continue;
-      cache.snapshotPayload = {
-        ...parsed,
-        ok: true,
-        meta: {
-          ...(parsed.meta || {}),
-          sheetName: parsed.meta?.sheetName || 'Snapshot local',
-          version: parsed.meta?.version || 'snapshot-local',
-          lastSync: parsed.meta?.lastSync || new Date().toISOString(),
-          fastSnapshot: true,
-          snapshotServedAt: new Date().toISOString(),
-        },
-      };
-      return cache.snapshotPayload;
-    } catch (error) {
-      console.warn('Falha ao ler snapshot local de projetos:', error.message);
-    }
-  }
-
-  return null;
-}
-
 exports.handler = async (event) => {
   const auth = requireSession(event);
   if (!auth.ok) {
     return jsonResponse(401, { ok: false, error: 'Faça login para visualizar o painel.' });
   }
 
-  const query = event?.queryStringParameters || {};
-  const fastMode = query.fast === '1' || query.fast === 'true';
-  const includePo = query.po === '1' || query.po === 'true' || query.includePo === '1' || query.includePo === 'true';
-
   try {
-    if (fastMode) {
-      if (cache.payload) {
-        const payload = scopePayloadForSession(cache.payload, auth.session);
-        return jsonResponse(200, {
-          ...payload,
-          meta: {
-            ...(payload.meta || {}),
-            fastCache: true,
-            cacheServedAt: new Date().toISOString(),
-          },
-        }, {
-          headers: {
-            'cache-control': 'private, max-age=30, stale-while-revalidate=180',
-          },
-        });
-      }
-
-      const snapshot = loadFallbackSnapshotPayload();
-      if (snapshot) {
-        const payload = scopePayloadForSession(snapshot, auth.session);
-        return jsonResponse(200, {
-          ...payload,
-          meta: {
-            ...(payload.meta || {}),
-            fastSnapshot: true,
-            snapshotServedAt: new Date().toISOString(),
-          },
-        }, {
-          headers: {
-            'cache-control': 'private, max-age=20, stale-while-revalidate=180',
-          },
-        });
-      }
-    }
-
-    const payload = scopePayloadForSession(await buildPayload({ includeWip: includePo }), auth.session);
+    const payload = scopePayloadForSession(await buildPayload(), auth.session);
     return jsonResponse(200, payload, {
       headers: {
         'cache-control': 'private, max-age=60, stale-while-revalidate=120',
       },
     });
   } catch (error) {
-    if (cache.payload) {
-      const payload = scopePayloadForSession(cache.payload, auth.session);
-      return jsonResponse(200, {
-        ...payload,
-        meta: {
-          ...(payload.meta || {}),
-          staleFallback: true,
-          fallbackReason: error.message,
-          cacheServedAt: new Date().toISOString(),
-        },
-      }, {
-        headers: {
-          'cache-control': 'private, max-age=15, stale-while-revalidate=120',
-        },
-      });
-    }
-    const snapshot = loadFallbackSnapshotPayload();
-    if (snapshot) {
-      const payload = scopePayloadForSession(snapshot, auth.session);
-      return jsonResponse(200, {
-        ...payload,
-        meta: {
-          ...(payload.meta || {}),
-          staleFallback: true,
-          fallbackServedAt: new Date().toISOString(),
-        },
-      }, {
-        headers: {
-          'cache-control': 'private, max-age=15, stale-while-revalidate=120',
-        },
-      });
-    }
-    return jsonResponse(200, { ok: true, projects: [], stats: buildStats([]), alerts: [], meta: { sheetName: 'Base operacional', version: 'aguardando-atualizacao', lastSync: new Date().toISOString(), staleFallback: true } });
+    return jsonResponse(500, { ok: false, error: error.message });
   }
 };
 exports.buildPayload = buildPayload;
