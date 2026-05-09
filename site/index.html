@@ -13,7 +13,7 @@
     <title>STEP • Painel Operacional</title>
     <link rel="stylesheet" href="./app.css" />
   </head>
-  <body class="app-booting">
+  <body>
     <div class="page-shell">
       <header class="topbar">
         <div class="brand-card">
@@ -170,7 +170,7 @@
               </div>
             </div>
             <div class="panel-meta">
-              <span id="sheet-name">Base operacional</span>
+              <span id="sheet-name">Smartsheet</span>
               <span id="last-sync">Aguardando atualização...</span>
               <button id="refresh-projects-button" class="mini-action-button" type="button" title="Forçar atualização do Tracking">Atualizar agora</button>
             </div>
@@ -261,8 +261,8 @@
 
       <footer class="footer-bar">
         <span id="connection-status" class="connection-status">Online</span>
-        <span>Sistema online • sincronização operacional</span>
-        <span id="footer-version">Versão dos dados: --</span>
+        <span>API local integrada ao projeto + sincronização Smartsheet</span>
+        <span id="footer-version">Versão da sheet: --</span>
       </footer>
     </div>
 
@@ -291,7 +291,7 @@
           <div>
             <p class="modal-eyebrow">Atenção</p>
             <h3 id="alert-modal-title">Prazos em alerta</h3>
-            <p class="modal-subtitle">O alerta reaparece a cada 4 horas até que a base operacional seja atualizada.</p>
+            <p class="modal-subtitle">O alerta reaparece a cada 4 horas até que a planilha seja atualizada.</p>
           </div>
           <button id="alert-modal-close" class="modal-close" type="button" aria-label="Fechar alerta">×</button>
         </div>
@@ -406,14 +406,12 @@
               <span>Perfil</span>
               <select id="admin-user-role">
                 <option value="sector">Setor</option>
-                <option value="client">Cliente</option>
                 <option value="admin">Admin</option>
               </select>
             </label>
             <label class="stack-field">
               <span>Setor</span>
               <select id="admin-user-sector">
-                <option value="all">Todos</option>
                 <option value="engenharia">Engenharia</option>
                 <option value="suprimento">Suprimento</option>
                 <option value="pintura">Pintura</option>
@@ -442,36 +440,6 @@
               <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="projetos" /> Projetos</label>
             </div>
           </label>
-          <div class="stack-two hidden" id="admin-user-client-fields">
-            <label class="stack-field">
-              <span>Cliente vinculado</span>
-              <input id="admin-user-client-key" type="text" placeholder="Ex.: PRIO" />
-            </label>
-            <label class="stack-field">
-              <span>Nome exibido no Portal</span>
-              <input id="admin-user-client-name" type="text" placeholder="Ex.: PRIO" />
-            </label>
-            <label class="stack-field stack-field--wide">
-              <span>Logo do cliente</span>
-              <input id="admin-user-client-logo-url" type="text" placeholder="URL da logo ou ./assets/client-logos/prio.png" />
-              <div class="file-import-row">
-                <input id="admin-user-client-logo-file" type="file" accept="image/*" />
-                <button id="admin-user-client-logo-import" class="ghost-button ghost-button--compact" type="button">Importar logo do computador</button>
-              </div>
-              <small>Opcional. Você pode colar uma URL/caminho ou importar uma imagem local.</small>
-            </label>
-            <input id="admin-user-client-platform-image-url" type="hidden" value="" />
-            <label class="stack-field stack-field--wide">
-              <span>Fotos por plataforma / vessel</span>
-              <input id="admin-user-client-platform-name" type="text" placeholder="Nome da plataforma. Ex.: FORTE, FRADE, BRAVO" />
-              <div class="file-import-row">
-                <input id="admin-user-client-platform-image-file" type="file" accept="image/*" />
-                <button id="admin-user-client-platform-image-import" class="ghost-button ghost-button--compact" type="button">Adicionar foto dessa plataforma</button>
-              </div>
-              <textarea id="admin-user-client-platform-images" rows="4" placeholder="FORTE=cole aqui a URL/base64 da imagem&#10;FRADE=cole aqui a URL/base64 da imagem"></textarea>
-              <small>Preencha uma imagem para cada Vessel/Unidade. O nome precisa ser igual ao nome que aparece no card.</small>
-            </label>
-          </div>
           <label class="stack-field hidden" id="admin-user-project-pms-field">
             <span>PMs adicionais para visualizar</span>
             <div class="pm-select-box">

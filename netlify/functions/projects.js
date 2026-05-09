@@ -2,21 +2,19 @@ const { jsonResponse, requireSession } = require('./_auth');
 const API_BASE = process.env.SMARTSHEET_API_BASE || "https://api.smartsheet.com/2.0";
 const SHEET_NAME = process.env.SMARTSHEET_SHEET_NAME || "Progress Tracking Sheet - Piping Fabrication";
 const SHEET_ID_ENV = process.env.SMARTSHEET_SHEET_ID || "";
-const WIP_STEP_SHEET_NAME = process.env.SMARTSHEET_WIP_STEP_SHEET_NAME || "Work in Progress - STEP";
-const WIP_STEP_SHEET_ID_ENV = process.env.SMARTSHEET_WIP_STEP_SHEET_ID || process.env.SMARTSHEET_WORK_IN_PROGRESS_STEP_SHEET_ID || "";
 const TOKEN = process.env.SMARTSHEET_TOKEN || process.env.SMARTSHEET_ACCESS_TOKEN || process.env.SMARTSHEET_API_TOKEN || process.env.SMARTSHEET_BEARER_TOKEN || process.env.SMARTSHEET_PAT || process.env.SMARTSHEET_PERSONAL_ACCESS_TOKEN || "5pP36OjBaD1W2HWyxf6aoGxXasPvEl8gbqOmQ";
+const PROJECTS_FAST_CACHE_MS = Number(process.env.PROJECTS_FAST_CACHE_MS || 45000);
 
 const cache = global.__STEP_PROGRESS_CACHE__ || {
   sheetId: null,
   sheetName: null,
   version: null,
-  wipStepSheetId: null,
-  wipStepSheetName: null,
-  wipStepVersion: null,
   payload: null,
   lastSync: null,
+  lastVersionCheck: null,
 };
 global.__STEP_PROGRESS_CACHE__ = cache;
+if (cache.lastVersionCheck == null) cache.lastVersionCheck = null;
 
 const STAGE_ORDER = [
   { key: "Drawing Execution Advance%", label: "AG. Emissão de detalhamento", type: "percent" },
@@ -496,55 +494,6 @@ function parseProjectParts(projectText) {
   }
 
   return { prefix: "", number: cleaned, display: cleaned };
-}
-
-function normalizeBspLookupKey(value) {
-  const raw = String(value || '').trim();
-  if (!raw) return '';
-
-  // Captura somente o código da BSP/BPP/B3D, sem deixar a PO entrar na chave.
-  // Exemplos válidos:
-  // BSP 25-732-03, 25-732-03, BPP 25-732-03, B3D 25-732-03.
-  const match = raw.match(/(?:\b(?:BSP|BPP|B3D)\b\s*)?(\d{2}\s*-?\s*\d+(?:\s*-?\s*\d+)*)/i);
-  const source = match ? match[1] : raw;
-  return String(source || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\b(BSP|BPP|B3D)\b/gi, '')
-    .replace(/[^0-9]+/g, '')
-    .trim();
-}
-
-function getProjectBspLookupKeys(project) {
-  const candidates = [
-    project?.projectDisplay,
-    project?.projectNumber,
-    project?.projectCode,
-    project?.project,
-    project?.rawProject,
-    project?.stageValues?.['Project BSP/BPP/B3D*'],
-    project?.stageValues?.['Project BSP/BPP/B3D'],
-  ].filter(Boolean);
-
-  const keys = [];
-  for (const candidate of candidates) {
-    const key = normalizeBspLookupKey(candidate);
-    if (key && !keys.includes(key)) keys.push(key);
-  }
-  return keys;
-}
-
-function getProjectPoDisplay(project, poSourceAvailable = true) {
-  const list = Array.isArray(project?.customerPoList) ? project.customerPoList.filter(Boolean) : [];
-  if (!list.length) return poSourceAvailable ? 'Aguardando PO' : '';
-  if (list.length === 1) return `PO ${list[0]}`;
-  return `POs ${list.join(' / ')}`;
-}
-
-function buildClientDisplayCode(project, poSourceAvailable = true) {
-  const bsp = String(project?.projectDisplay || project?.projectNumber || 'BSP').trim() || 'BSP';
-  const poDisplay = getProjectPoDisplay(project, poSourceAvailable);
-  return poDisplay ? `${bsp} - ${poDisplay}` : bsp;
 }
 
 function extractIsoDescription(drawingText) {
@@ -1049,11 +998,6 @@ function buildProject(summaryRow, childRows) {
     projectPrefix: parts.prefix,
     projectNumber: parts.number,
     projectDisplay: parts.display || projectText,
-    customerPo: '',
-    customerPoList: [],
-    customerPoDisplay: '',
-    customerPoStatus: 'pending',
-    clientDisplayCode: `${parts.display || projectText || 'BSP'}`,
     quantitySpools,
     kilos: parseNumber(summaryRow, "Kilos"),
     weldedWeightKg,
@@ -1622,175 +1566,6 @@ async function resolveSheetId() {
   throw new Error(`Sheet "${SHEET_NAME}" não encontrada. Defina SMARTSHEET_SHEET_ID ou confira SMARTSHEET_SHEET_NAME.`);
 }
 
-async function resolveWipStepSheetId() {
-  if (cache.wipStepSheetId) return cache.wipStepSheetId;
-  if (WIP_STEP_SHEET_ID_ENV) {
-    cache.wipStepSheetId = String(WIP_STEP_SHEET_ID_ENV);
-    return cache.wipStepSheetId;
-  }
-
-  const target = normalizeName(WIP_STEP_SHEET_NAME);
-  let page = 1;
-  let fuzzyFound = null;
-
-  while (true) {
-    const response = await apiFetch(`/sheets?page=${page}&pageSize=100`);
-    const items = response.data || [];
-    const eligible = items.filter((item) => !normalizeName(item.name).includes('portugal'));
-
-    const exactFound = eligible.find((item) => normalizeName(item.name) === target);
-    if (exactFound) {
-      cache.wipStepSheetId = String(exactFound.id);
-      cache.wipStepSheetName = exactFound.name;
-      return cache.wipStepSheetId;
-    }
-
-    if (!fuzzyFound) {
-      fuzzyFound = eligible.find((item) => normalizeName(item.name).includes(target) || target.includes(normalizeName(item.name)));
-    }
-
-    if (!items.length || page >= (response.totalPages || 1)) break;
-    page += 1;
-  }
-
-  if (fuzzyFound) {
-    cache.wipStepSheetId = String(fuzzyFound.id);
-    cache.wipStepSheetName = fuzzyFound.name;
-    return cache.wipStepSheetId;
-  }
-
-  return null;
-}
-
-function collectWipPoValues(value) {
-  const raw = String(value || '').trim();
-  if (!raw || raw === 'N/A') return [];
-  return raw
-    .split(/[\n;,\/|]+/)
-    .map((item) => String(item || '').trim())
-    .filter(Boolean)
-    .filter((item, index, arr) => arr.indexOf(item) === index);
-}
-
-function findTextValueByNormalizedColumn(row, exactNames = [], includesNames = []) {
-  if (!row?.values) return '';
-  const exact = new Set(exactNames.map(normalizeColumnTitle).filter(Boolean));
-  const includes = includesNames.map(normalizeColumnTitle).filter(Boolean);
-
-  for (const [title, cell] of Object.entries(row.values)) {
-    const normalized = normalizeColumnTitle(title);
-    if (!normalized) continue;
-    const isExact = exact.has(normalized);
-    const isIncluded = includes.some((needle) => normalized.includes(needle));
-    if (!isExact && !isIncluded) continue;
-    const value = cell?.display ?? cell?.raw;
-    if (value != null && String(value).trim() && String(value).trim() !== 'N/A') {
-      return String(value).trim();
-    }
-  }
-
-  return '';
-}
-
-function getWipProjectRef(row) {
-  return findTextValueByNormalizedColumn(
-    row,
-    [
-      'Project BSP/BPP/B3D*',
-      'Project BSP/BPP/B3D',
-      'Project BSP/BPP/B3D *',
-      'Project',
-    ],
-    [
-      'Project BSP',
-      'BSP/BPP/B3D',
-      'BSP BPP B3D',
-    ]
-  );
-}
-
-function getWipCustomerPo(row) {
-  return findTextValueByNormalizedColumn(
-    row,
-    [
-      'Customer PO*',
-      'Customer PO',
-      'Customer PO *',
-      'PO Cliente',
-    ],
-    [
-      'Customer PO',
-      'Cliente PO',
-    ]
-  );
-}
-
-function buildWipPoMap(rows) {
-  const poMap = new Map();
-  for (const row of Array.isArray(rows) ? rows : []) {
-    const projectRef = getWipProjectRef(row);
-    const poValue = getWipCustomerPo(row);
-    const key = normalizeBspLookupKey(projectRef);
-    if (!key) continue;
-    const values = collectWipPoValues(poValue);
-    if (!values.length) continue;
-    const current = poMap.get(key) || [];
-    for (const value of values) {
-      if (!current.includes(value)) current.push(value);
-    }
-    poMap.set(key, current);
-  }
-  return poMap;
-}
-
-function getPoListForProject(project, poMap) {
-  const keys = getProjectBspLookupKeys(project);
-  for (const key of keys) {
-    const direct = poMap.get(key);
-    if (direct?.length) return direct;
-  }
-
-  // Fallback seguro para casos em que a BSP venha com prefixo/sufixo diferente.
-  for (const key of keys) {
-    for (const [mapKey, values] of poMap.entries()) {
-      if (!values?.length) continue;
-      if (mapKey === key || (mapKey.length >= 6 && key.length >= 6 && (mapKey.endsWith(key) || key.endsWith(mapKey)))) {
-        return values;
-      }
-    }
-  }
-
-  return [];
-}
-
-async function fetchWipStepPoMap() {
-  try {
-    const sheetId = await resolveWipStepSheetId();
-    if (!sheetId) return { poMap: new Map(), version: null, sheetName: WIP_STEP_SHEET_NAME, available: false };
-    const version = await fetchSheetVersion(sheetId);
-    const sheet = await fetchFullSheet(sheetId);
-    const rows = mapApiRows(sheet);
-    return { poMap: buildWipPoMap(rows), version, sheetName: sheet.name || cache.wipStepSheetName || WIP_STEP_SHEET_NAME, available: true };
-  } catch (error) {
-    console.warn('Não foi possível carregar Work in Progress - STEP para vínculo de PO:', error.message);
-    return { poMap: new Map(), version: null, sheetName: WIP_STEP_SHEET_NAME, available: false, error: error.message };
-  }
-}
-
-function enrichProjectsWithCustomerPo(projects, poMap, poSourceAvailable = true) {
-  const map = poMap instanceof Map ? poMap : new Map();
-  return (Array.isArray(projects) ? projects : []).map((project) => {
-    const list = getPoListForProject(project, map).filter(Boolean);
-    const uniqueList = Array.from(new Set(list));
-    project.customerPoList = uniqueList;
-    project.customerPo = uniqueList[0] || '';
-    project.customerPoDisplay = uniqueList.length ? getProjectPoDisplay(project, poSourceAvailable) : (poSourceAvailable ? 'Aguardando PO' : '');
-    project.customerPoStatus = uniqueList.length ? 'found' : (poSourceAvailable ? 'waiting' : 'unavailable');
-    project.clientDisplayCode = buildClientDisplayCode(project, poSourceAvailable);
-    return project;
-  });
-}
-
 async function fetchSheetVersion(sheetId) {
   const versionData = await apiFetch(`/sheets/${sheetId}/version`);
   return versionData.version;
@@ -1800,21 +1575,64 @@ async function fetchFullSheet(sheetId) {
   return apiFetch(`/sheets/${sheetId}?includeAll=true`);
 }
 
-async function buildPayload() {
+function isWarmPayloadCache() {
+  const lastCheck = Number(cache.lastVersionCheck || 0);
+  return Boolean(cache.payload && lastCheck > 0 && Date.now() - lastCheck <= PROJECTS_FAST_CACHE_MS);
+}
+
+function cloneCachedPayloadWithMeta(extraMeta = {}) {
+  if (!cache.payload) return null;
+  return {
+    ...cache.payload,
+    meta: {
+      ...(cache.payload.meta || {}),
+      ...extraMeta,
+    },
+  };
+}
+
+async function buildPayload(options = {}) {
   if (!TOKEN) throw new Error("SMARTSHEET_TOKEN não configurado.");
+  const force = Boolean(options.force);
 
-  const sheetId = await resolveSheetId();
-  const version = await fetchSheetVersion(sheetId);
-  const wipPoData = await fetchWipStepPoMap();
-
-  if (cache.payload && cache.version === version) {
-    if (!wipPoData.available) return cache.payload;
-    if (cache.wipStepVersion === wipPoData.version) return cache.payload;
+  // Otimização segura: em uma função Netlify já aquecida, evita bater no Smartsheet
+  // a cada login/F5 quando uma carga completa acabou de ser validada.
+  // O botão "Atualizar agora" usa force=1 e ignora este cache rápido.
+  if (!force && isWarmPayloadCache()) {
+    return cache.payload;
   }
 
-  const sheet = await fetchFullSheet(sheetId);
+  const sheetId = await resolveSheetId();
+  let version;
+  try {
+    version = await fetchSheetVersion(sheetId);
+    cache.lastVersionCheck = Date.now();
+  } catch (error) {
+    const stalePayload = !force ? cloneCachedPayloadWithMeta({
+      stale: true,
+      staleReason: 'version-check-failed',
+    }) : null;
+    if (stalePayload) return stalePayload;
+    throw error;
+  }
+
+  if (cache.payload && cache.version === version) {
+    return cache.payload;
+  }
+
+  let sheet;
+  try {
+    sheet = await fetchFullSheet(sheetId);
+  } catch (error) {
+    const stalePayload = !force ? cloneCachedPayloadWithMeta({
+      stale: true,
+      staleReason: 'sheet-fetch-failed',
+    }) : null;
+    if (stalePayload) return stalePayload;
+    throw error;
+  }
   const rows = mapApiRows(sheet);
-  const projects = enrichProjectsWithCustomerPo(buildProjects(rows), wipPoData.poMap, Boolean(wipPoData.available));
+  const projects = buildProjects(rows);
   const stats = buildStats(projects);
   const alertData = buildAlerts(projects);
 
@@ -1824,9 +1642,6 @@ async function buildPayload() {
       sheetId,
       sheetName: sheet.name || cache.sheetName || SHEET_NAME,
       version,
-      wipStepSheetName: wipPoData.sheetName || WIP_STEP_SHEET_NAME,
-      wipStepVersion: wipPoData.version || null,
-      wipStepPoAvailable: Boolean(wipPoData.available),
       lastSync: new Date().toISOString(),
       stageOrder: STAGE_ORDER.filter((stage) => !stage.ignoredCurrentStage).map((stage) => ({
         key: stage.key,
@@ -1845,77 +1660,11 @@ async function buildPayload() {
   cache.sheetId = sheetId;
   cache.sheetName = payload.meta.sheetName;
   cache.version = version;
-  cache.wipStepSheetName = payload.meta.wipStepSheetName;
-  cache.wipStepVersion = payload.meta.wipStepVersion;
   cache.lastSync = payload.meta.lastSync;
+  cache.lastVersionCheck = Date.now();
   cache.payload = payload;
 
   return payload;
-}
-
-
-function normalizeClientScopeValue(value) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9]+/g, ' ')
-    .trim()
-    .toLowerCase();
-}
-
-function getClientScopeAliases(session = {}) {
-  const values = [
-    session.clientKey,
-    session.clientName,
-    session.name,
-    session.username,
-    session.email,
-    ...(Array.isArray(session.allowedClients) ? session.allowedClients : []),
-  ];
-  const aliases = new Set();
-  values.forEach((value) => {
-    const normalized = normalizeClientScopeValue(value);
-    if (!normalized) return;
-    aliases.add(normalized);
-    normalized.split(/\s+/).forEach((part) => {
-      if (part && part.length >= 3) aliases.add(part);
-    });
-  });
-  return aliases;
-}
-
-function projectBelongsToClientScope(project, session = {}) {
-  if (!project) return false;
-  const aliases = getClientScopeAliases(session);
-  if (!aliases.size) return false;
-  const client = normalizeClientScopeValue(project.client);
-  if (!client) return false;
-  for (const alias of aliases) {
-    if (!alias) continue;
-    if (client === alias || client.includes(alias) || alias.includes(client)) return true;
-  }
-  return false;
-}
-
-function scopePayloadForSession(payload, session = {}) {
-  if (!payload || session.role !== 'client') return payload;
-  const projects = (Array.isArray(payload.projects) ? payload.projects : []).filter((project) => projectBelongsToClientScope(project, session));
-  const stats = buildStats(projects);
-  const alertData = buildAlerts(projects);
-  return {
-    ...payload,
-    stats,
-    alerts: alertData.alerts,
-    projects,
-    meta: {
-      ...(payload.meta || {}),
-      clientPortal: true,
-      clientName: session.clientName || session.clientKey || session.name || session.username || 'Cliente',
-      clientKey: session.clientKey || session.clientName || session.name || session.username || '',
-      clientLogoUrl: session.clientLogoUrl || '',
-      alertSignature: alertData.signature,
-    },
-  };
 }
 
 exports.handler = async (event) => {
@@ -1925,7 +1674,8 @@ exports.handler = async (event) => {
   }
 
   try {
-    const payload = scopePayloadForSession(await buildPayload(), auth.session);
+    const force = event?.queryStringParameters?.force === '1' || event?.queryStringParameters?.force === 'true';
+    const payload = await buildPayload({ force });
     return jsonResponse(200, payload, {
       headers: {
         'cache-control': 'private, max-age=60, stale-while-revalidate=120',

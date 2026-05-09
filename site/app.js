@@ -5,7 +5,7 @@ const PRESENCE_HEARTBEAT_MS = 90000;
 const AUTH_REFRESH_MS = 300000;
 const ADMIN_REFRESH_MS = 60000;
 const ALERT_NOTIFICATION_COOLDOWN_MS = 4 * 60 * 60 * 1000;
-const PROJECTS_CACHE_KEY = 'step_dashboard_projects_cache_v3';
+const PROJECTS_CACHE_KEY = 'step_dashboard_projects_cache_v2';
 
 let adminResponsesPollTimer = null;
 
@@ -14,7 +14,6 @@ const state = {
   filteredProjects: [],
   projectView: 'all',
   projectDrill: { open: false, mode: 'total', selectedClientKey: '', selectedVesselKey: '' },
-  clientPortal: { selectedVesselKey: '', selectedProjectId: null, rowClickTimer: null },
   sectorScopedView: false,
   stats: null,
   meta: null,
@@ -315,17 +314,6 @@ const adminUserCancelEditEl = document.getElementById("admin-user-cancel-edit");
 const adminUserTogglePasswordEl = document.getElementById("admin-user-toggle-password");
 const adminUserIdEl = document.getElementById("admin-user-id");
 const adminUserSubmitLabelEl = document.getElementById("admin-user-submit-label");
-const adminUserClientFieldsEl = document.getElementById("admin-user-client-fields");
-const adminUserClientKeyEl = document.getElementById("admin-user-client-key");
-const adminUserClientNameEl = document.getElementById("admin-user-client-name");
-const adminUserClientLogoUrlEl = document.getElementById("admin-user-client-logo-url");
-const adminUserClientLogoFileEl = document.getElementById("admin-user-client-logo-file");
-const adminUserClientLogoImportEl = document.getElementById("admin-user-client-logo-import");
-const adminUserClientPlatformImageUrlEl = document.getElementById("admin-user-client-platform-image-url");
-const adminUserClientPlatformImageFileEl = document.getElementById("admin-user-client-platform-image-file");
-const adminUserClientPlatformImageImportEl = document.getElementById("admin-user-client-platform-image-import");
-const adminUserClientPlatformNameEl = document.getElementById("admin-user-client-platform-name");
-const adminUserClientPlatformImagesEl = document.getElementById("admin-user-client-platform-images");
 const adminTabTriggerEls = Array.from(document.querySelectorAll('[data-admin-tab-trigger]'));
 const adminTabPanelEls = Array.from(document.querySelectorAll('[data-admin-tab-panel]'));
 const projectSignalModalEl = document.getElementById('project-signal-modal');
@@ -912,7 +900,7 @@ function normalizeSectorValue(value) {
   if (["solda", "welding"].includes(normalized)) return "solda";
   if (["pcp", "planejamento", "planejamento_controle_producao", "planning", "planning_control"].includes(normalized)) return "pcp";
   if (["projetos", "projeto", "project", "projects", "pm"].includes(normalized)) return "projetos";
-  if (["all", "todos", "todo", "geral", "tudo"].includes(normalized)) return "all";
+  if (normalized === "all") return "all";
   return normalized;
 }
 
@@ -1547,13 +1535,6 @@ async function downloadAlertsPdf() {
   doc.save(buildAlertPdfFileName());
 }
 
-
-function getClientProjectDisplayCode(project) {
-  const base = String(project?.projectDisplay || project?.projectNumber || 'BSP').trim() || 'BSP';
-  const poDisplay = String(project?.customerPoDisplay || '').trim();
-  if (project?.clientDisplayCode) return String(project.clientDisplayCode).trim();
-  return poDisplay ? `${base} - ${poDisplay}` : base;
-}
 
 function projectDisplayWithClient(project) {
   const projectName = String(project?.projectDisplay || '').trim();
@@ -3271,13 +3252,6 @@ function alertMatchesScopedSector(alert, user = state.user) {
 }
 
 function updatePrimaryUserActionUi() {
-  if (isClientUser()) {
-    if (openSectorAlertsEl) openSectorAlertsEl.classList.add('hidden');
-    if (openMyProjectSignalsEl) openMyProjectSignalsEl.classList.add('hidden');
-    if (openProjectSignalsEl) openProjectSignalsEl.classList.add('hidden');
-    if (openStageUpdatesEl) openStageUpdatesEl.classList.add('hidden');
-    return;
-  }
   if (!openSectorAlertsEl) return;
   const sectorScopedToggle = shouldUseSectorScopedToggle();
   const projectsScope = !sectorScopedToggle && userHasProjectsScope();
@@ -3425,1293 +3399,6 @@ function getProjectItemCount(project) {
   const declared = Number(project?.quantitySpools || 0);
   const spoolsCount = Array.isArray(project?.spools) ? project.spools.length : 0;
   return declared > 0 ? declared : spoolsCount;
-}
-
-
-function isClientUser(user = state.user) {
-  return Boolean(user && user.role === 'client');
-}
-
-function getClientPortalName(user = state.user) {
-  return String(user?.clientName || user?.clientKey || user?.name || user?.username || 'Cliente').trim() || 'Cliente';
-}
-
-function getClientPortalLogo(user = state.user) {
-  return String(user?.clientLogoUrl || '').trim() || './assets/step-logo.png';
-}
-
-
-function parseClientPlatformImages(value) {
-  if (!value) return {};
-  if (typeof value === 'object' && !Array.isArray(value)) {
-    return Object.entries(value).reduce((acc, [key, src]) => {
-      const cleanKey = String(key || '').trim();
-      const cleanSrc = String(src || '').trim();
-      if (cleanKey && cleanSrc) acc[cleanKey] = cleanSrc;
-      return acc;
-    }, {});
-  }
-
-  const text = String(value || '').trim();
-  if (!text) return {};
-
-  if (text.startsWith('{')) {
-    try { return parseClientPlatformImages(JSON.parse(text)); } catch (_) {}
-  }
-
-  return text.split(/\n+/).reduce((acc, line) => {
-    const raw = String(line || '').trim();
-    if (!raw) return acc;
-    const separator = raw.includes('=') ? '=' : (raw.includes('|') ? '|' : ':');
-    const parts = raw.split(separator);
-    const key = String(parts.shift() || '').trim();
-    const src = parts.join(separator).trim();
-    if (key && src) acc[key] = src;
-    return acc;
-  }, {});
-}
-
-function formatClientPlatformImages(value) {
-  const map = parseClientPlatformImages(value);
-  return Object.entries(map).map(([key, src]) => `${key}=${src}`).join('\n');
-}
-
-function getClientPlatformImages(user = state.user) {
-  return parseClientPlatformImages(user?.clientPlatformImages || user?.clientPlatformImagesText || '');
-}
-
-function getClientPortalPlatformImage(vesselLabel = '', user = state.user) {
-  const images = getClientPlatformImages(user);
-  const vesselKey = normalizeText(vesselLabel || '');
-  for (const [key, src] of Object.entries(images)) {
-    if (normalizeText(key) === vesselKey) return String(src || '').trim();
-  }
-  // Sem fallback: se a plataforma/vessel não tiver foto própria cadastrada, o card fica sem imagem.
-  return '';
-}
-
-function ensureClientDashboardEl() {
-  let el = document.getElementById('client-dashboard');
-  if (el) return el;
-  el = document.createElement('section');
-  el.id = 'client-dashboard';
-  el.className = 'client-dashboard hidden';
-  el.innerHTML = `
-    <div class="client-hero">
-      <div class="client-identity">
-        <div class="client-logo-box"><img id="client-dashboard-logo" src="./assets/step-logo.png" alt="Logo do cliente" /></div>
-        <div>
-          <p class="client-kicker">Portal do Cliente</p>
-          <h2 id="client-dashboard-name">Cliente</h2>
-          <p id="client-dashboard-meta">Demandas filtradas por empresa</p>
-        </div>
-      </div>
-      <div class="client-hero-actions">
-        <span id="client-dashboard-sync">Atualização: --</span>
-        <button class="mini-action-button client-macro-button" type="button" data-client-open-macro-dashboard>Visão executiva da carteira</button>
-      </div>
-    </div>
-    <div class="client-summary-grid">
-      <article class="client-summary-card-button" data-client-open-macro-dashboard title="Abrir visão executiva da carteira"><span>BSPs</span><strong id="client-stat-bsps">--</strong><small>abrir visão executiva</small></article>
-      <article><span>Tags</span><strong id="client-stat-tags">--</strong></article>
-      <article><span>Peso programado</span><strong id="client-stat-weight">--</strong></article>
-      <article><span>Peso soldado</span><strong id="client-stat-welded">--</strong></article>
-      <article><span>M² programada</span><strong id="client-stat-m2">--</strong></article>
-      <article><span>Progresso médio</span><strong id="client-stat-progress">--</strong></article>
-    </div>
-    <div class="client-section-head">
-      <div><p class="client-kicker">Vessels / Unidades</p><h3>Carteira por unidade</h3></div>
-      <p>Clique em uma unidade para abrir as BSPs vinculadas.</p>
-    </div>
-    <div id="client-vessel-grid" class="client-vessel-grid"></div>
-    <div id="client-bsp-panel" class="client-bsp-panel hidden">
-      <div class="client-section-head client-section-head--compact">
-        <div><p class="client-kicker">BSPs</p><h3 id="client-bsp-title">Projetos</h3></div>
-        <button id="client-clear-vessel" class="mini-action-button" type="button">Ver todas</button>
-      </div>
-      <div class="client-bsp-content">
-        <div id="client-bsp-table" class="client-table-wrap"></div>
-        <div id="client-project-detail" class="client-project-detail hidden"></div>
-      </div>
-    </div>
-  `;
-  const anchor = document.querySelector('.summary-row');
-  if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(el, anchor.nextSibling);
-  else document.querySelector('.page-shell')?.appendChild(el);
-  el.addEventListener('click', handleClientDashboardClick);
-  el.addEventListener('dblclick', handleClientDashboardDblClick);
-  return el;
-}
-
-function setClientDashboardMode() {
-  const enabled = isClientUser();
-  document.body.classList.toggle('client-mode', enabled);
-  const el = ensureClientDashboardEl();
-  el.classList.toggle('hidden', !enabled);
-  if (openSectorAlertsEl) openSectorAlertsEl.classList.toggle('hidden', enabled);
-  if (openMyProjectSignalsEl && enabled) openMyProjectSignalsEl.classList.add('hidden');
-  if (openProjectSignalsEl && enabled) openProjectSignalsEl.classList.add('hidden');
-  if (openStageUpdatesEl && enabled) openStageUpdatesEl.classList.add('hidden');
-}
-
-function getClientVesselGroups(projects = state.projects) {
-  const groups = new Map();
-  for (const project of Array.isArray(projects) ? projects : []) {
-    const label = getProjectVesselLabel(project) || 'Unidade não informada';
-    const key = createProjectDrillKey(label);
-    if (!groups.has(key)) {
-      groups.set(key, { key, label, projects: [], tags: 0, weight: 0, welded: 0, m2: 0, progress: 0 });
-    }
-    const group = groups.get(key);
-    group.projects.push(project);
-    group.tags += getProjectItemCount(project);
-    group.weight += Number(project.kilos || 0);
-    group.welded += Number(project.weldedWeightKg || 0);
-    group.m2 += Number(project.m2Painting || 0);
-    group.progress += Number(project.overallProgress || 0);
-  }
-  return Array.from(groups.values()).map((group) => ({
-    ...group,
-    avgProgress: group.projects.length ? group.progress / group.projects.length : 0,
-  })).sort((a, b) => b.projects.length - a.projects.length || a.label.localeCompare(b.label, 'pt-BR'));
-}
-
-function renderClientDashboard() {
-  setClientDashboardMode();
-  if (!isClientUser()) return;
-  const el = ensureClientDashboardEl();
-  const projects = Array.isArray(state.projects) ? state.projects : [];
-  const logo = document.getElementById('client-dashboard-logo');
-  if (logo) logo.src = getClientPortalLogo();
-  const nameEl = document.getElementById('client-dashboard-name');
-  if (nameEl) nameEl.textContent = getClientPortalName();
-  const metaEl = document.getElementById('client-dashboard-meta');
-  if (metaEl) metaEl.textContent = `${formatNumber(projects.length)} BSP(s) vinculada(s) ao cliente`;
-  const syncEl = document.getElementById('client-dashboard-sync');
-  if (syncEl) syncEl.textContent = state.meta?.lastSync ? `Atualização: ${new Date(state.meta.lastSync).toLocaleString('pt-BR')}` : 'Atualização: --';
-
-  const totals = projects.reduce((acc, project) => {
-    acc.bsps += 1;
-    acc.tags += getProjectItemCount(project);
-    acc.weight += Number(project.kilos || 0);
-    acc.welded += Number(project.weldedWeightKg || 0);
-    acc.m2 += Number(project.m2Painting || 0);
-    acc.progress += Number(project.overallProgress || 0);
-    return acc;
-  }, { bsps: 0, tags: 0, weight: 0, welded: 0, m2: 0, progress: 0 });
-  const setText = (id, text) => { const node = document.getElementById(id); if (node) node.textContent = text; };
-  setText('client-stat-bsps', formatNumber(totals.bsps));
-  setText('client-stat-tags', formatNumber(totals.tags));
-  setText('client-stat-weight', `${formatNumber(totals.weight, 0)} kg`);
-  setText('client-stat-welded', `${formatNumber(totals.welded, 0)} kg`);
-  setText('client-stat-m2', `${formatNumber(totals.m2, 3)} m²`);
-  setText('client-stat-progress', formatPercent(totals.bsps ? totals.progress / totals.bsps : 0));
-
-  const groups = getClientVesselGroups(projects);
-  if (!state.clientPortal.selectedVesselKey && groups.length) state.clientPortal.selectedVesselKey = groups[0].key;
-  const grid = document.getElementById('client-vessel-grid');
-  if (grid) {
-    grid.innerHTML = groups.length ? groups.map((group) => `
-      ${(() => {
-        const platformImage = getClientPortalPlatformImage(group.label);
-        return `
-          <button type="button" class="client-vessel-card ${platformImage ? 'has-media' : 'no-media'} ${state.clientPortal.selectedVesselKey === group.key ? 'is-active' : ''}" data-client-vessel="${escapeHtml(group.key)}">
-            <div class="client-vessel-info">
-              <span>${escapeHtml(group.label)}</span>
-              <strong>${formatNumber(group.projects.length)} BSP(s)</strong>
-              <small>${formatNumber(group.tags)} tag(s) • ${formatNumber(group.weight, 0)} kg programado</small>
-              <small>${formatNumber(group.welded, 0)} kg soldado • ${formatPercent(group.avgProgress)}</small>
-            </div>
-            ${platformImage ? `<div class="client-vessel-media"><img src="${escapeHtml(platformImage)}" alt="Foto da plataforma ${escapeHtml(group.label)}" /></div>` : ''}
-          </button>
-        `;
-      })()}
-    `).join('') : '<div class="client-empty">Nenhuma demanda encontrada para este cliente.</div>';
-  }
-  renderClientBspPanel();
-}
-
-function getClientSelectedVesselProjects() {
-  const projects = Array.isArray(state.projects) ? state.projects : [];
-  const selected = state.clientPortal.selectedVesselKey;
-  if (!selected) return projects;
-  return projects.filter((project) => createProjectDrillKey(getProjectVesselLabel(project) || 'Unidade não informada') === selected);
-}
-
-function renderClientBspPanel() {
-  const panel = document.getElementById('client-bsp-panel');
-  const table = document.getElementById('client-bsp-table');
-  const title = document.getElementById('client-bsp-title');
-  if (!panel || !table || !title) return;
-  const groups = getClientVesselGroups();
-  const activeGroup = groups.find((group) => group.key === state.clientPortal.selectedVesselKey) || groups[0] || null;
-  if (!activeGroup) {
-    panel.classList.add('hidden');
-    renderClientProjectDetail(null);
-    return;
-  }
-  panel.classList.remove('hidden');
-  title.textContent = `${activeGroup.label} • ${formatNumber(activeGroup.projects.length)} BSP(s)`;
-  const projects = getClientSelectedVesselProjects().sort(compareProjectsByPlannedFinishDate);
-  if (!state.clientPortal.selectedProjectId && projects.length) state.clientPortal.selectedProjectId = projects[0].rowId;
-  table.innerHTML = `
-    <table class="client-bsp-table">
-      <thead><tr><th>BSP</th><th>Tags</th><th>Peso</th><th>Soldado</th><th>M²</th><th>Status</th><th>Etapa</th><th>% Geral</th><th>Término</th></tr></thead>
-      <tbody>
-        ${projects.map((project) => {
-          const status = getProjectStatusPresentation(project);
-          const selected = String(state.clientPortal.selectedProjectId || '') === String(project.rowId || '');
-          return `<tr class="${selected ? 'is-selected' : ''}" data-client-project-id="${escapeHtml(project.rowId)}" title="Clique uma vez para selecionar; dê 2 cliques para abrir a visão executiva">
-            <td><strong>${escapeHtml(getClientProjectDisplayCode(project))}</strong></td>
-            <td>${formatNumber(getProjectItemCount(project))}</td>
-            <td>${formatNumber(project.kilos, 0)} kg</td>
-            <td>${formatNumber(project.weldedWeightKg, 0)} kg</td>
-            <td>${formatNumber(project.m2Painting, 3)}</td>
-            <td><span class="cell-status cell-status--${status.state}">${escapeHtml(status.text)}</span></td>
-            <td>${escapeHtml(getProjectCurrentStageDisplay(project))}</td>
-            <td>${formatPercent(project.overallProgress)}</td>
-            <td>${escapeHtml(project.plannedFinishDate || '—')}</td>
-          </tr>`;
-        }).join('') || '<tr><td colspan="9" class="loading-cell">Nenhuma BSP nesta unidade.</td></tr>'}
-      </tbody>
-    </table>
-  `;
-  const selectedProject = projects.find((project) => String(project.rowId) === String(state.clientPortal.selectedProjectId)) || projects[0] || null;
-  renderClientProjectDetail(selectedProject);
-}
-
-function getClientSpoolProgress(spool) {
-  return clampClientPercent(spool?.overallProgress);
-}
-
-function isClientSpoolFinished(spool) {
-  const progress = getClientSpoolProgress(spool);
-  const statusText = normalizeText(spool?.currentStatus || spool?.stage || uiStateLabel(spool?.uiState));
-  const uiState = normalizeCompactText(spool?.uiState || '');
-  return progress >= 99.9 || uiState === 'completed' || /finalizado|concluido|completed|finished|enviado|delivered/.test(statusText);
-}
-
-function getClientSpoolVisualState(spool) {
-  const progress = getClientSpoolProgress(spool);
-  if (isClientSpoolFinished(spool)) return 'completed';
-  if (progress <= 0) return 'not-started';
-  return 'in-progress';
-}
-
-function compareClientSpoolsByPriority(a, b) {
-  const aFinished = isClientSpoolFinished(a);
-  const bFinished = isClientSpoolFinished(b);
-  if (aFinished !== bFinished) return aFinished ? 1 : -1;
-  const progressDiff = getClientSpoolProgress(a) - getClientSpoolProgress(b);
-  if (Math.abs(progressDiff) > 0.001) return progressDiff;
-  return String(a?.iso || '').localeCompare(String(b?.iso || ''), 'pt-BR', { numeric: true, sensitivity: 'base' });
-}
-
-function renderClientSpoolRows(spools, limit = 120) {
-  const items = (Array.isArray(spools) ? [...spools] : []).sort(compareClientSpoolsByPriority).slice(0, limit);
-  if (!items.length) return '<tr><td colspan="6" class="loading-cell">Nenhuma tag detalhada encontrada para esta BSP.</td></tr>';
-  return items.map((spool) => {
-    const state = getClientSpoolVisualState(spool);
-    const statusText = spool?.currentStatus || spool?.stage || uiStateLabel(spool?.uiState);
-    return `<tr class="client-spool-row client-spool-row--${state}"><td><strong>${escapeHtml(spool.iso || '—')}</strong></td><td>${escapeHtml(spool.description || '—')}</td><td><span class="client-spool-chip client-spool-chip--${state}">${escapeHtml(statusText)}</span></td><td>${escapeHtml(spool.currentSector || spool.operationalSector || '—')}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(spool.overallProgress)}</span></td><td>${formatNumber(spool.kilos, 2)} kg</td></tr>`;
-  }).join('');
-}
-
-function renderClientProjectDetail(project) {
-  const detail = document.getElementById('client-project-detail');
-  if (!detail) return;
-  if (!project) {
-    detail.classList.add('hidden');
-    detail.innerHTML = '';
-    return;
-  }
-  detail.classList.remove('hidden');
-  const status = getProjectStatusPresentation(project);
-  const stageValues = project.stageValues || {};
-  const spools = Array.isArray(project.spools) ? project.spools : [];
-  detail.innerHTML = `
-    <div class="client-detail-head">
-      <div><p class="client-kicker">Detalhamento da BSP</p><h3>${escapeHtml(getClientProjectDisplayCode(project))}</h3><p>${escapeHtml(getProjectVesselLabel(project))} • ${escapeHtml(getProjectClientLabel(project))}</p></div>
-      <button class="primary-button" type="button" data-client-open-analytics="${escapeHtml(project.rowId)}">Abrir visão executiva</button>
-    </div>
-    <div class="client-summary-grid client-summary-grid--detail">
-      <article><span>Tags</span><strong>${formatNumber(getProjectItemCount(project))}</strong></article>
-      <article><span>Peso programado</span><strong>${formatNumber(project.kilos, 0)} kg</strong></article>
-      <article><span>Peso soldado</span><strong>${formatNumber(project.weldedWeightKg, 0)} kg</strong></article>
-      <article><span>Área operacional</span><strong>${formatNumber(project.m2Painting, 3)} m²</strong></article>
-      <article><span>Status</span><strong>${escapeHtml(status.text)}</strong></article>
-      <article><span>Progresso geral</span><strong>${formatPercent(project.overallProgress)}</strong></article>
-    </div>
-    <div class="client-stage-strip">
-      ${['Drawing Execution Advance%', 'Procuremnt Status %', 'Material Separation', 'Full welding execution', 'Non Destructive Examination (QC)', 'Hydro Test Pressure (QC)', 'Surface preparation and/or coating', 'Final Inspection', 'Package and Delivered'].map((key) => {
-        const label = (state.meta?.stageOrder || []).find((stage) => stage.key === key)?.label || key;
-        const value = stageValues[key];
-        return `<div><span>${escapeHtml(label)}</span><strong>${value == null || value === '' ? '—' : (String(value).includes('%') ? escapeHtml(value) : formatPercent(value))}</strong></div>`;
-      }).join('')}
-    </div>
-    <div class="client-table-wrap client-table-wrap--compact">
-      <table class="client-bsp-table"><thead><tr><th>Tag/ISO</th><th>Descrição</th><th>Status</th><th>Etapa</th><th>%</th><th>Peso</th></tr></thead><tbody>
-        ${renderClientSpoolRows(spools, 80)}
-      </tbody></table>
-    </div>
-  `;
-}
-
-
-function clampClientPercent(value) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return 0;
-  return Math.max(0, Math.min(100, num));
-}
-
-function clientFormatDateValue(value) {
-  const parsed = parseDateObject(value);
-  const date = parsed || (value instanceof Date && !Number.isNaN(value.getTime()) ? value : null);
-  if (date) return date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-  return value ? String(value) : '';
-}
-
-function clientPercentValue(value) {
-  if (value == null || value === '' || value === 'N/A') return 0;
-  if (typeof value === 'number') {
-    if (value >= 0 && value <= 1) return clampClientPercent(value * 100);
-    return clampClientPercent(value);
-  }
-  const raw = String(value || '').trim();
-  if (!raw) return 0;
-  const cleaned = raw.replace('%', '').replace(/\./g, '').replace(',', '.').replace(/[^\d.-]/g, '');
-  const parsed = Number(cleaned);
-  if (!Number.isFinite(parsed)) return 0;
-  if (parsed >= 0 && parsed <= 1 && !raw.includes('%')) return clampClientPercent(parsed * 100);
-  return clampClientPercent(parsed);
-}
-
-function getClientStageValue(project, keys) {
-  const stageValues = project?.stageValues || {};
-  for (const key of keys) {
-    const value = stageValues[key];
-    if (value != null && value !== '' && value !== 'N/A') return clientPercentValue(value);
-  }
-  return 0;
-}
-
-function getClientFabricationProgress(project) {
-  const stages = [
-    { keys: ['Welding Preparation', 'Spool Assemble and tack weld'], weight: 10 },
-    { keys: ['Initial Dimensional Inspection/3D'], weight: 8 },
-    { keys: ['Full welding execution'], weight: 25 },
-    { keys: ['Non Destructive Examination (QC)'], weight: 12 },
-    { keys: ['Final Dimensional Inpection/3D (QC)'], weight: 8 },
-    { keys: ['Hydro Test Pressure (QC)'], weight: 7 },
-    { keys: ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)'], weight: 15 },
-    { keys: ['Final Inspection'], weight: 8 },
-    { keys: ['Package and Delivered'], weight: 7 },
-  ];
-  const totalWeight = stages.reduce((sum, item) => sum + item.weight, 0);
-  if (!totalWeight) return 0;
-  return clampClientPercent(stages.reduce((sum, item) => sum + getClientStageValue(project, item.keys) * item.weight, 0) / totalWeight);
-}
-
-function getClientDatabookProgress(project) {
-  return getClientStageValue(project, [
-    'Databook Issuance',
-    'Databook',
-    'DATA BOOK',
-    'Data Book',
-    'DataBook',
-  ]);
-}
-
-function getClientPackageProgress(project) {
-  return getClientStageValue(project, ['Package and Delivered', 'Final Inspection']);
-}
-
-function getClientProductionStages(project) {
-  const engineering = getClientStageValue(project, ['Drawing Execution Advance%', 'Drawing']);
-  const procurement = Math.max(
-    getClientStageValue(project, ['Procuremnt Status %', 'Procurement Status %', 'Procurement']),
-    getClientStageValue(project, ['Material Separation']),
-    getClientStageValue(project, ['Material Release to Fabrication'])
-  );
-  const fabrication = getClientFabricationProgress(project);
-  const packageDelivery = getClientPackageProgress(project);
-  return [
-    { key: 'engineering', label: 'Engineering / Drawing', percent: engineering, weight: 15 },
-    { key: 'procurement', label: 'Procurement', percent: procurement, weight: 15 },
-    { key: 'fabrication', label: 'Fabrication', percent: fabrication, weight: 65 },
-    { key: 'package', label: 'Package / Delivery', percent: packageDelivery, weight: 5 },
-  ];
-}
-
-function getClientOverallProgress(project) {
-  const direct = clientPercentValue(project?.overallProgress);
-  if (direct > 0) return direct;
-  const stages = getClientProductionStages(project);
-  const totalWeight = stages.reduce((sum, stage) => sum + stage.weight, 0) || 100;
-  return clampClientPercent(stages.reduce((sum, stage) => sum + stage.percent * stage.weight, 0) / totalWeight);
-}
-
-function getClientAnalyticStartDate(project) {
-  const candidates = [
-    project?.plannedStartDate,
-    project?.startDate,
-    project?.stageValues?.['Project Start Date'],
-    project?.stageValues?.['Fabrication Start Date'],
-    project?.stageValues?.['Drawing Start Date'],
-  ];
-  for (const value of candidates) {
-    const parsed = parseDateObject(value);
-    if (parsed) return parsed;
-  }
-  const today = getCurrentBrazilDate();
-  const fallback = new Date(today);
-  fallback.setUTCDate(today.getUTCDate() - 30);
-  return fallback;
-}
-
-function getClientAnalyticFinishDate(project) {
-  const candidates = [
-    project?.plannedFinishDate,
-    project?.projectFinishDate,
-    project?.stageValues?.['Project Finish Date'],
-    getProjectShipmentDate(project),
-  ];
-  for (const value of candidates) {
-    const parsed = parseDateObject(value);
-    if (parsed) return parsed;
-  }
-  const start = getClientAnalyticStartDate(project);
-  const fallback = new Date(start);
-  fallback.setUTCDate(start.getUTCDate() + 120);
-  return fallback;
-}
-
-function addUtcDays(date, days) {
-  const next = new Date(date);
-  next.setUTCDate(next.getUTCDate() + days);
-  return next;
-}
-
-function clientDaysBetween(start, end) {
-  return Math.max(1, Math.round((end - start) / 86400000));
-}
-
-function clientSchedulePlannedPercent(progressRatio) {
-  const x = Math.max(0, Math.min(1, Number(progressRatio) || 0));
-  const segments = [
-    { start: 0.00, end: 0.15, base: 0, weight: 15 },
-    { start: 0.15, end: 0.30, base: 15, weight: 15 },
-    { start: 0.30, end: 0.90, base: 30, weight: 60 },
-    { start: 0.90, end: 0.95, base: 90, weight: 5 },
-    { start: 0.95, end: 1.00, base: 95, weight: 5 },
-  ];
-  let total = 0;
-  for (const segment of segments) {
-    if (x >= segment.end) {
-      total = segment.base + segment.weight;
-      continue;
-    }
-    if (x > segment.start) {
-      const local = (x - segment.start) / Math.max(0.001, segment.end - segment.start);
-      const smooth = local * local * (3 - 2 * local);
-      return clampClientPercent(segment.base + smooth * segment.weight);
-    }
-    return clampClientPercent(total);
-  }
-  return 100;
-}
-
-function getClientPlannedToday(project) {
-  const start = getClientAnalyticStartDate(project);
-  const finish = getClientAnalyticFinishDate(project);
-  const today = getCurrentBrazilDate();
-  if (today <= start) return 0;
-  if (today >= finish) return 100;
-  return clientSchedulePlannedPercent((today - start) / Math.max(1, finish - start));
-}
-
-function buildClientSCurveData(project) {
-  const start = getClientAnalyticStartDate(project);
-  let finish = getClientAnalyticFinishDate(project);
-  if (finish <= start) finish = addUtcDays(start, 30);
-  const duration = clientDaysBetween(start, finish);
-  const step = Math.max(1, Math.ceil(duration / 14));
-  const today = getCurrentBrazilDate();
-  const actualNow = getClientOverallProgress(project);
-  const plannedToday = getClientPlannedToday(project);
-  const points = [];
-  for (let day = 0; day <= duration; day += step) {
-    const date = addUtcDays(start, day);
-    const ratio = day / duration;
-    const planned = clientSchedulePlannedPercent(ratio);
-    let actual = null;
-    if (date <= today) {
-      if (plannedToday > 0) {
-        actual = clampClientPercent((planned / plannedToday) * actualNow);
-      } else {
-        actual = actualNow > 0 ? actualNow : 0;
-      }
-    }
-    points.push({ date, planned, actual });
-  }
-  if (points[points.length - 1]?.date < finish) {
-    points.push({ date: finish, planned: 100, actual: finish <= today ? actualNow : null });
-  }
-  return points;
-}
-
-function clientSvgPolyline(points, width, height, getValue) {
-  const pad = { left: 42, right: 16, top: 18, bottom: 38 };
-  const innerW = width - pad.left - pad.right;
-  const innerH = height - pad.top - pad.bottom;
-  const usable = points.filter((point) => getValue(point) != null);
-  if (!usable.length) return '';
-  return usable.map((point, index) => {
-    const x = pad.left + (points.indexOf(point) / Math.max(1, points.length - 1)) * innerW;
-    const y = pad.top + (1 - clampClientPercent(getValue(point)) / 100) * innerH;
-    return `${index ? 'L' : 'M'} ${x.toFixed(1)} ${y.toFixed(1)}`;
-  }).join(' ');
-}
-
-function renderClientSCurveSvg(project) {
-  const points = buildClientSCurveData(project);
-  const width = 760;
-  const height = 260;
-  const pad = { left: 42, right: 16, top: 18, bottom: 38 };
-  const innerW = width - pad.left - pad.right;
-  const innerH = height - pad.top - pad.bottom;
-  const plannedPath = clientSvgPolyline(points, width, height, (point) => point.planned);
-  const actualPath = clientSvgPolyline(points, width, height, (point) => point.actual);
-  const grid = [0, 25, 50, 75, 100].map((value) => {
-    const y = pad.top + (1 - value / 100) * innerH;
-    return `<line x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}" class="client-chart-grid" /><text x="8" y="${y + 4}" class="client-chart-label">${value}%</text>`;
-  }).join('');
-  const first = points[0]?.date ? clientFormatDateValue(points[0].date) : '';
-  const mid = points[Math.floor(points.length / 2)]?.date ? clientFormatDateValue(points[Math.floor(points.length / 2)].date) : '';
-  const last = points[points.length - 1]?.date ? clientFormatDateValue(points[points.length - 1].date) : '';
-  const actualCircle = (() => {
-    const lastActualIndex = points.map((point, index) => ({ point, index })).filter((item) => item.point.actual != null).pop();
-    if (!lastActualIndex) return '';
-    const x = pad.left + (lastActualIndex.index / Math.max(1, points.length - 1)) * innerW;
-    const y = pad.top + (1 - clampClientPercent(lastActualIndex.point.actual) / 100) * innerH;
-    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="client-chart-dot" />`;
-  })();
-  return `
-    <svg class="client-scurve-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Curva S planejado versus realizado">
-      ${grid}
-      <line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" class="client-chart-axis" />
-      <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" class="client-chart-axis" />
-      <path d="${plannedPath}" class="client-chart-planned" />
-      ${actualPath ? `<path d="${actualPath}" class="client-chart-actual" />${actualCircle}` : ''}
-      <text x="${pad.left}" y="${height - 12}" class="client-chart-date">${escapeHtml(first)}</text>
-      <text x="${pad.left + innerW / 2 - 38}" y="${height - 12}" class="client-chart-date">${escapeHtml(mid)}</text>
-      <text x="${width - pad.right - 72}" y="${height - 12}" class="client-chart-date">${escapeHtml(last)}</text>
-    </svg>
-  `;
-}
-
-function renderClientGauge(percent, label, plannedPercent = null, options = {}) {
-  const p = clampClientPercent(percent);
-  const plannedBase = plannedPercent == null ? p : clampClientPercent(plannedPercent);
-  const planned = Math.max(p, plannedBase);
-  const deviation = Math.max(0, planned - p);
-  const deliveryDate = options?.deliveryDate ? clientFormatDateValue(options.deliveryDate) : '';
-  const noteText = options?.note ? String(options.note) : '';
-  const ringStyle = `background: conic-gradient(#0b9b7a 0 ${p}%, #efc14f ${p}% ${planned}%, #d4dce2 ${planned}% 100%)`;
-  return `
-    <div class="client-exec-gauge" style="--p:${p}">
-      <div class="client-exec-gauge-ring" style="${ringStyle}"></div>
-      <div class="client-exec-gauge-center">
-        <strong>${formatPercent(p)}</strong>
-        <span>${escapeHtml(label)}</span>
-      </div>
-      <div class="client-exec-gauge-meta">
-        <small><i class="actual"></i>Realizado ${formatPercent(p)}</small>
-        <small><i class="deviation"></i>Desvio ${formatPercent(deviation)}</small>
-        ${noteText ? `<small><i class="planned"></i>${escapeHtml(noteText)}</small>` : ''}
-        ${deliveryDate ? `<small><i class="delivery"></i>Envio: ${escapeHtml(deliveryDate)}</small>` : ''}
-      </div>
-    </div>
-  `;
-}
-
-function getClientCompletedTags(project) {
-  const spools = Array.isArray(project?.spools) ? project.spools : [];
-  if (!spools.length) return 0;
-  return spools.filter((spool) => clientPercentValue(spool?.overallProgress) >= 100 || String(spool?.uiState || '').toLowerCase() === 'completed').length;
-}
-
-function getClientAttentionPoints(project) {
-  const actual = getClientOverallProgress(project);
-  const planned = getClientPlannedToday(project);
-  const stages = getClientProductionStages(project);
-  const finish = getClientAnalyticFinishDate(project);
-  const today = getCurrentBrazilDate();
-  const daysToFinish = Math.round((finish - today) / 86400000);
-  const points = [];
-  if (planned - actual >= 10) points.push(`Realizado ${formatPercent(actual)} contra planejado ${formatPercent(planned)}: desvio de ${formatPercent(planned - actual)}.`);
-  if (getClientFabricationProgress(project) < 25 && planned > 35) points.push('Fabricação abaixo do ritmo planejado para a data atual.');
-  const painting = getClientStageValue(project, ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)']);
-  if (getClientFabricationProgress(project) >= 60 && painting <= 0) points.push('Pintura ainda não iniciada após avanço relevante da fabricação.');
-  const delivery = getClientPackageProgress(project);
-  if (daysToFinish <= 21 && daysToFinish >= 0 && actual < 80) points.push(`Término previsto em ${daysToFinish} dia(s) com progresso abaixo de 80%.`);
-  const blocked = stages.find((stage) => stage.percent <= 0);
-  if (blocked && planned > 20) points.push(`${blocked.label} sem progresso registrado.`);
-  if (!points.length) points.push('Sem ponto crítico automático identificado neste momento.');
-  return points;
-}
-
-function countBusinessDaysInclusive(startValue, endValue) {
-  const start = parseDateObject(startValue);
-  const end = parseDateObject(endValue);
-  if (!start || !end) return 0;
-  let current = new Date(start.getTime());
-  let finish = new Date(end.getTime());
-  if (current > finish) [current, finish] = [finish, current];
-  let total = 0;
-  while (current <= finish) {
-    const day = current.getUTCDay();
-    if (day !== 0 && day !== 6) total += 1;
-    current.setUTCDate(current.getUTCDate() + 1);
-  }
-  return total;
-}
-
-function addBusinessDaysUtc(dateValue, amount) {
-  const date = parseDateObject(dateValue);
-  if (!date) return null;
-  const result = new Date(date.getTime());
-  let remaining = Number(amount || 0);
-  const direction = remaining >= 0 ? 1 : -1;
-  remaining = Math.abs(remaining);
-  while (remaining > 0) {
-    result.setUTCDate(result.getUTCDate() + direction);
-    const day = result.getUTCDay();
-    if (day !== 0 && day !== 6) remaining -= 1;
-  }
-  return result;
-}
-
-function formatClientDateShort(value) {
-  return clientFormatDateValue(value) || '—';
-}
-
-function scaleDurationVector(baseItems, targetTotal) {
-  const totalBase = baseItems.reduce((sum, item) => sum + Number(item.base || 0), 0) || 1;
-  const safeTarget = Math.max(baseItems.length, Number(targetTotal || 0));
-  const raw = baseItems.map((item) => ({ ...item, raw: (Number(item.base || 0) / totalBase) * safeTarget }));
-  let rows = raw.map((item) => ({ ...item, duration: Math.max(1, Math.floor(item.raw)), fraction: item.raw - Math.floor(item.raw) }));
-  let currentTotal = rows.reduce((sum, item) => sum + item.duration, 0);
-  if (currentTotal < safeTarget) {
-    rows.sort((a, b) => b.fraction - a.fraction);
-    for (let i = 0; currentTotal < safeTarget && rows.length; i = (i + 1) % rows.length) {
-      rows[i].duration += 1;
-      currentTotal += 1;
-    }
-  } else if (currentTotal > safeTarget) {
-    rows.sort((a, b) => a.fraction - b.fraction);
-    for (let i = 0; currentTotal > safeTarget && rows.length; i = (i + 1) % rows.length) {
-      if (rows[i].duration > 1) {
-        rows[i].duration -= 1;
-        currentTotal -= 1;
-      }
-    }
-  }
-  return baseItems.map((item) => rows.find((row) => row.key === item.key) || { ...item, duration: Math.max(1, Number(item.base || 1)) });
-}
-
-function buildClientExecutiveSchedule(project) {
-  const start = getClientAnalyticStartDate(project);
-  const finish = getClientAnalyticFinishDate(project) || getProjectShipmentDate(project);
-  const totalBusinessDays = Math.max(5, countBusinessDaysInclusive(start, finish) || 116);
-
-  const groupTemplate = [
-    { key: 'engineering', label: 'ENGINEERING', base: 15, percent: getClientStageValue(project, ['Drawing Execution Advance%', 'Drawing']) },
-    { key: 'procurement', label: 'MATERIAL PROCUREMENT', base: 15, percent: Math.max(getClientStageValue(project, ['Procuremnt Status %', 'Procurement Status %', 'Procurement']), getClientStageValue(project, ['Material Separation']), getClientStageValue(project, ['Material Release to Fabrication'])) },
-    { key: 'fabrication', label: 'FABRICATION', base: 81, percent: getClientFabricationProgress(project) },
-    { key: 'delivery', label: 'DELIVERY', base: 2, percent: getClientPackageProgress(project) },
-  ];
-  const groupDurations = scaleDurationVector(groupTemplate, totalBusinessDays);
-
-  const fabricationTemplate = [
-    { key: 'fitup', label: 'Fit up', base: 15, percent: Math.max(getClientStageValue(project, ['Welding Preparation', 'Spool Assemble and tack weld']), 0) },
-    { key: 'initial-dimensional', label: 'Initial Dimensional Inspection', base: 10, percent: getClientStageValue(project, ['Initial Dimensional Inspection/3D']) },
-    { key: 'weld', label: 'Weld', base: 10, percent: getClientStageValue(project, ['Full welding execution']) },
-    { key: 'nde', label: 'Non Destructive Examination', base: 8, percent: getClientStageValue(project, ['Non Destructive Examination (QC)']) },
-    { key: 'final-dimensional', label: 'Final Dimensional Inspection', base: 8, percent: getClientStageValue(project, ['Final Dimensional Inpection/3D (QC)']) },
-    { key: 'hydro', label: 'Hydro Testing', base: 6, percent: getClientStageValue(project, ['Hydro Test Pressure (QC)']) },
-    { key: 'painting', label: 'Painting', base: 14, percent: getClientStageValue(project, ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)']) },
-    { key: 'packing', label: 'Packing', base: 5, percent: getClientStageValue(project, ['Package and Delivered']) },
-    { key: 'final-inspection', label: 'Final Inspection', base: 5, percent: getClientStageValue(project, ['Final Inspection']) },
-  ];
-  const fabricationGroup = groupDurations.find((item) => item.key === 'fabrication');
-  const fabricationDurations = scaleDurationVector(fabricationTemplate, fabricationGroup?.duration || 81);
-
-  const rows = [];
-  let cursor = parseDateObject(start) || parseDateObject(getProjectShipmentDate(project)) || new Date();
-  for (const group of groupDurations) {
-    const groupStart = new Date(cursor.getTime());
-    const groupFinish = addBusinessDaysUtc(groupStart, Math.max(0, (group.duration || 1) - 1)) || groupStart;
-    rows.push({ type: 'group', label: group.label, progress: group.percent, duration: group.duration, start: groupStart, finish: groupFinish });
-    let children = [];
-    if (group.key === 'engineering') {
-      children = [{ label: 'Drawings', progress: group.percent, duration: group.duration }];
-    } else if (group.key === 'procurement') {
-      children = [{ label: 'Materials for Application Acquisition', progress: group.percent, duration: group.duration }];
-    } else if (group.key === 'fabrication') {
-      children = fabricationDurations.map((item) => ({ label: item.label, progress: item.percent, duration: item.duration }));
-    } else if (group.key === 'delivery') {
-      children = [{ label: 'Delivery', progress: group.percent, duration: group.duration }];
-    }
-
-    let childCursor = new Date(groupStart.getTime());
-    for (const child of children) {
-      const childStart = new Date(childCursor.getTime());
-      const childFinish = addBusinessDaysUtc(childStart, Math.max(0, (child.duration || 1) - 1)) || childStart;
-      rows.push({ type: 'child', label: child.label, progress: child.progress, duration: child.duration, start: childStart, finish: childFinish });
-      childCursor = addBusinessDaysUtc(childFinish, 1) || childFinish;
-    }
-
-    cursor = addBusinessDaysUtc(groupFinish, 1) || groupFinish;
-  }
-  return rows;
-}
-
-function getClientScheduleVisualState(progress) {
-  const value = clampClientPercent(progress);
-  if (value >= 99.9) return 'completed';
-  if (value <= 0) return 'not-started';
-  return 'in-progress';
-}
-
-function renderClientExecutiveSchedule(project) {
-  const rows = buildClientExecutiveSchedule(project);
-  if (!rows.length) return '<div class="client-empty-state">Schedule não disponível para esta BSP.</div>';
-  return `
-    <div class="client-table-wrap client-table-wrap--compact client-exec-schedule-table">
-      <table class="client-bsp-table client-bsp-table--schedule">
-        <thead><tr><th>Etapa</th><th>%</th><th>Prazo médio</th><th>Início</th><th>Término</th><th>Status</th></tr></thead>
-        <tbody>
-          ${rows.map((row) => {
-            const state = getClientScheduleVisualState(row.progress);
-            const label = row.type === 'group' ? `<strong>${escapeHtml(row.label)}</strong>` : `<span class="client-schedule-child">${escapeHtml(row.label)}</span>`;
-            return `<tr class="client-schedule-row client-schedule-row--${state} client-schedule-row--${row.type}"><td>${label}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(row.progress)}</span></td><td>${formatNumber(row.duration, 0)}d</td><td>${formatClientDateShort(row.start)}</td><td>${formatClientDateShort(row.finish)}</td><td><span class="client-spool-chip client-spool-chip--${state}">${state === 'completed' ? 'Concluído' : state === 'in-progress' ? 'Em andamento' : 'Não iniciado'}</span></td></tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function getClientStageTimeline(project) {
-  const stages = getClientProductionStages(project);
-  return stages.map((stage) => ({
-    ...stage,
-    state: stage.percent >= 100 ? 'done' : stage.percent > 0 ? 'active' : 'future',
-  }));
-}
-
-function ensureClientBspExecutiveModalEl() {
-  let modal = document.getElementById('client-bsp-executive-modal');
-  if (modal) return modal;
-  modal = document.createElement('div');
-  modal.id = 'client-bsp-executive-modal';
-  modal.className = 'client-exec-modal hidden';
-  modal.innerHTML = `
-    <div class="client-exec-backdrop" data-client-exec-close></div>
-    <section class="client-exec-shell" role="dialog" aria-modal="true" aria-label="Visão Executiva da BSP">
-      <button type="button" class="client-exec-close" data-client-exec-close>×</button>
-      <div id="client-bsp-executive-content"></div>
-    </section>
-  `;
-  document.body.appendChild(modal);
-  modal.addEventListener('click', (event) => {
-    if (event.target.closest('[data-client-exec-close]')) closeClientBspExecutive();
-  });
-  return modal;
-}
-
-function closeClientBspExecutive() {
-  const modal = document.getElementById('client-bsp-executive-modal');
-  if (modal) modal.classList.add('hidden');
-  document.body.classList.remove('client-exec-open');
-}
-
-function getClientMacroProjects(projects = state.projects) {
-  return (Array.isArray(projects) ? projects : []).filter(Boolean);
-}
-
-function getClientMacroTotals(projects = state.projects) {
-  const list = getClientMacroProjects(projects);
-  return list.reduce((acc, project) => {
-    const totalTags = getProjectItemCount(project);
-    const completedTags = getClientCompletedTags(project);
-    const weight = Number(project.kilos || 0);
-    const welded = Number(project.weldedWeightKg || 0);
-    acc.bsps += 1;
-    acc.tags += totalTags;
-    acc.completedTags += completedTags;
-    acc.remainingTags += Math.max(0, totalTags - completedTags);
-    acc.weight += weight;
-    acc.welded += welded;
-    acc.pending += Math.max(0, weight - welded);
-    acc.m2 += Number(project.m2Painting || 0);
-    acc.progress += getClientOverallProgress(project);
-    acc.fabrication += getClientFabricationProgress(project);
-    acc.planned += getClientPlannedToday(project);
-    return acc;
-  }, { bsps: 0, tags: 0, completedTags: 0, remainingTags: 0, weight: 0, welded: 0, pending: 0, m2: 0, progress: 0, fabrication: 0, planned: 0 });
-}
-
-function getClientMacroAverage(value, count) {
-  return count ? clampClientPercent(value / count) : 0;
-}
-
-function getClientMacroDateRange(projects = state.projects) {
-  const list = getClientMacroProjects(projects);
-  const starts = [];
-  const finishes = [];
-  for (const project of list) {
-    const start = getClientAnalyticStartDate(project);
-    const finish = getClientAnalyticFinishDate(project);
-    if (start) starts.push(start);
-    if (finish) finishes.push(finish);
-  }
-  const start = starts.length ? new Date(Math.min(...starts.map((date) => date.getTime()))) : getCurrentBrazilDate();
-  const finish = finishes.length ? new Date(Math.max(...finishes.map((date) => date.getTime()))) : addUtcDays(start, 120);
-  return { start, finish: finish <= start ? addUtcDays(start, 30) : finish };
-}
-
-function getClientMacroProductionStages(projects = state.projects) {
-  const list = getClientMacroProjects(projects);
-  const template = [
-    { key: 'engineering', label: 'Engineering / Drawing', weight: 15 },
-    { key: 'procurement', label: 'Procurement', weight: 15 },
-    { key: 'fabrication', label: 'Fabrication', weight: 65 },
-    { key: 'package', label: 'Package / Delivery', weight: 5 },
-  ];
-  if (!list.length) return template.map((stage) => ({ ...stage, percent: 0 }));
-  return template.map((stage) => {
-    const total = list.reduce((sum, project) => {
-      const match = getClientProductionStages(project).find((item) => item.key === stage.key);
-      return sum + Number(match?.percent || 0);
-    }, 0);
-    return { ...stage, percent: clampClientPercent(total / list.length) };
-  });
-}
-
-function getClientMacroPlannedToday(projects = state.projects) {
-  const totals = getClientMacroTotals(projects);
-  return getClientMacroAverage(totals.planned, totals.bsps);
-}
-
-function getClientMacroOverallProgress(projects = state.projects) {
-  const totals = getClientMacroTotals(projects);
-  return getClientMacroAverage(totals.progress, totals.bsps);
-}
-
-function getClientMacroFabricationProgress(projects = state.projects) {
-  const totals = getClientMacroTotals(projects);
-  return getClientMacroAverage(totals.fabrication, totals.bsps);
-}
-
-function buildClientMacroSCurveData(projects = state.projects) {
-  const { start, finish } = getClientMacroDateRange(projects);
-  const duration = clientDaysBetween(start, finish);
-  const step = Math.max(1, Math.ceil(duration / 14));
-  const today = getCurrentBrazilDate();
-  const actualNow = getClientMacroOverallProgress(projects);
-  const plannedToday = getClientMacroPlannedToday(projects);
-  const points = [];
-  for (let day = 0; day <= duration; day += step) {
-    const date = addUtcDays(start, day);
-    const ratio = day / duration;
-    const planned = clientSchedulePlannedPercent(ratio);
-    let actual = null;
-    if (date <= today) {
-      actual = plannedToday > 0 ? clampClientPercent((planned / plannedToday) * actualNow) : actualNow;
-    }
-    points.push({ date, planned, actual });
-  }
-  if (points[points.length - 1]?.date < finish) points.push({ date: finish, planned: 100, actual: finish <= today ? actualNow : null });
-  return points;
-}
-
-function renderClientMacroSCurveSvg(projects = state.projects) {
-  const points = buildClientMacroSCurveData(projects);
-  const width = 760;
-  const height = 260;
-  const pad = { left: 42, right: 16, top: 18, bottom: 38 };
-  const innerW = width - pad.left - pad.right;
-  const innerH = height - pad.top - pad.bottom;
-  const plannedPath = clientSvgPolyline(points, width, height, (point) => point.planned);
-  const actualPath = clientSvgPolyline(points, width, height, (point) => point.actual);
-  const grid = [0, 25, 50, 75, 100].map((value) => {
-    const y = pad.top + (1 - value / 100) * innerH;
-    return `<line x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}" class="client-chart-grid" /><text x="8" y="${y + 4}" class="client-chart-label">${value}%</text>`;
-  }).join('');
-  const first = points[0]?.date ? clientFormatDateValue(points[0].date) : '';
-  const mid = points[Math.floor(points.length / 2)]?.date ? clientFormatDateValue(points[Math.floor(points.length / 2)].date) : '';
-  const last = points[points.length - 1]?.date ? clientFormatDateValue(points[points.length - 1].date) : '';
-  const actualCircle = (() => {
-    const lastActualIndex = points.map((point, index) => ({ point, index })).filter((item) => item.point.actual != null).pop();
-    if (!lastActualIndex) return '';
-    const x = pad.left + (lastActualIndex.index / Math.max(1, points.length - 1)) * innerW;
-    const y = pad.top + (1 - clampClientPercent(lastActualIndex.point.actual) / 100) * innerH;
-    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="client-chart-dot" />`;
-  })();
-  return `
-    <svg class="client-scurve-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Curva S macro planejado versus realizado">
-      ${grid}
-      <line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" class="client-chart-axis" />
-      <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" class="client-chart-axis" />
-      <path d="${plannedPath}" class="client-chart-planned" />
-      ${actualPath ? `<path d="${actualPath}" class="client-chart-actual" />${actualCircle}` : ''}
-      <text x="${pad.left}" y="${height - 12}" class="client-chart-date">${escapeHtml(first)}</text>
-      <text x="${pad.left + innerW / 2 - 38}" y="${height - 12}" class="client-chart-date">${escapeHtml(mid)}</text>
-      <text x="${width - pad.right - 72}" y="${height - 12}" class="client-chart-date">${escapeHtml(last)}</text>
-    </svg>
-  `;
-}
-
-function getClientMacroAttentionPoints(projects = state.projects) {
-  const list = getClientMacroProjects(projects);
-  const actual = getClientMacroOverallProgress(list);
-  const planned = getClientMacroPlannedToday(list);
-  const points = [];
-  if (planned - actual >= 10) points.push(`Carteira realizada em ${formatPercent(actual)} contra planejado ${formatPercent(planned)}: desvio macro de ${formatPercent(planned - actual)}.`);
-  const notStarted = list.filter((project) => getClientOverallProgress(project) <= 0).length;
-  const finished = list.filter((project) => getClientOverallProgress(project) >= 99.9 || isProjectFinishedForTotal(project)).length;
-  const delayed = list.filter((project) => getClientPlannedToday(project) - getClientOverallProgress(project) >= 10).length;
-  if (notStarted) points.push(`${formatNumber(notStarted)} BSP(s) ainda sem avanço registrado.`);
-  if (delayed) points.push(`${formatNumber(delayed)} BSP(s) com desvio maior ou igual a 10% em relação ao planejado.`);
-  if (finished) points.push(`${formatNumber(finished)} BSP(s) finalizada(s) na carteira.`);
-  if (!points.length) points.push('Carteira sem ponto crítico automático identificado neste momento.');
-  return points;
-}
-
-function getClientProjectVisualState(project) {
-  const progress = getClientOverallProgress(project);
-  if (progress >= 99.9 || isProjectFinishedForTotal(project)) return 'completed';
-  if (progress <= 0) return 'not-started';
-  return 'in-progress';
-}
-
-function renderClientMacroProjectRows(projects = state.projects) {
-  const list = getClientMacroProjects(projects)
-    .sort((a, b) => {
-      const aDone = getClientProjectVisualState(a) === 'completed';
-      const bDone = getClientProjectVisualState(b) === 'completed';
-      if (aDone !== bDone) return aDone ? 1 : -1;
-      return getClientOverallProgress(a) - getClientOverallProgress(b);
-    })
-    .slice(0, 180);
-  if (!list.length) return '<tr><td colspan="8" class="loading-cell">Nenhuma BSP encontrada para este cliente.</td></tr>';
-  return list.map((project) => {
-    const status = getProjectStatusPresentation(project);
-    const visualState = getClientProjectVisualState(project);
-    return `<tr class="client-spool-row client-spool-row--${visualState}"><td><strong>${escapeHtml(getClientProjectDisplayCode(project))}</strong></td><td>${escapeHtml(getProjectVesselLabel(project) || '—')}</td><td>${formatNumber(getProjectItemCount(project))}</td><td>${formatNumber(project.kilos, 0)} kg</td><td>${formatNumber(project.weldedWeightKg, 0)} kg</td><td><span class="client-spool-chip client-spool-chip--${visualState}">${escapeHtml(status.text)}</span></td><td><span class="client-spool-progress client-spool-progress--${visualState}">${formatPercent(getClientOverallProgress(project))}</span></td><td>${escapeHtml(project.plannedFinishDate || '—')}</td></tr>`;
-  }).join('');
-}
-
-function openClientMacroExecutive(projects = state.projects) {
-  if (!isClientUser()) return;
-  const list = getClientMacroProjects(projects);
-  const modal = ensureClientBspExecutiveModalEl();
-  const content = modal.querySelector('#client-bsp-executive-content');
-  if (!content) return;
-
-  const totals = getClientMacroTotals(list);
-  const overall = getClientMacroOverallProgress(list);
-  const fabrication = getClientMacroFabricationProgress(list);
-  const plannedToday = getClientMacroPlannedToday(list);
-  const stages = getClientMacroProductionStages(list);
-  const attention = getClientMacroAttentionPoints(list);
-  const range = getClientMacroDateRange(list);
-  const deviationPercent = Math.max(0, plannedToday - overall);
-  const vesselGroups = getClientVesselGroups(list);
-  const finishedBsps = list.filter((project) => getClientOverallProgress(project) >= 99.9 || isProjectFinishedForTotal(project)).length;
-  const pendingBsps = Math.max(0, totals.bsps - finishedBsps);
-  const timeline = stages.map((stage) => ({ ...stage, state: stage.percent >= 100 ? 'done' : stage.percent > 0 ? 'active' : 'future' }));
-
-  content.innerHTML = `
-    <header class="client-exec-header client-exec-header--macro">
-      <div>
-        <p class="client-kicker">Visão Executiva da Carteira</p>
-        <h2>${escapeHtml(getClientPortalName())}</h2>
-        <p>Carteira completa do cliente • ${formatNumber(totals.bsps)} BSP(s) • ${formatNumber(totals.tags)} tag(s)</p>
-      </div>
-      <div class="client-exec-dates">
-        <span>Início macro: <strong>${escapeHtml(clientFormatDateValue(range.start) || '—')}</strong></span>
-        <span>Término macro: <strong>${escapeHtml(clientFormatDateValue(range.finish) || '—')}</strong></span>
-        <span>Planejado hoje: <strong>${formatPercent(plannedToday)}</strong></span>
-        <span>Desvio: <strong>${formatPercent(deviationPercent)}</strong></span>
-      </div>
-    </header>
-
-    <div class="client-exec-kpis">
-      <article><span>BSPs</span><strong>${formatNumber(totals.bsps)}</strong></article>
-      <article><span>Tags totais</span><strong>${formatNumber(totals.tags)}</strong></article>
-      <article><span>Tags restantes</span><strong>${formatNumber(totals.remainingTags)}</strong></article>
-      <article><span>Peso programado</span><strong>${formatNumber(totals.weight, 0)} kg</strong></article>
-      <article><span>Peso soldado</span><strong>${formatNumber(totals.welded, 0)} kg</strong></article>
-      <article><span>Peso restante</span><strong>${formatNumber(totals.pending, 0)} kg</strong></article>
-      <article><span>M² programada</span><strong>${formatNumber(totals.m2, 3)}</strong></article>
-      <article><span>BSPs pendentes</span><strong>${formatNumber(pendingBsps)}</strong></article>
-    </div>
-
-    <div class="client-exec-grid client-exec-grid--top">
-      <section class="client-exec-card">
-        <div class="client-exec-card-head"><h3>Overall Progress</h3><span>Carteira geral + desvio</span></div>
-        ${renderClientGauge(overall, 'carteira', plannedToday, { note: 'Meta macro até hoje' })}
-      </section>
-      <section class="client-exec-card">
-        <div class="client-exec-card-head"><h3>Fabrication Progress</h3><span>Fabricação ponderada da carteira</span></div>
-        ${renderClientGauge(fabrication, 'fabricação', plannedToday, { note: 'Meta macro até hoje' })}
-      </section>
-      <section class="client-exec-card client-exec-card--bars">
-        <div class="client-exec-card-head"><h3>Progress by Production Stage</h3><span>Etapas principais da carteira</span></div>
-        <div class="client-exec-bars">
-          ${stages.map((stage) => `<div class="client-exec-bar-row"><span>${escapeHtml(stage.label)}</span><div><i style="width:${clampClientPercent(stage.percent)}%"></i></div><strong>${formatPercent(stage.percent)}</strong></div>`).join('')}
-        </div>
-      </section>
-    </div>
-
-    <div class="client-exec-grid client-exec-grid--main">
-      <section class="client-exec-card client-exec-card--curve">
-        <div class="client-exec-card-head"><h3>Curva S | Carteira do Cliente</h3><span>Planejado x realizado consolidado de todas as BSPs</span></div>
-        <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span></div>
-        ${renderClientMacroSCurveSvg(list)}
-      </section>
-      <aside class="client-exec-side">
-        <section class="client-exec-card">
-          <div class="client-exec-card-head"><h3>Resumo BSPs</h3><span>Carteira consolidada</span></div>
-          <div class="client-exec-mini-table">
-            <div><span>Total</span><strong>${formatNumber(totals.bsps)}</strong></div>
-            <div><span>Finalizadas</span><strong>${formatNumber(finishedBsps)}</strong></div>
-            <div><span>Pendentes</span><strong>${formatNumber(pendingBsps)}</strong></div>
-          </div>
-        </section>
-        <section class="client-exec-card">
-          <div class="client-exec-card-head"><h3>Unidades</h3><span>BSPs por vessel</span></div>
-          <div class="client-exec-mini-table">
-            ${vesselGroups.slice(0, 8).map((group) => `<div><span>${escapeHtml(group.label)}</span><strong>${formatNumber(group.projects.length)} BSP(s)</strong></div>`).join('') || '<div><span>Sem unidade</span><strong>—</strong></div>'}
-          </div>
-        </section>
-      </aside>
-    </div>
-
-    <section class="client-exec-card">
-      <div class="client-exec-card-head"><h3>Timeline macro</h3><span>Resumo das etapas da carteira</span></div>
-      <div class="client-exec-timeline">
-        ${timeline.map((item) => `<div class="client-exec-step is-${item.state}"><span></span><strong>${escapeHtml(item.label)}</strong><small>${formatPercent(item.percent)}</small></div>`).join('')}
-      </div>
-    </section>
-
-    <section class="client-exec-card client-exec-attention">
-      <div class="client-exec-card-head"><h3>S-Curve | Attention Points</h3><span>Análise automática da carteira</span></div>
-      <ul>${attention.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
-    </section>
-
-    <section class="client-exec-card client-exec-process-detail">
-      <div class="client-exec-card-head"><h3>Detalhamento macro das BSPs</h3><span>Menor progresso primeiro; finalizadas no final</span></div>
-      <div class="client-table-wrap client-table-wrap--compact client-exec-process-table">
-        <table class="client-bsp-table"><thead><tr><th>BSP / PO</th><th>Unidade</th><th>Tags</th><th>Peso</th><th>Soldado</th><th>Status</th><th>% Geral</th><th>Término</th></tr></thead><tbody>
-          ${renderClientMacroProjectRows(list)}
-        </tbody></table>
-      </div>
-    </section>
-  `;
-
-  modal.classList.remove('hidden');
-  document.body.classList.add('client-exec-open');
-}
-
-function openClientBspExecutive(project) {
-  if (!project || !isClientUser()) return;
-  const modal = ensureClientBspExecutiveModalEl();
-  const content = modal.querySelector('#client-bsp-executive-content');
-  if (!content) return;
-
-  const status = getProjectStatusPresentation(project);
-  const stages = getClientProductionStages(project);
-  const overall = getClientOverallProgress(project);
-  const fabrication = getClientFabricationProgress(project);
-  const plannedToday = getClientPlannedToday(project);
-  const completedTags = getClientCompletedTags(project);
-  const totalTags = getProjectItemCount(project);
-  const remainingTags = Math.max(0, totalTags - completedTags);
-  const weight = Number(project.kilos || 0);
-  const welded = Number(project.weldedWeightKg || 0);
-  const pending = Math.max(0, weight - welded);
-  const timeline = getClientStageTimeline(project);
-  const attention = getClientAttentionPoints(project);
-  const startDate = clientFormatDateValue(getClientAnalyticStartDate(project));
-  const finishDate = clientFormatDateValue(getClientAnalyticFinishDate(project));
-  const shipmentDate = clientFormatDateValue(getProjectShipmentDate(project));
-  const deviationPercent = Math.max(0, plannedToday - overall);
-  const stageValues = project.stageValues || {};
-  const spools = Array.isArray(project.spools) ? project.spools : [];
-  const detailStageKeys = ['Drawing Execution Advance%', 'Procuremnt Status %', 'Material Separation', 'Full welding execution', 'Non Destructive Examination (QC)', 'Hydro Test Pressure (QC)', 'Surface preparation and/or coating', 'Final Inspection', 'Package and Delivered'];
-
-  content.innerHTML = `
-    <header class="client-exec-header">
-      <div>
-        <p class="client-kicker">Visão Executiva da BSP</p>
-        <h2>${escapeHtml(getClientProjectDisplayCode(project))}</h2>
-        <p>${escapeHtml(getProjectClientLabel(project))} • ${escapeHtml(getProjectVesselLabel(project))} • <span class="cell-status cell-status--${status.state}">${escapeHtml(status.text)}</span></p>
-      </div>
-      <div class="client-exec-dates">
-        <span>Início: <strong>${escapeHtml(startDate || '—')}</strong></span>
-        <span>Término planejado: <strong>${escapeHtml(finishDate || '—')}</strong></span>
-        <span>Planejado hoje: <strong>${formatPercent(plannedToday)}</strong></span>
-        <span>Desvio: <strong>${formatPercent(deviationPercent)}</strong></span>
-        <span>Envio efetivo: <strong>${escapeHtml(shipmentDate || '—')}</strong></span>
-      </div>
-    </header>
-
-    <div class="client-exec-kpis">
-      <article><span>Progresso geral</span><strong>${formatPercent(overall)}</strong></article>
-      <article><span>Peso programado</span><strong>${formatNumber(weight, 0)} kg</strong></article>
-      <article><span>Peso soldado</span><strong>${formatNumber(welded, 0)} kg</strong></article>
-      <article><span>Peso restante</span><strong>${formatNumber(pending, 0)} kg</strong></article>
-      <article><span>Tags totais</span><strong>${formatNumber(totalTags)}</strong></article>
-      <article><span>Tags restantes</span><strong>${formatNumber(remainingTags)}</strong></article>
-      <article><span>M² programada</span><strong>${formatNumber(project.m2Painting, 3)}</strong></article>
-      <article><span>Etapa atual</span><strong>${escapeHtml(getProjectCurrentStageDisplay(project))}</strong></article>
-    </div>
-
-    <div class="client-exec-grid client-exec-grid--top">
-      <section class="client-exec-card">
-        <div class="client-exec-card-head"><h3>Overall Progress</h3><span>Concluído x restante + desvio</span></div>
-        ${renderClientGauge(overall, 'concluído', plannedToday, { deliveryDate: shipmentDate, note: 'Meta até hoje' })}
-      </section>
-      <section class="client-exec-card">
-        <div class="client-exec-card-head"><h3>Fabrication Progress</h3><span>Fabricação ponderada + desvio</span></div>
-        ${renderClientGauge(fabrication, 'fabricação', plannedToday, { note: 'Meta até hoje' })}
-      </section>
-      <section class="client-exec-card client-exec-card--bars">
-        <div class="client-exec-card-head"><h3>Progress by Production Stage</h3><span>Etapas principais</span></div>
-        <div class="client-exec-bars">
-          ${stages.map((stage) => `<div class="client-exec-bar-row"><span>${escapeHtml(stage.label)}</span><div><i style="width:${clampClientPercent(stage.percent)}%"></i></div><strong>${formatPercent(stage.percent)}</strong></div>`).join('')}
-        </div>
-      </section>
-    </div>
-
-    <div class="client-exec-grid client-exec-grid--main">
-      <section class="client-exec-card client-exec-card--curve">
-        <div class="client-exec-card-head"><h3>Curva S | Planejado x Realizado</h3><span>Baseada na data inicial e final da BSP</span></div>
-        <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span></div>
-        ${renderClientSCurveSvg(project)}
-      </section>
-      <aside class="client-exec-side">
-        <section class="client-exec-card">
-          <div class="client-exec-card-head"><h3>Spool / Tags</h3><span>Resumo da BSP</span></div>
-          <div class="client-exec-mini-table">
-            <div><span>Total</span><strong>${formatNumber(totalTags)}</strong></div>
-            <div><span>Finalizadas</span><strong>${formatNumber(completedTags)}</strong></div>
-            <div><span>Restantes</span><strong>${formatNumber(remainingTags)}</strong></div>
-          </div>
-        </section>
-        <section class="client-exec-card">
-          <div class="client-exec-card-head"><h3>Weight</h3><span>Programado x soldado</span></div>
-          <div class="client-weight-bars">
-            <div><span>Soldado</span><div><i style="width:${weight ? clampClientPercent((welded / weight) * 100) : 0}%"></i></div><strong>${formatNumber(welded, 0)} kg</strong></div>
-            <div><span>Restante</span><div><i class="remaining" style="width:${weight ? clampClientPercent((pending / weight) * 100) : 0}%"></i></div><strong>${formatNumber(pending, 0)} kg</strong></div>
-          </div>
-        </section>
-      </aside>
-    </div>
-
-    <section class="client-exec-card">
-      <div class="client-exec-card-head"><h3>Timeline operacional</h3><span>Resumo dos passos do schedule</span></div>
-      <div class="client-exec-timeline">
-        ${timeline.map((item) => `<div class="client-exec-step is-${item.state}"><span></span><strong>${escapeHtml(item.label)}</strong><small>${formatPercent(item.percent)}</small></div>`).join('')}
-      </div>
-    </section>
-
-    <section class="client-exec-card client-exec-schedule-card">
-      <div class="client-exec-card-head"><h3>Schedule Executivo da BSP</h3><span>Prazos médios por etapa com base na data inicial e final</span></div>
-      ${renderClientExecutiveSchedule(project)}
-    </section>
-
-    <section class="client-exec-card client-exec-attention">
-      <div class="client-exec-card-head"><h3>S-Curve | Attention Points</h3><span>Análise automática</span></div>
-      <ul>${attention.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
-    </section>
-
-    <section class="client-exec-card client-exec-process-detail">
-      <div class="client-exec-card-head"><h3>Detalhamento da obra</h3><span>Processos da BSP e evolução por etapa</span></div>
-      <div class="client-stage-strip client-stage-strip--executive">
-        ${detailStageKeys.map((key) => {
-          const label = (state.meta?.stageOrder || []).find((stage) => stage.key === key)?.label || key;
-          const value = stageValues[key];
-          return `<div><span>${escapeHtml(label)}</span><strong>${value == null || value === '' ? '—' : (String(value).includes('%') ? escapeHtml(value) : formatPercent(value))}</strong></div>`;
-        }).join('')}
-      </div>
-      <div class="client-table-wrap client-table-wrap--compact client-exec-process-table">
-        <table class="client-bsp-table"><thead><tr><th>Tag/ISO</th><th>Descrição</th><th>Status</th><th>Etapa</th><th>%</th><th>Peso</th></tr></thead><tbody>
-          ${renderClientSpoolRows(spools, 120)}
-        </tbody></table>
-      </div>
-    </section>
-  `;
-
-  modal.classList.remove('hidden');
-  document.body.classList.add('client-exec-open');
-}
-
-function handleClientDashboardClick(event) {
-  const macroButton = event.target.closest('[data-client-open-macro-dashboard]');
-  if (macroButton) {
-    openClientMacroExecutive();
-    return;
-  }
-  const vesselButton = event.target.closest('[data-client-vessel]');
-  if (vesselButton) {
-    state.clientPortal.selectedVesselKey = vesselButton.dataset.clientVessel || '';
-    state.clientPortal.selectedProjectId = null;
-    renderClientDashboard();
-    return;
-  }
-  const clearButton = event.target.closest('#client-clear-vessel');
-  if (clearButton) {
-    state.clientPortal.selectedVesselKey = '';
-    state.clientPortal.selectedProjectId = null;
-    renderClientDashboard();
-    return;
-  }
-  const row = event.target.closest('[data-client-project-id]');
-  if (row) {
-    const projectId = Number(row.dataset.clientProjectId || 0);
-    window.clearTimeout(state.clientPortal.rowClickTimer);
-    state.clientPortal.rowClickTimer = window.setTimeout(() => {
-      state.clientPortal.selectedProjectId = projectId;
-      renderClientBspPanel();
-      state.clientPortal.rowClickTimer = null;
-    }, 230);
-    return;
-  }
-  const analyticsButton = event.target.closest('[data-client-open-analytics]');
-  if (analyticsButton) {
-    const project = state.projects.find((item) => String(item.rowId) === String(analyticsButton.dataset.clientOpenAnalytics));
-    if (project) openClientBspExecutive(project);
-  }
-}
-
-function handleClientDashboardDblClick(event) {
-  const row = event.target.closest('[data-client-project-id]');
-  if (!row || !isClientUser()) return;
-  event.preventDefault();
-  event.stopPropagation();
-  window.clearTimeout(state.clientPortal.rowClickTimer);
-  state.clientPortal.rowClickTimer = null;
-  const projectId = Number(row.dataset.clientProjectId || 0);
-  const project = state.projects.find((item) => String(item.rowId) === String(row.dataset.clientProjectId));
-  if (!project) return;
-  state.clientPortal.selectedProjectId = projectId;
-  renderClientBspPanel();
-  openClientBspExecutive(project);
 }
 
 function incrementTrailingNumberLabel(value, index) {
@@ -5256,19 +3943,19 @@ function renderProjectDrillClientCards(clientGroups, mode) {
   }
 
   const buildSmall = (group) => {
-    if (mode === 'total') return `${formatNumber(group.vesselCount)} unidade(s) • ${formatNumber(group.totalTags)} tag(s) • ${formatNumber(group.totalWeightKg, 0)} kg programado`;
-    if (mode === 'started') return `${formatNumber(group.vesselCount)} unidade(s) • ${formatNumber(group.startedTags)} tag(s) iniciada(s) • ${formatNumber(group.totalWeightKg, 0)} kg programado`;
-    if (mode === 'not-started') return `${formatNumber(group.vesselCount)} unidade(s) • ${formatNumber(group.notStartedTags)} tag(s) não iniciada(s) • ${formatNumber(group.totalWeightKg, 0)} kg programado`;
-    if (mode === 'hold') return `${formatNumber(group.vesselCount)} unidade(s) • ${formatNumber(group.holdTags)} tag(s) em On Hold • ${formatNumber(group.weldedWeightKg, 0)} kg soldado`;
-    if (mode === 'production') return `${formatNumber(group.vesselCount)} unidade(s) • ${formatNumber(group.productionTags)} tag(s) em produção • ${formatNumber(group.weldedWeightKg, 0)} kg soldado`;
-    if (mode === 'inspection') return `${formatNumber(group.vesselCount)} unidade(s) • ${formatNumber(group.inspectionTags)} tag(s) em qualidade • ${formatNumber(group.weldedWeightKg, 0)} kg soldado`;
-    if (mode === 'painting') return `${formatNumber(group.vesselCount)} unidade(s) • ${formatNumber(group.paintingTags)} tag(s) em pintura • ${formatNumber(group.paintingM2, 3)} m²`;
-    if (mode === 'awaiting') return `${formatNumber(group.vesselCount)} unidade(s) • ${formatNumber(group.awaitingTags || 0)} tag(s) aguardando envio • ${formatNumber(group.weldedWeightKg, 0)} kg soldado`;
-    if (mode === 'total-weight') return `${formatNumber(group.vesselCount)} unidade(s) • ${formatNumber(group.totalTags)} tag(s) • ${formatNumber(group.totalWeightKg, 0)} kg programado`;
-    if (mode === 'welded') return `${formatNumber(group.vesselCount)} unidade(s) • ${formatNumber(group.totalTags)} tag(s) • ${formatNumber(group.weldedWeightKg, 0)} kg soldado`;
-    if (mode === 'backlog') return `${formatNumber(group.vesselCount)} unidade(s) • ${formatNumber(group.totalTags)} tag(s) • ${formatNumber(group.backlogKg, 0)} kg pendente`;
-    if (mode === 'painting-m2') return `${formatNumber(group.vesselCount)} unidade(s) • ${formatNumber(group.paintingTags)} tag(s) em pintura • ${formatNumber(group.paintingM2, 3)} m²`;
-    return `${formatNumber(group.vesselCount)} unidade(s) • ${formatNumber(group.totalTags)} tag(s)`;
+    if (mode === 'total') return `${formatNumber(group.vesselCount)} unidade(s) • ${formatNumber(group.totalWeightKg, 0)} kg programado`;
+    if (mode === 'started') return `${formatNumber(group.startedTags)} tag(s) iniciada(s) • ${formatNumber(group.totalWeightKg, 0)} kg programado`;
+    if (mode === 'not-started') return `${formatNumber(group.notStartedTags)} tag(s) não iniciada(s) • ${formatNumber(group.totalWeightKg, 0)} kg programado`;
+    if (mode === 'hold') return `${formatNumber(group.holdTags)} tag(s) em On Hold • ${formatNumber(group.weldedWeightKg, 0)} kg soldado`;
+    if (mode === 'production') return `${formatNumber(group.productionTags)} tag(s) em produção • ${formatNumber(group.weldedWeightKg, 0)} kg soldado`;
+    if (mode === 'inspection') return `${formatNumber(group.inspectionTags)} tag(s) em qualidade • ${formatNumber(group.weldedWeightKg, 0)} kg soldado`;
+    if (mode === 'painting') return `${formatNumber(group.paintingTags)} tag(s) em pintura • ${formatNumber(group.paintingM2, 3)} m²`;
+    if (mode === 'awaiting') return `${formatNumber(group.awaitingTags || 0)} tag(s) aguardando envio • ${formatNumber(group.weldedWeightKg, 0)} kg soldado`;
+    if (mode === 'total-weight') return `${formatNumber(group.count)} projeto(s) • ${formatNumber(group.weldedWeightKg, 0)} kg soldado`;
+    if (mode === 'welded') return `${formatNumber(group.count)} projeto(s) • ${formatNumber(group.totalWeightKg, 0)} kg programado`;
+    if (mode === 'backlog') return `${formatNumber(group.count)} projeto(s) • ${formatNumber(group.totalWeightKg, 0)} kg programado`;
+    if (mode === 'painting-m2') return `${formatNumber(group.count)} projeto(s) • ${formatNumber(group.totalWeightKg, 0)} kg programado`;
+    return `${formatNumber(group.count)} projeto(s)`;
   };
 
   return `
@@ -5276,7 +3963,7 @@ function renderProjectDrillClientCards(clientGroups, mode) {
       ${clientGroups.map((group) => `
         <button type="button" class="project-drill-card" data-drill-client="${escapeHtml(group.key)}">
           <span class="project-drill-label">${escapeHtml(group.label)}</span>
-          <strong>${formatNumber(group.count)}</strong>
+          <strong>${mode === 'total' ? formatNumber(group.count) : formatProjectDrillMetric(group.metricValue || group.count, mode)}</strong>
           <small>${buildSmall(group)}</small>
         </button>
       `).join('')}
@@ -5447,7 +4134,7 @@ function renderProjectDrillPanel() {
           <button type="button" class="project-drill-card project-drill-card--vessel" data-drill-vessel="${escapeHtml(group.key)}">
             <span class="project-drill-label">${escapeHtml(group.label)}</span>
             <strong>${formatNumber(group.count)}</strong>
-            <small>1 unidade • ${formatNumber(group.totalTags)} tag(s) • ${formatNumber(group.weldedWeightKg, 0)} kg soldado</small>
+            <small>BSP(s) • ${formatNumber(group.weldedWeightKg, 0)} kg soldado</small>
           </button>
         `).join('')}
       </div>
@@ -6311,19 +4998,9 @@ function shouldSkipBackgroundRequest(options = {}) {
   return !options.force && isPageHidden();
 }
 
-function getProjectsCacheKey(user = state.user) {
-  const role = String(user?.role || 'guest').trim().toLowerCase();
-  const username = normalizeText(user?.username || user?.name || 'guest').replace(/[^a-z0-9]+/g, '_') || 'guest';
-  const clientSource = role === 'client'
-    ? (user?.clientKey || user?.clientName || user?.name || user?.username || '')
-    : (user?.clientKey || user?.clientName || '');
-  const client = normalizeText(clientSource).replace(/[^a-z0-9]+/g, '_');
-  return `${PROJECTS_CACHE_KEY}:${role}:${username}:${client}`;
-}
-
 function readProjectsCache() {
   try {
-    const raw = window.localStorage.getItem(getProjectsCacheKey());
+    const raw = window.localStorage.getItem(PROJECTS_CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || !parsed.payload) return null;
@@ -6335,7 +5012,7 @@ function readProjectsCache() {
 
 function writeProjectsCache(payload) {
   try {
-    window.localStorage.setItem(getProjectsCacheKey(), JSON.stringify({
+    window.localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify({
       savedAt: Date.now(),
       payload,
     }));
@@ -6346,10 +5023,7 @@ function writeProjectsCache(payload) {
 
 function clearProjectsCache() {
   try {
-    window.localStorage.removeItem(getProjectsCacheKey());
-    Object.keys(window.localStorage || {}).forEach((key) => {
-      if (String(key).startsWith(PROJECTS_CACHE_KEY + ':')) window.localStorage.removeItem(key);
-    });
+    window.localStorage.removeItem(PROJECTS_CACHE_KEY);
   } catch {}
 }
 
@@ -6381,7 +5055,6 @@ function applyProjectsPayload(data, options = {}) {
   renderAlertBadge();
   updateMeta();
   renderAlertModal();
-  renderClientDashboard();
   if (state.user && sectorAlertsModalEl && !sectorAlertsModalEl.classList.contains('hidden')) {
     renderManualAlerts();
   }
@@ -6389,9 +5062,9 @@ function applyProjectsPayload(data, options = {}) {
 
 function updateMeta() {
   if (!state.meta) return;
-  sheetNameEl.textContent = state.meta.sheetName || "Base operacional";
+  sheetNameEl.textContent = state.meta.sheetName || "Smartsheet";
   lastSyncEl.textContent = `Última atualização: ${new Date(state.meta.lastSync).toLocaleString("pt-BR")}`;
-  footerVersionEl.textContent = `Versão dos dados: ${state.meta.version}`;
+  footerVersionEl.textContent = `Versão da sheet: ${state.meta.version}`;
 }
 
 async function loadProjects(options = {}) {
@@ -6427,13 +5100,14 @@ async function loadProjects(options = {}) {
         refreshProjectsButtonEl.disabled = true;
         refreshProjectsButtonEl.textContent = force ? 'Atualizando...' : 'Sincronizando...';
       }
-      const response = await fetch("/api/projects", { cache: "no-store", credentials: "same-origin" });
+      const projectsUrl = force ? "/api/projects?force=1" : "/api/projects";
+      const response = await fetch(projectsUrl, { cache: "no-store", credentials: "same-origin" });
       let data = null;
 
       try {
         data = await response.json();
       } catch (parseError) {
-        throw new Error("Falha ao atualizar os dados operacionais.");
+        throw new Error("Falha ao atualizar dados da planilha.");
       }
 
       if (response.status === 401) {
@@ -6453,13 +5127,13 @@ async function loadProjects(options = {}) {
       writeProjectsCache(data);
       applyProjectsPayload(data, { fromCache: false });
     } catch (error) {
-      const fallbackMessage = error?.message || "Falha ao atualizar os dados operacionais.";
+      const fallbackMessage = error?.message || "Falha ao atualizar dados da planilha.";
 
       if (state.projects.length) {
         const staleSuffix = state.meta?.lastSync
           ? ` | exibindo última atualização válida: ${new Date(state.meta.lastSync).toLocaleString("pt-BR")}`
           : "";
-        lastSyncEl.textContent = `Exibindo última atualização válida${staleSuffix}`;
+        lastSyncEl.textContent = `Conexão instável com a planilha${staleSuffix}`;
         console.warn("Falha temporária ao atualizar projetos:", fallbackMessage);
         return;
       }
@@ -6927,55 +5601,12 @@ if (adminUserSectorEl) {
 
 if (adminUserRoleEl) {
   adminUserRoleEl.addEventListener("change", (event) => {
-    const role = event.target.value;
-    if ((role === "admin" || role === "client") && adminUserSectorEl) adminUserSectorEl.value = "all";
-    const disabled = role === "admin" || role === "client";
+    const disabled = event.target.value === "admin";
     document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
       input.disabled = disabled;
     });
-    updateAdminClientFieldsVisibility();
     updateAdminProjectPmAliasesVisibility();
   });
-}
-
-if (adminUserClientLogoImportEl) {
-  adminUserClientLogoImportEl.addEventListener('click', () => importAdminClientImage(adminUserClientLogoFileEl, adminUserClientLogoUrlEl, 'logo do cliente'));
-}
-
-
-function setClientPlatformImageLine(platformName, imageUrl) {
-  const key = String(platformName || '').trim();
-  const src = String(imageUrl || '').trim();
-  if (!key || !src || !adminUserClientPlatformImagesEl) return;
-  const map = parseClientPlatformImages(adminUserClientPlatformImagesEl.value || '');
-  map[key] = src;
-  adminUserClientPlatformImagesEl.value = formatClientPlatformImages(map);
-  adminUserClientPlatformImagesEl.dispatchEvent(new Event('input', { bubbles: true }));
-}
-
-async function importAdminClientPlatformImage() {
-  const platformName = adminUserClientPlatformNameEl?.value || '';
-  if (!String(platformName || '').trim()) {
-    window.alert('Informe o nome da plataforma/vessel antes de importar a imagem. Ex.: FORTE, FRADE, BRAVO.');
-    return;
-  }
-  const file = adminUserClientPlatformImageFileEl?.files?.[0];
-  if (!file) {
-    window.alert('Selecione a imagem da plataforma primeiro.');
-    return;
-  }
-  try {
-    const dataUrl = await readImageFileAsOptimizedDataUrl(file, { maxWidth: 520, maxHeight: 340, quality: 0.68 });
-    setClientPlatformImageLine(platformName, dataUrl);
-    if (adminUserClientPlatformImageFileEl) adminUserClientPlatformImageFileEl.value = '';
-    if (adminUserFeedbackEl) adminUserFeedbackEl.textContent = `Foto da plataforma ${platformName} importada. Salve o usuário para gravar.`;
-  } catch (error) {
-    window.alert(error.message || 'Falha ao importar foto da plataforma.');
-  }
-}
-
-if (adminUserClientPlatformImageImportEl) {
-  adminUserClientPlatformImageImportEl.addEventListener('click', importAdminClientPlatformImage);
 }
 
 document.querySelectorAll('[data-admin-alert-sector-option]').forEach((input) => {
@@ -7002,7 +5633,6 @@ document.querySelectorAll('[data-admin-quality-competency-option]').forEach((inp
   });
 });
 
-updateAdminClientFieldsVisibility();
 updateAdminProjectPmAliasesVisibility();
 updateAdminQualityCompetenciesVisibility();
 
@@ -7673,7 +6303,6 @@ function updateSessionUi() {
     if (openChangePasswordButtonEl) openChangePasswordButtonEl.classList.add("hidden");
     openAdminPanelEl.classList.add("hidden");
     if (openLoginButtonEl) openLoginButtonEl.classList.remove("hidden");
-    setClientDashboardMode();
     return;
   }
 
@@ -7685,10 +6314,7 @@ function updateSessionUi() {
 
   sessionUserNameEl.textContent = user.name || user.username;
   const linkedSectors = getUserAlertSectors(user);
-  sessionUserMetaEl.textContent = isClientUser(user)
-    ? `Cliente • ${getClientPortalName(user)}`
-    : `${user.role === "admin" ? "Administrador" : "Setor"} • ${sectorLabel(user.sector)}${user.role !== "admin" && linkedSectors.length > 1 ? ` • Alertas: ${formatSectorList(linkedSectors)}` : ""}`;
-  setClientDashboardMode();
+  sessionUserMetaEl.textContent = `${user.role === "admin" ? "Administrador" : "Setor"} • ${sectorLabel(user.sector)}${user.role !== "admin" && linkedSectors.length > 1 ? ` • Alertas: ${formatSectorList(linkedSectors)}` : ""}`;
   updatePrimaryUserActionUi();
   sessionStatusEl.textContent = "online";
   logoutButtonEl.classList.remove("hidden");
@@ -8417,76 +7043,6 @@ function renderAdminPresence(users = []) {
   }).join('');
 }
 
-
-function readImageFileAsOptimizedDataUrl(file, options = {}) {
-  const maxWidth = Number(options.maxWidth || 900);
-  const maxHeight = Number(options.maxHeight || 520);
-  const quality = Number(options.quality || 0.78);
-  return new Promise((resolve, reject) => {
-    if (!file || !String(file.type || '').startsWith('image/')) {
-      reject(new Error('Selecione um arquivo de imagem válido.'));
-      return;
-    }
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Não foi possível ler a imagem selecionada.'));
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = () => reject(new Error('Não foi possível processar a imagem selecionada.'));
-      img.onload = () => {
-        let width = img.naturalWidth || img.width || maxWidth;
-        let height = img.naturalHeight || img.height || maxHeight;
-        const ratio = Math.min(maxWidth / width, maxHeight / height, 1);
-        width = Math.max(1, Math.round(width * ratio));
-        height = Math.max(1, Math.round(height * ratio));
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#041a2d';
-        ctx.fillRect(0, 0, width, height);
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', quality));
-      };
-      img.src = String(reader.result || '');
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-async function importAdminClientImage(fileInput, targetInput, label) {
-  const file = fileInput?.files?.[0];
-  if (!file) {
-    window.alert(`Selecione a imagem de ${label} primeiro.`);
-    return;
-  }
-  try {
-    const isLogo = String(label || '').toLowerCase().includes('logo');
-    const dataUrl = await readImageFileAsOptimizedDataUrl(file, isLogo ? { maxWidth: 360, maxHeight: 180, quality: 0.76 } : { maxWidth: 520, maxHeight: 340, quality: 0.68 });
-    if (targetInput) {
-      targetInput.value = dataUrl;
-      targetInput.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-    if (adminUserFeedbackEl) adminUserFeedbackEl.textContent = `Imagem de ${label} importada. Salve o usuário para gravar.`;
-  } catch (error) {
-    window.alert(error.message || `Falha ao importar imagem de ${label}.`);
-  }
-}
-
-function updateAdminClientFieldsVisibility() {
-  const role = document.getElementById('admin-user-role')?.value || 'sector';
-  if (adminUserClientFieldsEl) adminUserClientFieldsEl.classList.toggle('hidden', role !== 'client');
-  if (adminUserClientKeyEl) adminUserClientKeyEl.disabled = role !== 'client';
-  if (adminUserClientNameEl) adminUserClientNameEl.disabled = role !== 'client';
-  if (adminUserClientLogoUrlEl) adminUserClientLogoUrlEl.disabled = role !== 'client';
-  if (adminUserClientLogoFileEl) adminUserClientLogoFileEl.disabled = role !== 'client';
-  if (adminUserClientLogoImportEl) adminUserClientLogoImportEl.disabled = role !== 'client';
-  if (adminUserClientPlatformImageUrlEl) adminUserClientPlatformImageUrlEl.disabled = role !== 'client';
-  if (adminUserClientPlatformNameEl) adminUserClientPlatformNameEl.disabled = role !== 'client';
-  if (adminUserClientPlatformImagesEl) adminUserClientPlatformImagesEl.disabled = role !== 'client';
-  if (adminUserClientPlatformImageFileEl) adminUserClientPlatformImageFileEl.disabled = role !== 'client';
-  if (adminUserClientPlatformImageImportEl) adminUserClientPlatformImageImportEl.disabled = role !== 'client';
-}
-
 function resetAdminUserForm() {
   if (adminUserFormEl) adminUserFormEl.reset();
   if (adminUserIdEl) adminUserIdEl.value = "";
@@ -8498,15 +7054,6 @@ function resetAdminUserForm() {
   if (projectPmSearchEl) projectPmSearchEl.value = "";
   setAdminProjectPmAliases([]);
   setAdminQualityCompetencies([]);
-  if (adminUserClientKeyEl) adminUserClientKeyEl.value = '';
-  if (adminUserClientNameEl) adminUserClientNameEl.value = '';
-  if (adminUserClientLogoUrlEl) adminUserClientLogoUrlEl.value = '';
-  if (adminUserClientLogoFileEl) adminUserClientLogoFileEl.value = '';
-  if (adminUserClientPlatformImageUrlEl) adminUserClientPlatformImageUrlEl.value = '';
-  if (adminUserClientPlatformNameEl) adminUserClientPlatformNameEl.value = '';
-  if (adminUserClientPlatformImagesEl) adminUserClientPlatformImagesEl.value = '';
-  if (adminUserClientPlatformImageFileEl) adminUserClientPlatformImageFileEl.value = '';
-  updateAdminClientFieldsVisibility();
   updateAdminProjectPmAliasesVisibility();
   updateAdminQualityCompetenciesVisibility();
 }
@@ -8518,26 +7065,14 @@ function startEditUser(userId) {
   document.getElementById("admin-user-name").value = user.name || "";
   document.getElementById("admin-user-username").value = user.username || "";
   document.getElementById("admin-user-password").value = "";
-  document.getElementById("admin-user-role").value = user.role === "admin" ? "admin" : (user.role === "client" ? "client" : "sector");
-  document.getElementById("admin-user-sector").value = user.role === "client" ? "all" : (user.sector || "all");
+  document.getElementById("admin-user-role").value = user.role === "admin" ? "admin" : "sector";
+  document.getElementById("admin-user-sector").value = user.sector && user.sector !== "all" ? user.sector : "pintura";
   setSelectedAdminAlertSectors(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]);
   state.adminProjectPmSearchQuery = "";
   const projectPmSearchEl = document.getElementById("admin-user-project-pms-search");
   if (projectPmSearchEl) projectPmSearchEl.value = "";
   setAdminProjectPmAliases(user.projectPmAliases || []);
   setAdminQualityCompetencies(user.qualityCompetencies || []);
-  if (adminUserClientKeyEl) adminUserClientKeyEl.value = user.clientKey || '';
-  if (adminUserClientNameEl) adminUserClientNameEl.value = user.clientName || '';
-  if (adminUserClientLogoUrlEl) adminUserClientLogoUrlEl.value = user.clientLogoUrl || '';
-  if (adminUserClientLogoFileEl) adminUserClientLogoFileEl.value = '';
-  if (adminUserClientPlatformImageUrlEl) {
-    const platformUrl = user.clientPlatformImageUrl || '';
-    adminUserClientPlatformImageUrlEl.value = ''; // imagem padrão desativada: use apenas fotos por plataforma
-  }
-  if (adminUserClientPlatformNameEl) adminUserClientPlatformNameEl.value = '';
-  if (adminUserClientPlatformImagesEl) adminUserClientPlatformImagesEl.value = formatClientPlatformImages(user.clientPlatformImages || '');
-  if (adminUserClientPlatformImageFileEl) adminUserClientPlatformImageFileEl.value = '';
-  updateAdminClientFieldsVisibility();
   updateAdminProjectPmAliasesVisibility();
   updateAdminQualityCompetenciesVisibility();
   if (adminUserIdEl) adminUserIdEl.value = user.id || "";
@@ -8597,10 +7132,9 @@ function renderAdminUsersList(users = []) {
         </div>
         <div class="admin-list-item-meta">
           <span>Login: ${escapeHtml(user.username)}</span>
-          <span>Perfil: ${escapeHtml(user.role === "admin" ? "Admin notificações" : (user.role === "client" ? "Cliente" : "Setor"))}</span>
+          <span>Perfil: ${escapeHtml(user.role === "admin" ? "Admin notificações" : "Setor")}</span>
           <span>Setor principal: ${escapeHtml(sectorLabel(user.sector))}</span>
           <span>Recebe alertas de: ${escapeHtml(formatSectorList(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]))}</span>
-          ${user.role === 'client' ? `<span>Cliente: ${escapeHtml(user.clientName || user.clientKey || '—')}</span>` : ''}
           ${(userHasProjectsScope(user) && Array.isArray(user.projectPmAliases) && user.projectPmAliases.length) ? `<span>PMs adicionais: ${escapeHtml(user.projectPmAliases.join(', '))}</span>` : ''}
           ${userHasQualityScope(user) ? `<span>Competências da Qualidade: ${escapeHtml(formatQualityCompetencies(user.qualityCompetencies || []))}</span>` : ''}
           <span>${user.active ? "Ativo" : "Inativo"}</span>
@@ -8808,6 +7342,36 @@ function closeAdminModal() {
   }
 }
 
+function startPostLoginDataLoads(options = {}) {
+  if (!state.user) return;
+
+  const autoOpenStageValidation = Boolean(options.autoOpenStageValidation) && shouldOpenStageValidationWorkspaceFromUrl() && canValidateStageWorkspace();
+  if (autoOpenStageValidation) {
+    state.stageUpdatesSearchQuery = '';
+    openStageUpdatesModal({ loading: true });
+  }
+
+  // Carregamento não bloqueante: libera a interface imediatamente após o login
+  // e carrega os dados em paralelo. O loadProjects já aplica cache local antes
+  // de consultar a API quando houver uma última base válida.
+  loadProjects({ force: Boolean(options.forceProjects) }).catch((error) => {
+    console.warn('Falha ao carregar projetos no pós-login:', error);
+  });
+  syncPushSubscription(false).catch(() => {});
+  loadManualAlerts().catch(() => {});
+  loadAlertResponses().catch(() => {});
+  syncStageDraftsForCurrentSector();
+  loadStageUpdates().then(() => {
+    if (autoOpenStageValidation && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
+      renderStageUpdatesModal();
+    }
+  }).catch(() => {});
+  if (state.user?.role === "admin") {
+    loadAdminData().catch(() => {});
+  }
+  startPolling();
+}
+
 async function handleLoginSubmit(event) {
   event.preventDefault();
   if (!loginFeedbackEl) return;
@@ -8831,21 +7395,11 @@ async function handleLoginSubmit(event) {
       state.sectorScopedView = loadSectorScopedViewPreference(state.user);
       state.alertSectorFilter = state.sectorScopedView ? normalizeAlertSectorFilterValue(getPrimaryUserSector(state.user)) || 'all' : 'all';
     }
+    updateSessionUi();
     closeLoginModal();
-    await bootstrapSession();
-    await loadProjects();
-    await loadManualAlerts();
-    await loadAlertResponses();
-    syncStageDraftsForCurrentSector();
-    await loadStageUpdates();
-    if (shouldOpenStageValidationWorkspaceFromUrl() && canValidateStageWorkspace()) {
-      openStageUpdatesModal();
-    }
-    if (state.user?.role === "admin") {
-      await loadAdminData();
-    }
     startPresenceHeartbeat();
-    startPolling();
+    bootstrapSession().catch(() => {});
+    startPostLoginDataLoads({ autoOpenStageValidation: true });
   } catch (error) {
     loginFeedbackEl.textContent = error.message || "Falha ao autenticar.";
   }
@@ -9806,15 +8360,10 @@ async function handleAdminUserSubmit(event) {
       username: String(document.getElementById("admin-user-username").value || "").trim(),
       password: String(document.getElementById("admin-user-password").value || "").trim(),
       role: document.getElementById("admin-user-role").value,
-      sector: document.getElementById("admin-user-role").value === 'client' ? 'all' : document.getElementById("admin-user-sector").value,
-      alertSectors: document.getElementById("admin-user-role").value === 'client' ? [] : getSelectedAdminAlertSectors(),
+      sector: document.getElementById("admin-user-sector").value,
+      alertSectors: getSelectedAdminAlertSectors(),
       projectPmAliases: adminUserFormHasProjectsScope() ? getAdminProjectPmAliases() : [],
       qualityCompetencies: adminUserFormHasQualityScope() ? getAdminQualityCompetencies() : [],
-      clientKey: adminUserClientKeyEl?.value || '',
-      clientName: adminUserClientNameEl?.value || '',
-      clientLogoUrl: adminUserClientLogoUrlEl?.value || '',
-      clientPlatformImageUrl: '',
-      clientPlatformImages: parseClientPlatformImages(adminUserClientPlatformImagesEl?.value || ''),
     };
     const response = await fetch("/api/admin-users", {
       method: editingId ? "PUT" : "POST",
@@ -9835,11 +8384,6 @@ async function handleAdminUserSubmit(event) {
       alertSectors: payload.role === "admin" ? [] : payload.alertSectors,
       projectPmAliases: payload.role === "admin" ? [] : payload.projectPmAliases,
       qualityCompetencies: payload.role === "admin" ? [] : payload.qualityCompetencies,
-      clientKey: payload.clientKey,
-      clientName: payload.clientName,
-      clientLogoUrl: payload.clientLogoUrl,
-      clientPlatformImageUrl: payload.clientPlatformImageUrl,
-      clientPlatformImages: payload.clientPlatformImages,
       active: true,
       createdAt: new Date().toISOString(),
     };
@@ -9921,18 +8465,6 @@ async function acknowledgeManualAlert(alertId) {
   }
 }
 
-function finishAppBoot() {
-  document.body.classList.remove('app-booting');
-  document.body.classList.add('app-ready');
-}
-
-function keepInternalDashboardHiddenForClient() {
-  if (!isClientUser()) return;
-  document.body.classList.add('client-mode');
-  document.body.classList.remove('app-booting');
-  document.body.classList.add('app-ready');
-}
-
 async function init() {
   if (alertModalEl) {
     alertModalEl.classList.add("hidden");
@@ -9951,28 +8483,7 @@ async function init() {
   resetAdminUserForm();
   const authenticated = await bootstrapSession();
   if (authenticated) {
-    const autoOpenStageValidation = shouldOpenStageValidationWorkspaceFromUrl() && canValidateStageWorkspace();
-    if (autoOpenStageValidation) {
-      state.stageUpdatesSearchQuery = '';
-      openStageUpdatesModal({ loading: true });
-    }
-    await loadProjects();
-    keepInternalDashboardHiddenForClient();
-    finishAppBoot();
-    await syncPushSubscription(false).catch(() => {});
-    await loadManualAlerts();
-    await loadAlertResponses();
-    syncStageDraftsForCurrentSector();
-    await loadStageUpdates();
-    if (autoOpenStageValidation && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
-      renderStageUpdatesModal();
-    }
-    if (state.user?.role === "admin") {
-      await loadAdminData();
-    }
-    startPolling();
-  } else {
-    finishAppBoot();
+    startPostLoginDataLoads({ autoOpenStageValidation: true });
   }
 }
 

@@ -1,0 +1,31 @@
+Correção aplicada sobre a última versão válida enviada pelo Douglas:
+step_dashboard_tracking_CORRIGIDO_todos_cards_detalhados(2).zip
+
+Objetivo:
+- Manter o motor funcional da versão boa.
+- Melhorar o tempo percebido de abertura após login.
+- Não reintroduzir o fluxo de snapshot/fallback/fast=1 que quebrou os dados e a PO nas versões posteriores.
+
+Alterações principais:
+1. netlify/functions/projects.js
+   - Adicionado cache rápido em memória por curto período (PROJECTS_FAST_CACHE_MS, padrão 45s).
+   - Se a função Netlify estiver aquecida e o payload acabou de ser validado, o endpoint responde sem bater novamente no Smartsheet.
+   - O botão de atualização força leitura nova usando /api/projects?force=1.
+   - Se a verificação de versão ou a leitura da sheet falhar, o endpoint reaproveita o último payload válido em memória, quando existir.
+
+2. site/app.js
+   - Login não fica mais bloqueado aguardando todas as cargas secundárias.
+   - Projetos, alertas, respostas e apontamentos carregam em paralelo após liberar a interface.
+   - O cache local do painel continua sendo usado como antes, preservando a última base válida.
+   - Atualizar agora chama /api/projects?force=1 para realmente forçar sincronização.
+
+3. netlify/functions/auth-login.js
+   - A atualização de presença do usuário deixou de bloquear a resposta do login.
+
+4. site/sw.js
+   - Cache do PWA atualizado para forçar nova versão.
+
+Importante:
+- Esta versão não usa snapshot local como fonte principal.
+- Esta versão não usa fallback-projects.json para montar a carteira.
+- Esta versão não altera a lógica visual dos cards já validados.

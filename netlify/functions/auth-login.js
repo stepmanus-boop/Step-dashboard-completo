@@ -52,7 +52,10 @@ exports.handler = async (event) => {
       return jsonResponse(401, { ok: false, error: 'Usuário ou senha inválidos.' });
     }
 
-    await upsertUserPresence({
+    // Otimização de login: presença não deve bloquear a resposta de autenticação.
+    // A atualização continua em segundo plano; qualquer falha é ignorada para não
+    // impactar o acesso do usuário ao painel.
+    Promise.resolve().then(() => upsertUserPresence({
       userId: user.id,
       username: user.username,
       name: user.name,
@@ -66,7 +69,7 @@ exports.handler = async (event) => {
       lastViewTitle: 'STEP - Painel Operacional',
       userAgent: getUserAgent(event),
       ipAddress: getClientIp(event),
-    }).catch(() => null);
+    })).catch(() => null);
 
     return jsonResponse(200, {
       ok: true,
@@ -79,12 +82,6 @@ exports.handler = async (event) => {
         alertSectors: Array.isArray(user.alertSectors) ? user.alertSectors : [],
         projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
         qualityCompetencies: Array.isArray(user.qualityCompetencies) ? user.qualityCompetencies : [],
-        clientKey: user.role === 'client' ? (user.clientKey || user.clientName || user.name || user.username || '') : (user.clientKey || ''),
-        clientName: user.role === 'client' ? (user.clientName || user.clientKey || user.name || user.username || '') : (user.clientName || ''),
-        clientLogoUrl: user.clientLogoUrl || '',
-        clientPlatformImageUrl: user.clientPlatformImageUrl || '',
-        clientPlatformImages: user.clientPlatformImages || {},
-        allowedClients: Array.isArray(user.allowedClients) ? user.allowedClients : [],
       },
     }, {
       headers: {
