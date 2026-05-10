@@ -1,4 +1,4 @@
-const CACHE_NAME = "step-gerencia-pwa-v28-performance-login-cache";
+const CACHE_NAME = "step-gerencia-pwa-v29-paineis-status-finalizados";
 // Versão v28: preserva cache local entre logouts e usa caminho rápido pós-login
 // - Mantém assets do app shell versionados para liberar app.js corrigido imediatamente
 // - API continua sem cache no Service Worker; dados operacionais usam cache local do app

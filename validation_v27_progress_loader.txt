@@ -1,0 +1,14 @@
+Validação v27 concluída.
+
+Arquivos validados com node --check:
+- site/app.js
+- site/sw.js
+- netlify/functions/projects.js
+- netlify/functions/auth-me.js
+
+Validação adicional:
+- package.json lido e parseado com sucesso.
+- Service worker atualizado para v27 para forçar atualização dos assets no navegador.
+- Overlay de progresso inserido em site/index.html.
+- Estilos do overlay inseridos em site/app.css.
+- Fluxo de login integrado em site/app.js com progresso visual até 100% após loadProjects concluir.

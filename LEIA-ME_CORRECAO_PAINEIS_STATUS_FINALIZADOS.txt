@@ -1,0 +1,48 @@
+CORREÇÃO DOS PAINÉIS - STATUS FINALIZADOS / EM ANDAMENTO
+
+Base utilizada:
+- step_dashboard_tracking_CLIENTE_CORRIGIDO_v28_DATA_GATE.zip
+
+Objetivo:
+- Preservar a velocidade da versão v28, corrigindo apenas a classificação dos painéis/cards e a leitura de projetos finalizados.
+
+Problemas tratados:
+1. Projetos com Project Finish Date / Project Finished? / status de finalização podiam continuar aparecendo em cards operacionais como Em Produção, Qualidade, Pintura ou Pendente.
+2. A interface podia exibir status operacional antes de validar que a BSP/projeto já estava finalizado.
+3. O peso enviado/finalizado podia não reconhecer todos os marcadores de finalização.
+4. Os cards operacionais ainda podiam considerar tags de spools finalizados quando a finalização vinha por campos auxiliares.
+
+Arquivos alterados:
+- netlify/functions/projects.js
+- site/app.js
+- site/sw.js
+
+Principais correções:
+- Criada leitura mais robusta de finalização:
+  - Project Finish Date
+  - Project Finished?
+  - Data de envio
+  - Finalizado / Concluído / Finished / Completed / Delivered / Enviado
+  - Marcadores em projeto e em spools/tags.
+- Projetos finalizados agora são classificados como Finalizado antes de qualquer regra de andamento.
+- Projetos finalizados deixam de alimentar cards operacionais de:
+  - Produção
+  - Qualidade
+  - Pintura
+  - Aguardando envio
+  - Não iniciado
+  - Pendente de solda
+  - M² programada operacional
+- O card de finalizados passa a reconhecer finalização mesmo quando a marcação vem por status ou data.
+- O cálculo de pintura operacional não soma spools já finalizados.
+- O Service Worker foi atualizado para forçar atualização de app.js/app.css após deploy.
+
+Validações executadas:
+- node --check site/app.js
+- node --check site/sw.js
+- node --check netlify/functions/projects.js
+- node --check em todas as funções dentro de netlify/functions/*.js
+
+Observação:
+- A velocidade da v28 foi preservada. Não foi reintroduzido o fluxo antigo de snapshot/fallback lento.
+- Após publicar no Netlify, fazer Ctrl + F5 no navegador para limpar cache antigo.
