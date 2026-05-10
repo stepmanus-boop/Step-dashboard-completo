@@ -2198,6 +2198,39 @@ function scopePayloadForSession(payload, session = {}) {
 }
 
 exports.handler = async (event) => {
+  const warmup = String(event.queryStringParameters?.warmup || "") === "1";
+
+  // Pré-aquecimento seguro: permite carregar/atualizar o cache do Smartsheet antes do login,
+  // mas não retorna projetos, estatísticas, alertas ou dados operacionais para a tela pública.
+  if (warmup) {
+    if (event.httpMethod && event.httpMethod !== 'GET') {
+      return jsonResponse(405, { ok: false, error: 'Método não permitido.' });
+    }
+
+    try {
+      await buildPayload({ force: false, preferCache: false });
+      return jsonResponse(200, {
+        ok: true,
+        warmed: true,
+      }, {
+        headers: {
+          'cache-control': 'no-store',
+        },
+      });
+    } catch (error) {
+      console.warn('[projects-warmup] Falha ao pré-aquecer cache:', error?.message || error);
+      return jsonResponse(200, {
+        ok: false,
+        warmed: false,
+        error: 'Aquecimento não concluído.',
+      }, {
+        headers: {
+          'cache-control': 'no-store',
+        },
+      });
+    }
+  }
+
   const auth = requireSession(event);
   if (!auth.ok) {
     return jsonResponse(401, { ok: false, error: 'Faça login para visualizar o painel.' });

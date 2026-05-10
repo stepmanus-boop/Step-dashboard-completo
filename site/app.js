@@ -8,6 +8,8 @@ const ALERT_NOTIFICATION_COOLDOWN_MS = 4 * 60 * 60 * 1000;
 const PROJECTS_CACHE_KEY = 'step_dashboard_projects_cache_v4_client_scope';
 
 let adminResponsesPollTimer = null;
+let projectsWarmupPromise = null;
+let projectsWarmupResetTimer = null;
 
 const state = {
   projects: [],
@@ -6502,6 +6504,47 @@ function updateMeta() {
   footerVersionEl.textContent = (state.meta.clientPortal || isClientUser()) ? `Versão dos dados: ${state.meta.version || '--'}` : `Versão da sheet: ${state.meta.version}`;
 }
 
+
+function prewarmProjectsApi() {
+  if (state.user) return Promise.resolve(null);
+  if (projectsWarmupPromise) return projectsWarmupPromise;
+
+  window.clearTimeout(projectsWarmupResetTimer);
+  projectsWarmupPromise = fetch('/api/projects?warmup=1', {
+    credentials: 'same-origin',
+    cache: 'no-store',
+  })
+    .then((response) => response.json().catch(() => null))
+    .catch((error) => {
+      console.warn('Pré-aquecimento dos dados operacionais não concluído:', error?.message || error);
+      return null;
+    })
+    .finally(() => {
+      // Mantém a referência por pouco tempo para evitar chamadas repetidas enquanto o usuário faz login.
+      projectsWarmupResetTimer = window.setTimeout(() => {
+        projectsWarmupPromise = null;
+      }, 60000);
+    });
+
+  return projectsWarmupPromise;
+}
+
+async function waitForProjectsWarmup(maxWaitMs = 2000) {
+  const warmupPromise = projectsWarmupPromise || prewarmProjectsApi();
+  if (!warmupPromise) return null;
+
+  let timeoutId = null;
+  const timeoutPromise = new Promise((resolve) => {
+    timeoutId = window.setTimeout(() => resolve(null), maxWaitMs);
+  });
+
+  try {
+    return await Promise.race([warmupPromise, timeoutPromise]);
+  } finally {
+    if (timeoutId) window.clearTimeout(timeoutId);
+  }
+}
+
 async function loadProjects(options = {}) {
   const force = Boolean(options.force);
   const background = Boolean(options.background);
@@ -9141,6 +9184,7 @@ async function handleLoginSubmit(event) {
     message: 'Estamos conferindo suas credenciais e preparando sua sessão.',
     detail: 'Autenticação em andamento.',
   });
+  prewarmProjectsApi();
   try {
     const response = await fetch("/api/auth-login", {
       method: "POST",
@@ -9173,6 +9217,10 @@ async function handleLoginSubmit(event) {
       message: 'Estamos carregando as BSPs e organizando os projetos por cliente e unidade.',
       detail: 'BSPs em processamento.',
     });
+
+    if (!readProjectsCache()?.payload) {
+      await waitForProjectsWarmup(2000);
+    }
 
     const sessionPromise = bootstrapSession();
     const projectsPromise = loadProjects({ preferServerCache: true, requireData: false }).then((result) => {
@@ -10305,6 +10353,7 @@ async function init() {
   setupLoginPasswordToggle();
   setupAdminPasswordToggle();
   resetAdminUserForm();
+  prewarmProjectsApi();
   const authenticated = await bootstrapSession();
   if (authenticated) {
     const autoOpenStageValidation = shouldOpenStageValidationWorkspaceFromUrl() && canValidateStageWorkspace();
