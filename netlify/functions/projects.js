@@ -6,7 +6,7 @@ const SHEET_ID_ENV = process.env.SMARTSHEET_SHEET_ID || "";
 const WIP_STEP_SHEET_NAME = process.env.SMARTSHEET_WIP_STEP_SHEET_NAME || "Work in Progress - STEP";
 const WIP_STEP_SHEET_ID_ENV = process.env.SMARTSHEET_WIP_STEP_SHEET_ID || process.env.SMARTSHEET_WORK_IN_PROGRESS_STEP_SHEET_ID || "";
 const TOKEN = process.env.SMARTSHEET_TOKEN || process.env.SMARTSHEET_ACCESS_TOKEN || process.env.SMARTSHEET_API_TOKEN || process.env.SMARTSHEET_BEARER_TOKEN || process.env.SMARTSHEET_PAT || process.env.SMARTSHEET_PERSONAL_ACCESS_TOKEN || "5pP36OjBaD1W2HWyxf6aoGxXasPvEl8gbqOmQ";
-const PROJECTS_FAST_CACHE_MS = Number(process.env.PROJECTS_FAST_CACHE_MS || 120000);
+const PROJECTS_FAST_CACHE_MS = Number(process.env.PROJECTS_FAST_CACHE_MS || 5 * 60 * 1000);
 const SESSION_HYDRATION_CACHE_MS = Number(process.env.SESSION_HYDRATION_CACHE_MS || 5 * 60 * 1000);
 
 const cache = global.__STEP_PROGRESS_CACHE__ || {
@@ -1826,12 +1826,24 @@ function cloneCachedPayloadWithMeta(extraMeta = {}) {
 async function buildPayload(options = {}) {
   if (!TOKEN) throw new Error("SMARTSHEET_TOKEN não configurado.");
   const force = Boolean(options.force);
+  const preferCache = Boolean(options.preferCache);
 
   // Mantém o Portal do Cliente e o painel interno rápidos em F5/login:
   // se a função Netlify ainda estiver aquecida e uma base completa foi validada há pouco,
   // responde pelo cache em memória sem reler Tracking + base de PO.
   if (!force && isWarmPayloadCache()) {
     return cache.payload;
+  }
+
+  // Caminho crítico de login: se já há um payload válido em memória, devolver primeiro
+  // a última versão conhecida evita que a tela fique bloqueada por checagem de versão
+  // do Smartsheet. O botão "Atualizar agora" continua usando force=1 e busca fresco.
+  if (!force && preferCache && cache.payload) {
+    return cloneCachedPayloadWithMeta({
+      ...(cache.payload.meta || {}),
+      servedFromFastCache: true,
+      cacheReason: 'prefer-cache',
+    }) || cache.payload;
   }
 
   const sheetId = await resolveSheetId();
@@ -2053,8 +2065,11 @@ exports.handler = async (event) => {
 
   try {
     const force = String(event.queryStringParameters?.force || "") === "1";
-    const session = await hydrateClientSession(auth.session);
-    const payload = scopePayloadForSession(await buildPayload({ force }), session);
+    const preferCache = String(event.queryStringParameters?.preferCache || "") === "1";
+    const sessionPromise = hydrateClientSession(auth.session);
+    const payloadPromise = buildPayload({ force, preferCache });
+    const [session, rawPayload] = await Promise.all([sessionPromise, payloadPromise]);
+    const payload = scopePayloadForSession(rawPayload, session);
     return jsonResponse(200, payload, {
       headers: {
         'cache-control': 'private, max-age=60, stale-while-revalidate=120',

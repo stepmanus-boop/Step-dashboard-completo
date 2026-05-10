@@ -5376,3 +5376,102 @@ body:not(.client-mode) .client-exec-modal {
 .client-exec-header--macro h2 {
   letter-spacing: -.02em;
 }
+
+/* Tela de progresso pós-login */
+.login-progress-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(0, 200, 255, 0.18), transparent 34%),
+    radial-gradient(circle at 20% 80%, rgba(71, 218, 117, 0.10), transparent 28%),
+    rgba(1, 7, 13, 0.92);
+  backdrop-filter: blur(8px);
+}
+
+.login-progress-card {
+  width: min(92vw, 560px);
+  border: 1px solid rgba(67, 131, 222, 0.34);
+  border-radius: 26px;
+  padding: 34px;
+  background: linear-gradient(180deg, rgba(5, 25, 45, 0.98), rgba(3, 16, 29, 0.99));
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(71, 151, 255, 0.12);
+  text-align: center;
+}
+
+.login-progress-brand img {
+  width: min(220px, 64vw);
+  max-height: 82px;
+  object-fit: contain;
+  margin-bottom: 22px;
+}
+
+.login-progress-kicker {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.login-progress-card h2 {
+  margin: 0;
+  font-size: clamp(24px, 3vw, 34px);
+  line-height: 1.1;
+}
+
+.login-progress-message {
+  min-height: 52px;
+  margin: 16px 0 22px;
+  color: #d9ecff;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.login-progress-bar {
+  position: relative;
+  width: 100%;
+  height: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 200, 255, 0.32);
+  border-radius: 999px;
+  background: rgba(2, 10, 18, 0.74);
+}
+
+.login-progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #00c8ff, #2ed5ff 48%, #47da75);
+  box-shadow: 0 0 24px rgba(0, 200, 255, 0.5);
+  transition: width 320ms ease;
+}
+
+.login-progress-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+#login-progress-percent {
+  color: var(--success);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+#login-progress-detail {
+  text-align: right;
+}
+
+@media (max-width: 640px) {
+  .login-progress-card { padding: 26px 20px; }
+  .login-progress-footer { flex-direction: column; align-items: center; gap: 6px; }
+  #login-progress-detail { text-align: center; }
+}

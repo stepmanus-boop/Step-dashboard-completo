@@ -1,5 +1,5 @@
-const CACHE_NAME = "step-gerencia-pwa-v25-performance-cache-first";
-// Versão v25: Otimização de performance pós-login
+const CACHE_NAME = "step-gerencia-pwa-v27-performance-login-cache";
+// Versão v27: preserva cache local entre logouts e usa caminho rápido pós-login
 // - Mantém assets do app shell versionados para liberar app.js corrigido imediatamente
 // - API continua sem cache no Service Worker; dados operacionais usam cache local do app
 // - Interceptação de /api restrita à própria origem para evitar efeitos colaterais

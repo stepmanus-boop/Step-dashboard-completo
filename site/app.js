@@ -41,6 +41,9 @@ const state = {
   lastAdminDataFetchAt: 0,
   lastAuthRefreshAt: 0,
   projectsLoadedFromCache: false,
+  loginProgressTimer: null,
+  loginProgressValue: 0,
+  loginProgressActive: false,
   economicMode: true,
   user: null,
   githubSyncEnabled: false,
@@ -157,6 +160,12 @@ const loginFormEl = document.getElementById("login-form");
 const loginUsernameEl = document.getElementById("login-username");
 const loginPasswordEl = document.getElementById("login-password");
 const loginFeedbackEl = document.getElementById("login-feedback");
+const loginProgressOverlayEl = document.getElementById("login-progress-overlay");
+const loginProgressTitleEl = document.getElementById("login-progress-title");
+const loginProgressMessageEl = document.getElementById("login-progress-message");
+const loginProgressFillEl = document.getElementById("login-progress-fill");
+const loginProgressPercentEl = document.getElementById("login-progress-percent");
+const loginProgressDetailEl = document.getElementById("login-progress-detail");
 const toggleLoginPasswordEl = document.getElementById("toggle-login-password");
 const loginCloseEl = document.getElementById("login-close");
 const sessionUserNameEl = document.getElementById("session-user-name");
@@ -6497,7 +6506,8 @@ async function loadProjects(options = {}) {
         refreshProjectsButtonEl.disabled = true;
         refreshProjectsButtonEl.textContent = force ? 'Atualizando...' : 'Sincronizando...';
       }
-      const requestUrl = force ? "/api/projects?force=1" : "/api/projects";
+      const preferServerCache = Boolean(options.preferServerCache || (!background && !force));
+      const requestUrl = force ? "/api/projects?force=1" : (preferServerCache ? "/api/projects?preferCache=1" : "/api/projects");
       const response = await fetch(requestUrl, { cache: "no-store", credentials: "same-origin" });
       let data = null;
 
@@ -7624,6 +7634,94 @@ function openLoginModal(message = "") {
   loginModalEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("modal-open");
   window.setTimeout(() => loginUsernameEl?.focus(), 40);
+}
+
+
+const LOGIN_PROGRESS_STEPS = [
+  { at: 8, title: 'Validando acesso...', message: 'Estamos conferindo suas credenciais e preparando sua sessão.', detail: 'Autenticação em andamento.' },
+  { at: 22, title: 'Conectando ao Portal STEP...', message: 'Estamos conectando seu usuário ao ambiente correto.', detail: 'Sessão validada.' },
+  { at: 38, title: 'Carregando BSPs...', message: 'Estamos carregando as BSPs e organizando os projetos por cliente e unidade.', detail: 'BSPs em processamento.' },
+  { at: 55, title: 'Carregando POs...', message: 'Estamos carregando as POs, demandas e referências de fabricação.', detail: 'POs e demandas em processamento.' },
+  { at: 72, title: 'Atualizando indicadores...', message: 'Estamos calculando pesos, status, pendências e alertas operacionais.', detail: 'Indicadores sendo preparados.' },
+  { at: 88, title: 'Definindo dashboards...', message: 'Estamos definindo os dashboards e montando a visualização final.', detail: 'Dashboard quase pronto.' },
+  { at: 100, title: 'Tudo pronto.', message: 'Dados carregados com sucesso. Abrindo o painel operacional.', detail: 'Concluído.' },
+];
+
+function getLoginProgressStep(percent) {
+  return LOGIN_PROGRESS_STEPS.reduce((selected, step) => (percent >= step.at ? step : selected), LOGIN_PROGRESS_STEPS[0]);
+}
+
+function setLoginProgress(percent, options = {}) {
+  const nextPercent = Math.max(0, Math.min(100, Math.round(percent || 0)));
+  state.loginProgressValue = nextPercent;
+  const step = options.step || getLoginProgressStep(nextPercent);
+  if (loginProgressTitleEl) loginProgressTitleEl.textContent = options.title || step.title;
+  if (loginProgressMessageEl) loginProgressMessageEl.textContent = options.message || step.message;
+  if (loginProgressDetailEl) loginProgressDetailEl.textContent = options.detail || step.detail;
+  if (loginProgressPercentEl) loginProgressPercentEl.textContent = `${nextPercent}%`;
+  if (loginProgressFillEl) loginProgressFillEl.style.width = `${nextPercent}%`;
+}
+
+function stopLoginProgressTimer() {
+  if (state.loginProgressTimer) {
+    window.clearInterval(state.loginProgressTimer);
+    state.loginProgressTimer = null;
+  }
+}
+
+function startLoginProgress(options = {}) {
+  stopLoginProgressTimer();
+  state.loginProgressActive = true;
+  state.loginProgressValue = 0;
+  if (loginProgressOverlayEl) loginProgressOverlayEl.classList.remove('hidden');
+  document.body.classList.add('modal-open');
+  setLoginProgress(options.initialPercent || 6, {
+    title: options.title || 'Validando acesso...',
+    message: options.message || 'Estamos conferindo suas credenciais e preparando sua sessão.',
+    detail: options.detail || 'Autenticação em andamento.',
+  });
+
+  const targetBeforeDataReady = Number(options.targetBeforeDataReady || 92);
+  state.loginProgressTimer = window.setInterval(() => {
+    if (!state.loginProgressActive) return;
+    const current = Number(state.loginProgressValue || 0);
+    if (current >= targetBeforeDataReady) return;
+    const increment = current < 35 ? 4 : current < 70 ? 3 : 1;
+    setLoginProgress(Math.min(targetBeforeDataReady, current + increment));
+  }, 420);
+}
+
+function hideLoginProgressOverlay() {
+  stopLoginProgressTimer();
+  state.loginProgressActive = false;
+  if (loginProgressOverlayEl) loginProgressOverlayEl.classList.add('hidden');
+  if (
+    (!loginModalEl || loginModalEl.classList.contains('hidden')) &&
+    (!modalEl || modalEl.classList.contains('hidden')) &&
+    (!alertModalEl || alertModalEl.classList.contains('hidden')) &&
+    (!sectorAlertsModalEl || sectorAlertsModalEl.classList.contains('hidden')) &&
+    (!adminModalEl || adminModalEl.classList.contains('hidden'))
+  ) {
+    document.body.classList.remove('modal-open');
+  }
+}
+
+function failLoginProgress(message) {
+  stopLoginProgressTimer();
+  state.loginProgressActive = false;
+  setLoginProgress(Math.max(1, state.loginProgressValue || 1), {
+    title: 'Não foi possível carregar o painel',
+    message: message || 'Ocorreu uma falha durante o carregamento. Tente novamente.',
+    detail: 'Falha no carregamento.',
+  });
+  window.setTimeout(hideLoginProgressOverlay, 1200);
+}
+
+async function completeLoginProgress() {
+  stopLoginProgressTimer();
+  setLoginProgress(100, LOGIN_PROGRESS_STEPS[LOGIN_PROGRESS_STEPS.length - 1]);
+  await new Promise((resolve) => window.setTimeout(resolve, 520));
+  hideLoginProgressOverlay();
 }
 
 function setupLoginPasswordToggle() {
@@ -8907,6 +9005,12 @@ async function handleLoginSubmit(event) {
   event.preventDefault();
   if (!loginFeedbackEl) return;
   loginFeedbackEl.textContent = "Validando acesso...";
+  startLoginProgress({
+    initialPercent: 6,
+    title: 'Validando acesso...',
+    message: 'Estamos conferindo suas credenciais e preparando sua sessão.',
+    detail: 'Autenticação em andamento.',
+  });
   try {
     const response = await fetch("/api/auth-login", {
       method: "POST",
@@ -8921,6 +9025,11 @@ async function handleLoginSubmit(event) {
     if (!response.ok || !data?.ok) {
       throw new Error(data?.error || "Falha ao entrar.");
     }
+    setLoginProgress(20, {
+      title: 'Acesso validado.',
+      message: 'Estamos conectando seu usuário ao ambiente correto.',
+      detail: 'Sessão validada.',
+    });
     state.user = data.user;
     if (shouldUseSectorScopedToggle(state.user)) {
       state.sectorScopedView = loadSectorScopedViewPreference(state.user);
@@ -8929,12 +9038,37 @@ async function handleLoginSubmit(event) {
     updateSessionUi();
     closeLoginModal();
     setProjectsLoadingState('Acesso validado. Carregando painel...');
+    setLoginProgress(34, {
+      title: 'Carregando BSPs...',
+      message: 'Estamos carregando as BSPs e organizando os projetos por cliente e unidade.',
+      detail: 'BSPs em processamento.',
+    });
 
     const sessionPromise = bootstrapSession();
-    const projectsPromise = loadProjects();
+    const projectsPromise = loadProjects({ preferServerCache: true }).then((result) => {
+      setLoginProgress(72, {
+        title: 'Atualizando indicadores...',
+        message: 'Estamos calculando pesos, status, pendências e alertas operacionais.',
+        detail: 'Indicadores sendo preparados.',
+      });
+      return result;
+    });
     const authenticated = await sessionPromise;
-    if (!authenticated) return;
+    if (!authenticated) {
+      failLoginProgress('Sua sessão não pôde ser confirmada. Faça login novamente.');
+      return;
+    }
+    setLoginProgress(55, {
+      title: 'Carregando POs...',
+      message: 'Estamos carregando as POs, demandas e referências de fabricação.',
+      detail: 'POs e demandas em processamento.',
+    });
     await projectsPromise;
+    setLoginProgress(88, {
+      title: 'Definindo dashboards...',
+      message: 'Estamos definindo os dashboards e montando a visualização final.',
+      detail: 'Dashboard quase pronto.',
+    });
 
     syncStageDraftsForCurrentSector();
     const autoOpenStageValidation = shouldOpenStageValidationWorkspaceFromUrl() && canValidateStageWorkspace();
@@ -8944,15 +9078,19 @@ async function handleLoginSubmit(event) {
     startPostSessionBackgroundLoads({ autoOpenStageValidation });
     startPresenceHeartbeat();
     startPolling();
+    await completeLoginProgress();
   } catch (error) {
     loginFeedbackEl.textContent = error.message || "Falha ao autenticar.";
+    failLoginProgress(error.message || "Falha ao autenticar.");
   }
 }
 
 async function handleLogout() {
   await fetch("/api/auth-logout", { credentials: "same-origin" });
   state.user = null;
-  clearProjectsCache();
+  // Mantém o cache local de projetos entre logout e novo login.
+  // A chave já é escopada por papel/usuário/cliente; apagá-la aqui fazia o próximo login
+  // perder o carregamento imediato e voltar a depender do Smartsheet/Supabase.
   state.loadingProjectsRequest = null;
   state.lastProjectsFetchAt = 0;
   state.lastManualAlertsFetchAt = 0;
