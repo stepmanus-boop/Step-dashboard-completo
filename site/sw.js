@@ -1,5 +1,5 @@
-const CACHE_NAME = "step-gerencia-pwa-v29-tracking-finalizado";
-// Versão v29: preserva performance v28 e corrige override de projetos finalizados no tracking
+const CACHE_NAME = "step-gerencia-pwa-v30-carregamento-fallback";
+// Versão v30: mantém correção de finalizados e adiciona fallback seguro para carregamento rápido dos dados
 // - Mantém assets do app shell versionados para liberar app.js corrigido imediatamente
 // - API continua sem cache no Service Worker; dados operacionais usam cache local do app
 // - Interceptação de /api restrita à própria origem para evitar efeitos colaterais
