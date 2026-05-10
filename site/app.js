@@ -3571,6 +3571,7 @@ function ensureClientDashboardEl() {
       
       applyFilter();
       renderClientDashboard();
+      renderClientBspPanel(); // v32.5: Atualiza a tabela de BSPs imediatamente
     });
   }
 
@@ -3583,6 +3584,7 @@ function ensureClientDashboardEl() {
       
       applyFilter();
       renderClientDashboard();
+      renderClientBspPanel(); // v32.5: Limpa a filtragem da tabela de BSPs
     });
   }
 
@@ -3681,10 +3683,15 @@ function renderClientDashboard() {
 }
 
 function getClientSelectedVesselProjects() {
-  const projects = Array.isArray(state.projects) ? state.projects : [];
+  // v32.5: Se houver pesquisa ativa, usa os projetos filtrados. Caso contrário, usa todos os projetos do cliente.
+  const sourceProjects = (state.searchQuery && state.searchQuery.trim()) 
+    ? (state.filteredProjects || []) 
+    : (state.projects || []);
+    
   const selected = state.clientPortal.selectedVesselKey;
-  if (!selected) return projects;
-  return projects.filter((project) => createProjectDrillKey(getProjectVesselLabel(project) || 'Unidade não informada') === selected);
+  if (!selected) return sourceProjects;
+  
+  return sourceProjects.filter((project) => createProjectDrillKey(getProjectVesselLabel(project) || 'Unidade não informada') === selected);
 }
 
 function renderClientBspPanel() {
