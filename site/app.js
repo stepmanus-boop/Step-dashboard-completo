@@ -3852,6 +3852,9 @@ function getClientStageValue(project, keys) {
 }
 
 function getClientFabricationProgress(project) {
+  const painting = getClientStageValue(project, ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)']);
+  if (painting >= 99.9) return 100;
+
   const stages = [
     { keys: ['Welding Preparation', 'Spool Assemble and tack weld'], weight: 10 },
     { keys: ['Initial Dimensional Inspection/3D'], weight: 8 },
@@ -3860,8 +3863,6 @@ function getClientFabricationProgress(project) {
     { keys: ['Final Dimensional Inpection/3D (QC)'], weight: 8 },
     { keys: ['Hydro Test Pressure (QC)'], weight: 7 },
     { keys: ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)'], weight: 15 },
-    { keys: ['Final Inspection'], weight: 8 },
-    { keys: ['Package and Delivered'], weight: 7 },
   ];
   const totalWeight = stages.reduce((sum, item) => sum + item.weight, 0);
   if (!totalWeight) return 0;
@@ -4197,11 +4198,16 @@ function buildClientExecutiveSchedule(project) {
     { key: 'final-dimensional', label: 'Final Dimensional Inspection', base: 8, percent: getClientStageValue(project, ['Final Dimensional Inpection/3D (QC)']) },
     { key: 'hydro', label: 'Hydro Testing', base: 6, percent: getClientStageValue(project, ['Hydro Test Pressure (QC)']) },
     { key: 'painting', label: 'Painting', base: 14, percent: getClientStageValue(project, ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)']) },
-    { key: 'packing', label: 'Packing', base: 5, percent: getClientStageValue(project, ['Package and Delivered']) },
-    { key: 'final-inspection', label: 'Final Inspection', base: 5, percent: getClientStageValue(project, ['Final Inspection']) },
+  ];
+  const logisticsTemplate = [
+    { key: 'packing', label: 'Packing', base: 1, percent: getClientStageValue(project, ['Package and Delivered']) },
+    { key: 'final-inspection', label: 'Final Inspection', base: 1, percent: getClientStageValue(project, ['Final Inspection']) },
+    { key: 'delivery', label: 'Delivery', base: 1, percent: getClientPackageProgress(project) },
   ];
   const fabricationGroup = groupDurations.find((item) => item.key === 'fabrication');
+  const deliveryGroup = groupDurations.find((item) => item.key === 'delivery');
   const fabricationDurations = scaleDurationVector(fabricationTemplate, fabricationGroup?.duration || 81);
+  const logisticsDurations = scaleDurationVector(logisticsTemplate, deliveryGroup?.duration || 3);
 
   const rows = [];
   let cursor = parseDateObject(start) || parseDateObject(getProjectShipmentDate(project)) || new Date();
@@ -4217,7 +4223,7 @@ function buildClientExecutiveSchedule(project) {
     } else if (group.key === 'fabrication') {
       children = fabricationDurations.map((item) => ({ label: item.label, progress: item.percent, duration: item.duration }));
     } else if (group.key === 'delivery') {
-      children = [{ label: 'Delivery', progress: group.percent, duration: group.duration }];
+      children = logisticsDurations.map((item) => ({ label: item.label, progress: item.percent, duration: item.duration }));
     }
 
     let childCursor = new Date(groupStart.getTime());

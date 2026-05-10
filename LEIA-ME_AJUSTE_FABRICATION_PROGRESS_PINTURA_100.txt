@@ -1,0 +1,27 @@
+AJUSTE APLICADO - FABRICATION PROGRESS COM PINTURA 100%
+
+Objetivo:
+- No Portal/Painéis do Cliente, o card "Fabrication Progress" deve considerar a fabricação concluída quando a etapa de pintura estiver em 100%.
+- Packing, Final Inspection e Delivery deixam de compor o cálculo de fabricação, pois pertencem ao fluxo de logística/preparação de envio.
+
+Arquivo alterado:
+- site/app.js
+
+Alterações minimalistas realizadas:
+1) Função getClientFabricationProgress(project)
+   - Antes: calculava Fabrication incluindo Final Inspection e Package and Delivered.
+   - Agora: calcula Fabrication somente até Painting / Surface preparation and/or coating.
+   - Se Painting estiver >= 99.9%, retorna 100% diretamente.
+
+2) Schedule Executivo da BSP
+   - Antes: Packing e Final Inspection apareciam dentro do grupo FABRICATION.
+   - Agora: Packing, Final Inspection e Delivery aparecem dentro do grupo DELIVERY.
+
+Validação executada:
+- node --check site/app.js
+- npm run lint
+
+Resultado:
+- Sem erro de sintaxe.
+- Backend não foi alterado.
+- Nenhuma função de Smartsheet, Supabase, login, alertas, apontamento PCP ou filtros foi modificada.
