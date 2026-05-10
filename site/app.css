@@ -5507,3 +5507,60 @@ body:not(.client-mode) .client-exec-modal {
   .login-progress-footer { flex-direction: column; align-items: center; gap: 6px; }
   #login-progress-detail { text-align: center; }
 }
+
+/* v32.8 - Cores elegantes por situação no detalhamento da obra
+   Vermelho: ainda não iniciado | Amarelo: em andamento | Verde: finalizado */
+.client-stage-strip .client-stage-card {
+  transition: background .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+
+.client-stage-strip .client-stage-card--not-started,
+.client-stage-strip--executive .client-stage-card--not-started {
+  background: linear-gradient(135deg, rgba(255, 230, 230, .88), rgba(255, 242, 242, .78));
+  border-color: rgba(208, 92, 92, .24);
+  box-shadow: inset 4px 0 0 rgba(208, 92, 92, .48);
+}
+
+.client-stage-strip .client-stage-card--not-started span,
+.client-stage-strip--executive .client-stage-card--not-started span {
+  color: #8b4b4b;
+}
+
+.client-stage-strip .client-stage-card--not-started strong,
+.client-stage-strip--executive .client-stage-card--not-started strong {
+  color: #8f2f2f;
+}
+
+.client-stage-strip .client-stage-card--in-progress,
+.client-stage-strip--executive .client-stage-card--in-progress {
+  background: linear-gradient(135deg, rgba(255, 244, 213, .9), rgba(255, 250, 235, .78));
+  border-color: rgba(204, 151, 40, .24);
+  box-shadow: inset 4px 0 0 rgba(204, 151, 40, .5);
+}
+
+.client-stage-strip .client-stage-card--in-progress span,
+.client-stage-strip--executive .client-stage-card--in-progress span {
+  color: #82631c;
+}
+
+.client-stage-strip .client-stage-card--in-progress strong,
+.client-stage-strip--executive .client-stage-card--in-progress strong {
+  color: #7a5608;
+}
+
+.client-stage-strip .client-stage-card--completed,
+.client-stage-strip--executive .client-stage-card--completed {
+  background: linear-gradient(135deg, rgba(220, 248, 236, .9), rgba(235, 255, 246, .78));
+  border-color: rgba(45, 157, 112, .24);
+  box-shadow: inset 4px 0 0 rgba(45, 157, 112, .5);
+}
+
+.client-stage-strip .client-stage-card--completed span,
+.client-stage-strip--executive .client-stage-card--completed span {
+  color: #356d59;
+}
+
+.client-stage-strip .client-stage-card--completed strong,
+.client-stage-strip--executive .client-stage-card--completed strong {
+  color: #197453;
+}

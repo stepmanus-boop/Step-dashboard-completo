@@ -1,0 +1,31 @@
+VERSÃO v32.8 - DETALHAMENTO DA OBRA | CORES POR SITUAÇÃO
+
+Alteração solicitada:
+- No Detalhamento da Obra, o status "AG. Emissão de detalhamento" não deve aparecer como finalizado/verde.
+- Vermelho suave/elegante: etapa ou tag ainda não iniciada.
+- Amarelo suave/elegante: etapa ou tag em andamento.
+- Verde suave/elegante: somente quando estiver finalizado/concluído/enviado.
+
+Arquivos alterados:
+- site/app.js
+- site/app.css
+
+O que foi ajustado:
+1. Visual das linhas de TAG/ISO no detalhamento:
+   - "AG. Emissão de detalhamento" passa a ser tratado visualmente como não iniciado quando não houver andamento real.
+   - Quando houver progresso iniciado, aparece em amarelo.
+   - Só aparece em verde quando o texto de status indicar finalização, conclusão ou envio.
+
+2. Visual dos cards de etapas no detalhamento:
+   - 0% ou sem valor: vermelho suave.
+   - acima de 0% e abaixo de 100%: amarelo suave.
+   - 100%: verde suave.
+
+Validação realizada:
+- node --check site/app.js: OK
+- node --check netlify/functions/projects.js: OK
+- npm run lint: OK
+
+Observação:
+- Não foi alterada nenhuma regra de cálculo, login, API do Smartsheet, Supabase, cards principais, filtros, apontamentos ou autenticação.
+- A alteração é apenas visual no Detalhamento da Obra.

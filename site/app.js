@@ -3749,11 +3749,41 @@ function isClientSpoolFinished(spool) {
   return progress >= 99.9 || uiState === 'completed' || /finalizado|concluido|completed|finished|enviado|delivered/.test(statusText);
 }
 
+function isClientDetailingWaitingStatus(value) {
+  const text = normalizeText(value);
+  return /(^|\s)ag\.?\s*emissao de detalhamento/.test(text) || /aguardando emissao de detalhamento/.test(text);
+}
+
+function isClientFinishedStatusText(value) {
+  const text = normalizeText(value);
+  return /finalizado|concluido|completed|finished|enviado|delivered/.test(text);
+}
+
 function getClientSpoolVisualState(spool) {
   const progress = getClientSpoolProgress(spool);
-  if (isClientSpoolFinished(spool)) return 'completed';
-  if (progress <= 0) return 'not-started';
+  const statusText = spool?.currentStatus || spool?.stage || uiStateLabel(spool?.uiState);
+  const stageStatus = normalizeCompactText(spool?.stageStatus || spool?.currentStageStatus || spool?.flow?.stageStatus || '');
+  if (isClientDetailingWaitingStatus(statusText)) {
+    if (isClientFinishedStatusText(statusText)) return 'completed';
+    if (stageStatus === 'inprogress' || (progress > 0 && progress < 99.9)) return 'in-progress';
+    return 'not-started';
+  }
+  if (isClientFinishedStatusText(statusText)) return 'completed';
+  if (progress <= 0 || stageStatus === 'waiting') return 'not-started';
   return 'in-progress';
+}
+
+function getClientStageStripVisualState(value) {
+  const percent = clientPercentValue(value);
+  if (percent >= 99.9) return 'completed';
+  if (percent > 0) return 'in-progress';
+  return 'not-started';
+}
+
+function renderClientStageStripCard(label, value) {
+  const stateName = getClientStageStripVisualState(value);
+  const displayValue = value == null || value === '' ? '—' : (String(value).includes('%') ? escapeHtml(value) : formatPercent(value));
+  return `<div class="client-stage-card client-stage-card--${stateName}"><span>${escapeHtml(label)}</span><strong>${displayValue}</strong></div>`;
 }
 
 function compareClientSpoolsByPriority(a, b) {
@@ -3804,7 +3834,7 @@ function renderClientProjectDetail(project) {
       ${['Drawing Execution Advance%', 'Procuremnt Status %', 'Material Separation', 'Full welding execution', 'Non Destructive Examination (QC)', 'Hydro Test Pressure (QC)', 'Surface preparation and/or coating', 'Final Inspection', 'Package and Delivered'].map((key) => {
         const label = (state.meta?.stageOrder || []).find((stage) => stage.key === key)?.label || key;
         const value = stageValues[key];
-        return `<div><span>${escapeHtml(label)}</span><strong>${value == null || value === '' ? '—' : (String(value).includes('%') ? escapeHtml(value) : formatPercent(value))}</strong></div>`;
+        return renderClientStageStripCard(label, value);
       }).join('')}
     </div>
     <div class="client-table-wrap client-table-wrap--compact">
@@ -4710,7 +4740,7 @@ function openClientBspExecutive(project) {
         ${detailStageKeys.map((key) => {
           const label = (state.meta?.stageOrder || []).find((stage) => stage.key === key)?.label || key;
           const value = stageValues[key];
-          return `<div><span>${escapeHtml(label)}</span><strong>${value == null || value === '' ? '—' : (String(value).includes('%') ? escapeHtml(value) : formatPercent(value))}</strong></div>`;
+          return renderClientStageStripCard(label, value);
         }).join('')}
       </div>
       <div class="client-table-wrap client-table-wrap--compact client-exec-process-table">
