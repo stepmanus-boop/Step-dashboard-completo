@@ -870,7 +870,7 @@ function buildSpoolRow(row, parentSummary) {
   const rowIndividualProgress = parsePercent(row, "% Individual Progress");
   const overallProgress = rowOverallProgress ?? rowIndividualProgress ?? 0;
   const individualProgress = rowIndividualProgress ?? overallProgress;
-  const projectFinishedFlag = isTruthyValue(textValue(row, "Project Finished?") || getCellValue(row, "Project Finished?").raw);
+  const projectFinishedFlag = isTruthyValue(getCellValue(row, "Project Finished?").raw);
   const fabricationStartDate = textValue(row, "Fabrication Start Date");
   const stageValues = buildStageValues(row);
   const finished = projectFinishedFlag || overallProgress >= 100 || hasStageValue(stageValues, "Project Finish Date");
@@ -1011,7 +1011,7 @@ function buildProject(summaryRow, childRows) {
   const progress = deriveProgress(summaryRow);
   const overallProgress = parsePercent(summaryRow, "% Overall Progress") ?? 0;
   const individualProgress = parsePercent(summaryRow, "% Individual Progress") ?? overallProgress;
-  const projectFinishedFlag = isTruthyValue(textValue(summaryRow, "Project Finished?") || getCellValue(summaryRow, "Project Finished?").raw);
+  const projectFinishedFlag = isTruthyValue(getCellValue(summaryRow, "Project Finished?").raw);
   const projectStatus = textValue(summaryRow, "Project Status") || textValue(summaryRow, "PROJECT STATUS") || textValue(summaryRow, "Overall Project Status") || textValue(summaryRow, "Status");
   const coatingPercent = parsePercent(summaryRow, "Surface preparation and/or coating") ?? 0;
   const fabricationStartDate = textValue(summaryRow, "Fabrication Start Date");
@@ -1277,45 +1277,10 @@ function compactStatusText(value) {
 
 function isMeaningfulFinishValue(value) {
   if (value == null) return false;
-  if (value instanceof Date && !Number.isNaN(value.getTime())) return true;
   const raw = String(value).trim();
   if (!raw) return false;
   const compact = compactStatusText(raw);
-  return !["NA", "N/A", "NONE", "NULL", "FALSE", "NO", "NAO", "NAOAPLICAVEL", "NOTAPPLICABLE", "0"].includes(compact);
-}
-
-function getFinishMarkerValuesFromStageValues(stageValues = {}) {
-  if (!stageValues || typeof stageValues !== "object") return [];
-  const keys = [
-    "Project Finish Date",
-    "PROJECT FINISH DATE",
-    "Project Finished?",
-    "PROJECT FINISHED?",
-    "Concluído?",
-    "Concluido?",
-    "Finalizado?",
-    "Data de envio",
-    "DATA DE ENVIO",
-  ];
-  return keys.map((key) => stageValues[key]).filter((value) => value != null && String(value).trim() !== "");
-}
-
-function isSpoolFinished(spool) {
-  if (!spool) return false;
-  const stageValues = spool.stageValues || {};
-  return Boolean(
-    spool.finished
-    || spool.projectFinishedFlag
-    || spool.uiState === "completed"
-    || spool.operationalState === "completed"
-    || spool.flow?.state === "completed"
-    || spool.flow?.status === "Finalizado"
-    || isProjectStatusFinished(spool.projectStatus)
-    || isProjectStatusFinished(spool.status)
-    || isProjectStatusFinished(spool.currentStatus)
-    || isProjectStatusFinished(spool.stage)
-    || getFinishMarkerValuesFromStageValues(stageValues).some((value) => isTruthyValue(value) || isMeaningfulFinishValue(value))
-  );
+  return !["NA", "N/A", "NONE", "NULL", "FALSE", "NO", "NAO", "0"].includes(compact);
 }
 
 function isProjectStatusFinished(value) {
@@ -1328,40 +1293,34 @@ function isProjectStatusFinished(value) {
 
 function hasProjectFinishDateMarker(project) {
   if (!project) return false;
-  const values = [
-    project.projectFinishDate,
-    project.finishDate,
-    project.finishedDate,
-    project.shipmentDate,
-    project.shippingDate,
-    project.sendDate,
-    project.deliveryDate,
-    ...getFinishMarkerValuesFromStageValues(project.stageValues),
-  ];
-  return values.some((value) => isMeaningfulFinishValue(value));
+  const values = [project.projectFinishDate, project.finishDate, project.finishedDate, project.shipmentDate, project.stageValues?.["Project Finish Date"], project.stageValues?.["PROJECT FINISH DATE"]];
+  return values.some(isMeaningfulFinishValue);
 }
 
 function hasProjectFinishedBooleanMarker(project) {
   if (!project) return false;
-  const values = [
-    project.finished,
-    project.projectFinishedFlag,
-    project.status,
-    project.currentStatus,
-    project.statusSummary,
-    project.flow?.status,
-    ...getFinishMarkerValuesFromStageValues(project.stageValues),
-  ];
+  const values = [project.finished, project.projectFinishedFlag, project.stageValues?.["Project Finished?"], project.stageValues?.["PROJECT FINISHED?"]];
   return values.some((value) => {
     if (typeof value === "boolean") return value;
     const compact = compactStatusText(value);
-    return ["TRUE", "YES", "SIM", "Y", "1", "FINALIZADO", "CONCLUIDO", "COMPLETED", "FINISHED", "DELIVERED", "ENTREGUE", "ENVIADO"].includes(compact);
+    return ["TRUE", "YES", "SIM", "Y", "1", "FINALIZADO", "CONCLUIDO", "COMPLETED", "FINISHED"].includes(compact);
   });
 }
 
 function areAllProjectSpoolsFinished(project) {
   const spools = Array.isArray(project?.spools) ? project.spools : [];
-  return spools.length > 0 && spools.every((spool) => isSpoolFinished(spool));
+  return spools.length > 0 && spools.every((spool) => Boolean(
+    spool?.finished
+    || spool?.projectFinishedFlag
+    || spool?.uiState === "completed"
+    || spool?.operationalState === "completed"
+    || spool?.flow?.state === "completed"
+    || spool?.flow?.status === "Finalizado"
+    || isProjectStatusFinished(spool?.projectStatus)
+    || isProjectStatusFinished(spool?.status)
+    || isProjectStatusFinished(spool?.currentStatus)
+    || isMeaningfulFinishValue(spool?.stageValues?.["Project Finish Date"])
+  ));
 }
 
 function hasProjectFinishedMarker(project) {
@@ -1383,7 +1342,6 @@ function hasProjectFinishedMarker(project) {
 }
 
 function getOpenFlowItemsForStats(project) {
-  if (hasProjectFinishedMarker(project)) return [];
   const spools = Array.isArray(project?.spools) ? project.spools : [];
   const source = spools.length
     ? spools.map((spool) => ({ flow: spool.flow || { status: spool.stage, sector: spool.operationalSector, state: spool.operationalState }, spool }))
@@ -1520,8 +1478,7 @@ function isProjectOnHold(project) {
 }
 
 function buildStats(projects) {
-  const sourceProjects = Array.isArray(projects) ? projects : [];
-  const activeProjects = sourceProjects.filter((project) => !isProjectExcludedFromTotal(project));
+  const activeProjects = (Array.isArray(projects) ? projects : []).filter((project) => !isProjectExcludedFromTotal(project));
   const stats = {
     totalProjects: activeProjects.length,
     totalSpools: 0,
@@ -1549,12 +1506,19 @@ function buildStats(projects) {
 
   let progressAccumulator = 0;
 
-  for (const project of sourceProjects) {
+  for (const project of projects) {
     const tags = Number(project.quantitySpools || project.spools?.length || 0);
     const spools = Array.isArray(project.spools) ? project.spools : [];
+    const isFinishedProject = hasProjectFinishedMarker(project);
+    stats.totalSpools += tags;
+    stats.totalWeightKg += project.kilos || 0;
+    stats.totalWeldedWeightKg += project.weldedWeightKg || 0;
+    const openPaintingM2 = spools.length
+      ? spools.filter((spool) => spool.flow?.state !== "completed" && spool.flow?.status !== "Finalizado").reduce((total, spool) => total + Number(spool.m2Painting || 0), 0)
+      : 0;
+    stats.totalPaintingM2 += isFinishedProject ? 0 : (openPaintingM2 > 0 ? openPaintingM2 : Number(project.m2Painting || 0));
     const isOnHold = isProjectOnHold(project);
     const isPending = isProjectPending(project);
-    const isFinishedProject = hasProjectFinishedMarker(project);
 
     if (isOnHold) {
       stats.notStartedHold += 1;
@@ -1571,14 +1535,6 @@ function buildStats(projects) {
       stats.completedTags += tags;
       continue;
     }
-
-    stats.totalSpools += tags;
-    stats.totalWeightKg += project.kilos || 0;
-    stats.totalWeldedWeightKg += project.weldedWeightKg || 0;
-    const openPaintingM2 = spools.length
-      ? spools.filter((spool) => !isSpoolFinished(spool)).reduce((total, spool) => total + Number(spool.m2Painting || 0), 0)
-      : 0;
-    stats.totalPaintingM2 += openPaintingM2 > 0 ? openPaintingM2 : Number(project.m2Painting || 0);
 
     progressAccumulator += project.overallProgress || 0;
 

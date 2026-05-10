@@ -1,0 +1,46 @@
+CORREÇÃO V30 - RESTAURA BASE RÁPIDA V28 + AJUSTE SEGURO DOS PAINÉIS
+
+Base utilizada:
+- step_dashboard_tracking_CLIENTE_CORRIGIDO_v28_DATA_GATE.zip
+
+Motivo:
+- A versão v29 alterou também netlify/functions/projects.js e causou falha no carregamento dos projetos em produção.
+- Esta versão volta o motor de dados/API exatamente para a base rápida v28 e aplica somente correções seguras no frontend.
+
+Arquivos alterados nesta versão:
+- site/app.js
+- site/sw.js
+
+Arquivos preservados da v28:
+- netlify/functions/projects.js
+- netlify/functions/auth-login.js
+- netlify/functions/auth-me.js
+- netlify/functions/_supabase.js
+- demais funções Netlify
+
+Correções aplicadas:
+1. Projetos reconhecidos como finalizados agora aparecem como Finalizado no painel.
+2. Projetos finalizados deixam de alimentar cards operacionais de andamento.
+3. Finalizados não entram em Produção, Qualidade, Pintura, Aguardando envio, Pendente de solda e M² operacional.
+4. Peso pendente de solda ignora projetos finalizados.
+5. Detecção de finalizado considera:
+   - finished = true
+   - Project Finished? = Sim/true/yes
+   - Project Finish Date preenchido
+   - status Finalizado / Concluído / Finished / Completed / Delivered / Enviado
+   - spools finalizados
+6. Service Worker atualizado para não manter app.js antigo.
+
+Validações executadas:
+- node --check site/app.js
+- node --check site/sw.js
+- node --check netlify/functions/projects.js
+
+Pós-deploy:
+1. Publicar no Netlify.
+2. Abrir o painel.
+3. Fazer Ctrl + F5.
+4. Caso o navegador mostre botão de atualização do PWA, clicar em reiniciar/atualizar.
+
+Observação importante:
+- Esta versão não altera a API principal. A velocidade da v28 foi preservada.

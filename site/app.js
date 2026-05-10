@@ -2266,6 +2266,7 @@ function getProjectStatusPresentation(project) {
 }
 
 function isProjectFinalizedForDisplay(project) {
+  if (isProjectFinishedForTotal(project)) return true;
   const statusText = normalizeText([
     project?.statusSummary,
     project?.currentStatus,
@@ -2776,33 +2777,36 @@ function isProjectPending(project) {
 
 function isMeaningfulFinishValue(value) {
   if (value == null) return false;
-  if (value instanceof Date && !Number.isNaN(value.getTime())) return true;
   const raw = String(value).trim();
   if (!raw) return false;
   const compact = normalizeText(raw).replace(/[^a-z0-9]+/g, '');
   return !['na', 'n/a', 'none', 'null', 'false', 'no', 'nao', 'não', 'naoaplicavel', 'notapplicable', '0'].includes(compact);
 }
 
-function getFinishMarkerValuesFromStageValues(stageValues = {}) {
-  if (!stageValues || typeof stageValues !== 'object') return [];
-  const keys = [
-    'Project Finish Date',
-    'PROJECT FINISH DATE',
-    'Project Finished?',
-    'PROJECT FINISHED?',
-    'Concluído?',
-    'Concluido?',
-    'Finalizado?',
-    'Data de envio',
-    'DATA DE ENVIO',
-  ];
-  return keys.map((key) => stageValues[key]).filter((value) => value != null && String(value).trim() !== '');
+function hasTruthyFinishedValue(value) {
+  if (typeof value === 'boolean') return value;
+  const compact = normalizeText(value || '').replace(/[^a-z0-9]+/g, '');
+  return ['true', 'yes', 'sim', 'y', '1', 'finalizado', 'concluido', 'completed', 'finished', 'delivered', 'entregue', 'enviado'].includes(compact);
+}
+
+function getMilestoneValue(item, labels = []) {
+  const wanted = new Set(labels.map((label) => normalizeText(label).replace(/[^a-z0-9]+/g, '')));
+  const milestones = Array.isArray(item?.milestones) ? item.milestones : [];
+  for (const milestone of milestones) {
+    const key = normalizeText(milestone?.key || milestone?.label || '').replace(/[^a-z0-9]+/g, '');
+    if (wanted.has(key)) return milestone?.value;
+  }
+  return undefined;
 }
 
 function isSpoolFinishedForPanels(spool) {
   if (!spool) return false;
-  const stageValues = spool.stageValues || {};
-  const statusText = normalizeText([spool.projectStatus, spool.status, spool.currentStatus, spool.stage, spool.flow?.status, spool.flow?.state].filter(Boolean).join(' '));
+  const finishedFlag = spool.stageValues?.['Project Finished?']
+    ?? spool.stageValues?.['PROJECT FINISHED?']
+    ?? getMilestoneValue(spool, ['Project Finished?', 'PROJECT FINISHED?', 'Concluído?', 'Concluido?', 'Finalizado?']);
+  const finishDate = spool.stageValues?.['Project Finish Date']
+    ?? spool.stageValues?.['PROJECT FINISH DATE']
+    ?? getMilestoneValue(spool, ['Project Finish Date', 'PROJECT FINISH DATE', 'Data de envio', 'DATA DE ENVIO']);
   return Boolean(
     spool.finished
     || spool.projectFinishedFlag
@@ -2810,15 +2814,13 @@ function isSpoolFinishedForPanels(spool) {
     || spool.operationalState === 'completed'
     || spool.flow?.state === 'completed'
     || spool.flow?.status === 'Finalizado'
-    || isProjectStatusFinished(statusText)
-    || getFinishMarkerValuesFromStageValues(stageValues).some((value) => hasTruthyFinishedValue(value) || isMeaningfulFinishValue(value))
+    || isProjectStatusFinished(spool.projectStatus)
+    || isProjectStatusFinished(spool.status)
+    || isProjectStatusFinished(spool.currentStatus)
+    || isProjectStatusFinished(spool.stage)
+    || hasTruthyFinishedValue(finishedFlag)
+    || isMeaningfulFinishValue(finishDate)
   );
-}
-
-function hasTruthyFinishedValue(value) {
-  if (typeof value === 'boolean') return value;
-  const compact = normalizeText(value || '').replace(/[^a-z0-9]+/g, '');
-  return ['true', 'yes', 'sim', 'y', '1', 'finalizado', 'concluido', 'completed', 'finished', 'delivered', 'entregue', 'enviado'].includes(compact);
 }
 
 function isProjectStatusFinished(projectStatus) {
@@ -2838,10 +2840,9 @@ function hasProjectFinishDateMarker(project) {
     project.finishDate,
     project.finishedDate,
     project.shipmentDate,
-    project.shippingDate,
-    project.sendDate,
-    project.deliveryDate,
-    ...getFinishMarkerValuesFromStageValues(project.stageValues),
+    project.stageValues?.['Project Finish Date'],
+    project.stageValues?.['PROJECT FINISH DATE'],
+    getMilestoneValue(project, ['Project Finish Date', 'PROJECT FINISH DATE', 'Data de envio', 'DATA DE ENVIO']),
   ];
   return values.some(isMeaningfulFinishValue);
 }
@@ -2851,11 +2852,13 @@ function hasProjectFinishedBooleanMarker(project) {
   const values = [
     project.finished,
     project.projectFinishedFlag,
+    project.stageValues?.['Project Finished?'],
+    project.stageValues?.['PROJECT FINISHED?'],
     project.status,
     project.currentStatus,
     project.statusSummary,
     project.flow?.status,
-    ...getFinishMarkerValuesFromStageValues(project.stageValues),
+    getMilestoneValue(project, ['Project Finished?', 'PROJECT FINISHED?', 'Concluído?', 'Concluido?', 'Finalizado?']),
   ];
   return values.some(hasTruthyFinishedValue);
 }
@@ -2951,8 +2954,7 @@ function isProjectOnHold(project) {
 }
 
 function buildClientStats(projects) {
-  const sourceProjects = Array.isArray(projects) ? projects : [];
-  const activeProjects = sourceProjects.filter((project) => !isProjectExcludedFromTotal(project));
+  const activeProjects = (Array.isArray(projects) ? projects : []).filter((project) => !isProjectExcludedFromTotal(project));
   const stats = {
     totalProjects: activeProjects.length,
     totalSpools: 0,
@@ -2979,7 +2981,7 @@ function buildClientStats(projects) {
   };
 
   let progressAccumulator = 0;
-  for (const project of sourceProjects) {
+  for (const project of projects) {
     const spools = Array.isArray(project.spools) ? project.spools : [];
     const tags = Number(project.quantitySpools || spools.length || 0);
     const isFinishedProject = isProjectFinishedForTotal(project);
