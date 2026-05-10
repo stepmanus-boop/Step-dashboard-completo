@@ -1,6 +1,6 @@
-const CACHE_NAME = "step-gerencia-pwa-v31-login-instantaneo";
-// Versão v31: mantém correção de finalizados e separa o login do carregamento pesado da API
-// - Mantém assets do app shell versionados para liberar app.js e endpoint rápido imediatamente
+const CACHE_NAME = "step-gerencia-pwa-v28-performance-login-cache";
+// Versão v28: preserva cache local entre logouts e usa caminho rápido pós-login
+// - Mantém assets do app shell versionados para liberar app.js corrigido imediatamente
 // - API continua sem cache no Service Worker; dados operacionais usam cache local do app
 // - Interceptação de /api restrita à própria origem para evitar efeitos colaterais
 const APP_SHELL = [

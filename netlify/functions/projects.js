@@ -1,5 +1,3 @@
-const fs = require('fs');
-const path = require('path');
 const { jsonResponse, requireSession } = require('./_auth');
 const { isSupabaseConfigured, getUserById } = require('./_supabase');
 const API_BASE = process.env.SMARTSHEET_API_BASE || "https://api.smartsheet.com/2.0";
@@ -10,8 +8,6 @@ const WIP_STEP_SHEET_ID_ENV = process.env.SMARTSHEET_WIP_STEP_SHEET_ID || proces
 const TOKEN = process.env.SMARTSHEET_TOKEN || process.env.SMARTSHEET_ACCESS_TOKEN || process.env.SMARTSHEET_API_TOKEN || process.env.SMARTSHEET_BEARER_TOKEN || process.env.SMARTSHEET_PAT || process.env.SMARTSHEET_PERSONAL_ACCESS_TOKEN || "5pP36OjBaD1W2HWyxf6aoGxXasPvEl8gbqOmQ";
 const PROJECTS_FAST_CACHE_MS = Number(process.env.PROJECTS_FAST_CACHE_MS || 5 * 60 * 1000);
 const SESSION_HYDRATION_CACHE_MS = Number(process.env.SESSION_HYDRATION_CACHE_MS || 5 * 60 * 1000);
-const SMARTSHEET_API_TIMEOUT_MS = Number(process.env.SMARTSHEET_API_TIMEOUT_MS || 9000);
-const FALLBACK_PROJECTS_PATH = path.join(__dirname, '..', 'data', 'fallback-projects.json');
 
 const cache = global.__STEP_PROGRESS_CACHE__ || {
   sheetId: null,
@@ -988,89 +984,24 @@ function uiStateFromFlow(flow, allFinished = false) {
 function applyProjectSpoolRollup(project) {
   const fallbackFlow = project.flow || makeFlow(project.currentStage || "AG. Emissão de detalhamento", project.operationalSector || "Engenharia", project.currentStagePercent || 0, project.currentStageStatus || "waiting", project.operationalState || project.uiState || "not_started");
   const summary = summarizeFlowItems(project.spools || [], fallbackFlow, project.quantitySpools || 1);
-  const explicitFinished = Boolean(
-    hasProjectFinishedBooleanMarker(project)
-    || hasProjectFinishDateMarker(project)
-    || isProjectStatusFinished(project.projectStatus)
-    || isProjectStatusFinished(project.status)
-    || isProjectStatusFinished(project.currentStatus)
-    || isProjectStatusFinished(project.statusSummary)
-    || isProjectStatusFinished(project.flow?.status)
-  );
-  const finalFinished = explicitFinished || summary.allFinished || areAllProjectSpoolsFinished(project);
+  const explicitFinished = Boolean(project.finished || project.projectFinishedFlag || hasProjectFinishDateMarker(project) || isProjectStatusFinished(project.projectStatus));
+  const finalFinished = explicitFinished || summary.allFinished;
   const finalFlow = finalFinished ? makeFlow("Finalizado", "Enviado", 100, "completed", "completed") : summary.flow;
-
-  if (finalFinished) {
-    const totalSpools = Math.max(1, Number(project.quantitySpools || 0), Array.isArray(project.spools) ? project.spools.length : 0);
-    const finishedStatusBreakdown = [{ label: "Finalizado", count: totalSpools }];
-    const finishedSectorBreakdown = [{ label: "Enviado", count: totalSpools }];
-
-    if (Array.isArray(project.spools)) {
-      project.spools = project.spools.map((spool) => ({
-        ...spool,
-        flow: { ...finalFlow },
-        finished: true,
-        projectFinishedFlag: spool.projectFinishedFlag || explicitFinished,
-        uiState: "completed",
-        operationalState: "completed",
-        operationalSector: "Enviado",
-        currentStatus: "Finalizado",
-        currentSector: "Enviado",
-        stage: "Finalizado",
-        stagePercent: 100,
-        stageStatus: "completed",
-        stageAlert: false,
-        individualProgress: 100,
-        overallProgress: 100,
-      }));
-    }
-
-    project.demandSummary = {
-      ...summary,
-      flow: finalFlow,
-      allFinished: true,
-      statusSummary: "Finalizado",
-      sectorSummary: "Enviado",
-      statusBreakdown: finishedStatusBreakdown,
-      sectorBreakdown: finishedSectorBreakdown,
-    };
-    project.statusSummary = "Finalizado";
-    project.sectorSummary = "Enviado";
-    project.statusBreakdown = finishedStatusBreakdown;
-    project.sectorBreakdown = finishedSectorBreakdown;
-    project.flow = finalFlow;
-    project.currentStage = "Finalizado";
-    project.currentStageGroup = "Enviado";
-    project.currentStagePercent = 100;
-    project.currentStageStatus = "completed";
-    project.currentStageAlert = false;
-    project.currentStatus = "Finalizado";
-    project.currentSector = "Enviado";
-    project.operationalSector = "Enviado";
-    project.operationalState = "completed";
-    project.finished = true;
-    project.uiState = "completed";
-    project.individualProgress = 100;
-    project.overallProgress = 100;
-    project.spoolStats = { total: totalSpools, completed: totalSpools, inProgress: 0, notStarted: 0 };
-    return project;
-  }
-
   project.demandSummary = summary;
-  project.statusSummary = summary.statusSummary;
-  project.sectorSummary = summary.sectorSummary;
+  project.statusSummary = finalFinished ? "Finalizado" : summary.statusSummary;
+  project.sectorSummary = finalFinished ? "Enviado" : summary.sectorSummary;
   project.statusBreakdown = summary.statusBreakdown;
   project.sectorBreakdown = summary.sectorBreakdown;
   project.flow = finalFlow;
-  project.currentStage = summary.statusSummary;
-  project.currentStageGroup = summary.sectorSummary;
+  project.currentStage = finalFinished ? "Finalizado" : summary.statusSummary;
+  project.currentStageGroup = finalFinished ? "Enviado" : summary.sectorSummary;
   project.currentStagePercent = finalFlow.percent;
-  project.currentStageStatus = finalFlow.stageStatus || "waiting";
-  project.currentStageAlert = ["in_progress", "waiting"].includes(project.currentStageStatus);
-  project.operationalSector = summary.sectorSummary;
+  project.currentStageStatus = finalFinished ? "completed" : (finalFlow.stageStatus || "waiting");
+  project.currentStageAlert = !finalFinished && ["in_progress", "waiting"].includes(project.currentStageStatus);
+  project.operationalSector = finalFinished ? "Enviado" : summary.sectorSummary;
   project.operationalState = finalFlow.state;
-  project.finished = false;
-  project.uiState = uiStateFromFlow(finalFlow, false);
+  project.finished = finalFinished;
+  project.uiState = uiStateFromFlow(finalFlow, finalFinished);
   return project;
 }
 
@@ -1635,25 +1566,12 @@ function buildStats(projects) {
 }
 
 async function apiFetch(path) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), SMARTSHEET_API_TIMEOUT_MS);
-  let response;
-  try {
-    response = await fetch(`${API_BASE}${path}`, {
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${TOKEN}`,
-        "Content-Type": "application/json",
-      },
-    });
-  } catch (error) {
-    if (error?.name === 'AbortError') {
-      throw new Error(`Smartsheet timeout após ${SMARTSHEET_API_TIMEOUT_MS}ms em ${path}`);
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: {
+      Authorization: `Bearer ${TOKEN}`,
+      "Content-Type": "application/json",
+    },
+  });
 
   if (!response.ok) {
     const message = await response.text();
@@ -1905,44 +1823,6 @@ function cloneCachedPayloadWithMeta(extraMeta = {}) {
   };
 }
 
-function readBundledFallbackPayload(reason = 'fallback', error = null) {
-  try {
-    const raw = fs.readFileSync(FALLBACK_PROJECTS_PATH, 'utf8');
-    const payload = JSON.parse(raw);
-    if (!payload || !Array.isArray(payload.projects) || !payload.projects.length) return null;
-    const meta = {
-      ...(payload.meta || {}),
-      lastSync: payload.meta?.lastSync || payload.generatedAt || new Date().toISOString(),
-      version: payload.meta?.version || payload.version || 'fallback-local',
-      servedFromFallback: true,
-      stale: true,
-      staleReason: reason,
-      fallbackError: error?.message || String(error || ''),
-      fallbackGeneratedAt: payload.generatedAt || payload.meta?.lastSync || null,
-    };
-    return { ...payload, ok: true, meta };
-  } catch (fallbackError) {
-    console.warn('Fallback local de projetos indisponível:', fallbackError.message);
-    return null;
-  }
-}
-
-function rememberFallbackPayload(payload) {
-  if (!payload?.projects?.length) return payload;
-  cache.payload = payload;
-  cache.lastSync = payload.meta?.lastSync || new Date().toISOString();
-  cache.lastVersionCheck = Date.now();
-  return payload;
-}
-
-function getResilientPayload(reason, error = null, options = {}) {
-  const cached = !options.force ? cloneCachedPayloadWithMeta({ stale: true, staleReason: reason, fallbackError: error?.message || String(error || '') }) : null;
-  if (cached?.projects?.length) return cached;
-  const fallback = readBundledFallbackPayload(reason, error);
-  if (fallback?.projects?.length) return rememberFallbackPayload(fallback);
-  return null;
-}
-
 async function buildPayload(options = {}) {
   if (!TOKEN) throw new Error("SMARTSHEET_TOKEN não configurado.");
   const force = Boolean(options.force);
@@ -1951,7 +1831,7 @@ async function buildPayload(options = {}) {
   // Mantém o Portal do Cliente e o painel interno rápidos em F5/login:
   // se a função Netlify ainda estiver aquecida e uma base completa foi validada há pouco,
   // responde pelo cache em memória sem reler Tracking + base de PO.
-  if (!force && isWarmPayloadCache() && !cache.payload?.meta?.servedFromFallback) {
+  if (!force && isWarmPayloadCache()) {
     return cache.payload;
   }
 
@@ -1966,26 +1846,14 @@ async function buildPayload(options = {}) {
     }) || cache.payload;
   }
 
-  if (!force && preferCache) {
-    const fallback = getResilientPayload('prefer-cache-cold-start', null, { force });
-    if (fallback?.projects?.length) return fallback;
-  }
-
-  let sheetId;
-  try {
-    sheetId = await resolveSheetId();
-  } catch (error) {
-    const resilient = getResilientPayload('sheet-resolve-failed', error, { force });
-    if (resilient) return resilient;
-    throw error;
-  }
+  const sheetId = await resolveSheetId();
   let version;
   try {
     version = await fetchSheetVersion(sheetId);
     cache.lastVersionCheck = Date.now();
   } catch (error) {
-    const resilient = getResilientPayload('version-check-failed', error, { force });
-    if (resilient) return resilient;
+    const stalePayload = !force ? cloneCachedPayloadWithMeta({ stale: true, staleReason: 'version-check-failed' }) : null;
+    if (stalePayload) return stalePayload;
     throw error;
   }
 
@@ -2008,8 +1876,8 @@ async function buildPayload(options = {}) {
   try {
     [wipPoData, sheet] = await Promise.all([wipPoPromise, fetchFullSheet(sheetId)]);
   } catch (error) {
-    const resilient = getResilientPayload('sheet-fetch-failed', error, { force });
-    if (resilient) return resilient;
+    const stalePayload = !force ? cloneCachedPayloadWithMeta({ stale: true, staleReason: 'sheet-fetch-failed' }) : null;
+    if (stalePayload) return stalePayload;
     throw error;
   }
   const rows = mapApiRows(sheet);
@@ -2198,12 +2066,7 @@ exports.handler = async (event) => {
   try {
     const force = String(event.queryStringParameters?.force || "") === "1";
     const preferCache = String(event.queryStringParameters?.preferCache || "") === "1";
-    // Caminho crítico de login/F5: preferCache=1 deve responder em milissegundos.
-    // A sessão recém-criada pelo login já contém clientKey/clientName/allowedClients;
-    // portanto não aguardamos nova leitura Supabase aqui. Sessões antigas ainda são
-    // hidratadas nas atualizações completas/background, fora do bloqueio de entrada.
-    const shouldHydrateSession = !preferCache;
-    const sessionPromise = shouldHydrateSession ? hydrateClientSession(auth.session) : Promise.resolve(auth.session);
+    const sessionPromise = hydrateClientSession(auth.session);
     const payloadPromise = buildPayload({ force, preferCache });
     const [session, rawPayload] = await Promise.all([sessionPromise, payloadPromise]);
     const payload = scopePayloadForSession(rawPayload, session);
