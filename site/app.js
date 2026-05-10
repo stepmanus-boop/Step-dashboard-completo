@@ -1,5 +1,5 @@
 const PROJECTS_REFRESH_MS = 180000;
-const PROJECTS_CACHE_TTL_MS = 120000;
+const PROJECTS_CACHE_TTL_MS = 5 * 60 * 1000;
 const ALERTS_REFRESH_MS = 60000;
 const PRESENCE_HEARTBEAT_MS = 90000;
 const AUTH_REFRESH_MS = 300000;
@@ -6311,6 +6311,30 @@ function shouldSkipBackgroundRequest(options = {}) {
   return !options.force && isPageHidden();
 }
 
+function setProjectsLoadingState(message = 'Carregando dados operacionais...') {
+  if (!state.user) return;
+  if (bodyEl && !state.projects.length) {
+    bodyEl.innerHTML = `<tr><td colspan="21" class="loading-cell">${escapeHtml(message)}</td></tr>`;
+  }
+  if (detailCardEl && !state.projects.length) {
+    detailCardEl.innerHTML = `<div class="detail-placeholder">${escapeHtml(message)}</div>`;
+  }
+  if (searchCountEl && !state.projects.length) searchCountEl.textContent = 'Carregando...';
+  if (lastSyncEl) lastSyncEl.textContent = message;
+}
+
+function revalidateProjectsInBackground(force = false) {
+  if (!state.user || state.loadingProjectsRequest) return Promise.resolve();
+  return loadProjects({
+    force,
+    background: true,
+    skipLocalCache: true,
+    suppressLoadingState: true,
+  }).catch((error) => {
+    console.warn('Falha ao revalidar projetos em background:', error?.message || error);
+  });
+}
+
 function getProjectsCacheKey(user = state.user) {
   const role = String(user?.role || 'guest').trim().toLowerCase();
   const username = normalizeText(user?.username || user?.name || 'guest').replace(/[^a-z0-9]+/g, '_') || 'guest';
@@ -6419,23 +6443,40 @@ function updateMeta() {
 async function loadProjects(options = {}) {
   const force = Boolean(options.force);
   const background = Boolean(options.background);
+  const skipLocalCache = Boolean(options.skipLocalCache);
+  const suppressLoadingState = Boolean(options.suppressLoadingState);
 
   if (!state.user) {
     resetDashboardForLoggedOutState();
     return;
   }
 
-   if (background && shouldSkipBackgroundRequest(options)) return;
-  const cached = readProjectsCache();
+  if (background && shouldSkipBackgroundRequest(options)) return;
+
+  const cached = skipLocalCache ? null : readProjectsCache();
   const shouldUseCache = !force && cached?.payload && !shouldIgnoreCachedProjectsPayload(cached);
   if (shouldUseCache) {
     applyProjectsPayload(cached.payload, { fromCache: true });
-    if (isProjectsCacheFresh(cached)) {
+    const fresh = isProjectsCacheFresh(cached);
+    if (lastSyncEl && state.meta?.lastSync) {
+      lastSyncEl.textContent = `Última atualização: ${new Date(state.meta.lastSync).toLocaleString("pt-BR")} • exibindo cache local${fresh ? '' : ' enquanto atualiza'}`;
+    }
+
+    if (!force && !background && !state.loadingProjectsRequest) {
+      // Stale-while-revalidate: a tela aparece imediatamente e a API atualiza em background.
+      window.setTimeout(() => revalidateProjectsInBackground(false), 0);
+    }
+
+    // Em navegações/login, não bloqueia a thread aguardando a API quando já existe cache aproveitável.
+    if (!force && !background) {
+      if (fresh) state.lastProjectsFetchAt = Date.now();
+      return { fromCache: true, revalidating: true };
+    }
+
+    // Em polling/background, cache fresco evita tráfego; cache vencido segue para a API.
+    if (!force && background && fresh) {
       state.lastProjectsFetchAt = Date.now();
-      if (lastSyncEl && state.meta?.lastSync) {
-        lastSyncEl.textContent = `Última atualização: ${new Date(state.meta.lastSync).toLocaleString("pt-BR")} • cache econômico`;
-      }
-      return;
+      return { fromCache: true, revalidating: false };
     }
   }
   if (isClientUser() && !shouldUseCache && cached) {
@@ -6444,6 +6485,10 @@ async function loadProjects(options = {}) {
 
   if (!force && state.loadingProjectsRequest) {
     return state.loadingProjectsRequest;
+  }
+
+  if (!background && !suppressLoadingState && !state.projects.length) {
+    setProjectsLoadingState('Carregando dados operacionais...');
   }
 
   const request = (async () => {
@@ -6479,7 +6524,7 @@ async function loadProjects(options = {}) {
       }
       state.lastProjectsFetchAt = Date.now();
       writeProjectsCache(data);
-      applyProjectsPayload(data, { fromCache: false });;
+      applyProjectsPayload(data, { fromCache: false });
     } catch (error) {
       const fallbackMessage = error?.message || "Falha ao atualizar dados operacionais.";
 
@@ -6492,8 +6537,8 @@ async function loadProjects(options = {}) {
         return;
       }
 
-      bodyEl.innerHTML = `<tr><td colspan="21" class="loading-cell">${fallbackMessage}</td></tr>`;
-      detailCardEl.innerHTML = `<div class="detail-placeholder">${fallbackMessage}</div>`;
+      bodyEl.innerHTML = `<tr><td colspan="21" class="loading-cell">${escapeHtml(fallbackMessage)}</td></tr>`;
+      detailCardEl.innerHTML = `<div class="detail-placeholder">${escapeHtml(fallbackMessage)}</div>`;
     } finally {
       state.loadingProjectsRequest = null;
       if (refreshProjectsButtonEl) {
@@ -8836,6 +8881,28 @@ function closeAdminModal() {
   }
 }
 
+function startPostSessionBackgroundLoads(options = {}) {
+  if (!state.user) return Promise.resolve([]);
+  const autoOpenStageValidation = Boolean(options.autoOpenStageValidation);
+  const tasks = [
+    syncPushSubscription(false).catch(() => {}),
+    loadManualAlerts().catch((error) => console.warn('Falha ao carregar alertas:', error?.message || error)),
+    loadAlertResponses().catch((error) => console.warn('Falha ao carregar respostas:', error?.message || error)),
+    loadStageUpdates().catch((error) => console.warn('Falha ao carregar apontamentos:', error?.message || error)),
+  ];
+
+  if (state.user?.role === "admin") {
+    tasks.push(loadAdminData().catch((error) => console.warn('Falha ao carregar dados administrativos:', error?.message || error)));
+  }
+
+  return Promise.allSettled(tasks).then((results) => {
+    if (autoOpenStageValidation && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
+      renderStageUpdatesModal();
+    }
+    return results;
+  });
+}
+
 async function handleLoginSubmit(event) {
   event.preventDefault();
   if (!loginFeedbackEl) return;
@@ -8859,19 +8926,22 @@ async function handleLoginSubmit(event) {
       state.sectorScopedView = loadSectorScopedViewPreference(state.user);
       state.alertSectorFilter = state.sectorScopedView ? normalizeAlertSectorFilterValue(getPrimaryUserSector(state.user)) || 'all' : 'all';
     }
+    updateSessionUi();
     closeLoginModal();
-    await bootstrapSession();
-    await loadProjects();
-    await loadManualAlerts();
-    await loadAlertResponses();
+    setProjectsLoadingState('Acesso validado. Carregando painel...');
+
+    const sessionPromise = bootstrapSession();
+    const projectsPromise = loadProjects();
+    const authenticated = await sessionPromise;
+    if (!authenticated) return;
+    await projectsPromise;
+
     syncStageDraftsForCurrentSector();
-    await loadStageUpdates();
-    if (shouldOpenStageValidationWorkspaceFromUrl() && canValidateStageWorkspace()) {
-      openStageUpdatesModal();
+    const autoOpenStageValidation = shouldOpenStageValidationWorkspaceFromUrl() && canValidateStageWorkspace();
+    if (autoOpenStageValidation) {
+      openStageUpdatesModal({ loading: true });
     }
-    if (state.user?.role === "admin") {
-      await loadAdminData();
-    }
+    startPostSessionBackgroundLoads({ autoOpenStageValidation });
     startPresenceHeartbeat();
     startPolling();
   } catch (error) {
@@ -9972,18 +10042,10 @@ async function init() {
       state.stageUpdatesSearchQuery = '';
       openStageUpdatesModal({ loading: true });
     }
+    setProjectsLoadingState('Carregando painel...');
     await loadProjects();
-    await syncPushSubscription(false).catch(() => {});
-    await loadManualAlerts();
-    await loadAlertResponses();
     syncStageDraftsForCurrentSector();
-    await loadStageUpdates();
-    if (autoOpenStageValidation && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
-      renderStageUpdatesModal();
-    }
-    if (state.user?.role === "admin") {
-      await loadAdminData();
-    }
+    startPostSessionBackgroundLoads({ autoOpenStageValidation });
     startPolling();
   }
 }

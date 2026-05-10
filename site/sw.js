@@ -1,9 +1,8 @@
-const CACHE_NAME = "step-gerencia-pwa-v24-client-session-hydration";
-// Versão v24: Correção de reidratação de sessão cliente e normalização de filtros
-// - Melhoria na chave de cache local para usuários cliente
-// - Validação robusta de cache vazio
-// - Normalização mais tolerante de nomes de clientes
-// - Força novo carregamento de dados ao detectar cache inválido
+const CACHE_NAME = "step-gerencia-pwa-v25-performance-cache-first";
+// Versão v25: Otimização de performance pós-login
+// - Mantém assets do app shell versionados para liberar app.js corrigido imediatamente
+// - API continua sem cache no Service Worker; dados operacionais usam cache local do app
+// - Interceptação de /api restrita à própria origem para evitar efeitos colaterais
 const APP_SHELL = [
   "/",
   "/app.css",
@@ -58,7 +57,8 @@ self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
 
-  if (request.url.includes("/api/")) {
+  const url = toUrl(request.url);
+  if (url && url.origin === self.location.origin && url.pathname.startsWith("/api/")) {
     event.respondWith(
       fetch(request, { cache: "no-store" }).catch(() =>
         new Response(JSON.stringify({ ok: false, offline: true, error: "Sem conexão no momento." }), {

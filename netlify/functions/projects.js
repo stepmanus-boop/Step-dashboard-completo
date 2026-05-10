@@ -6,7 +6,8 @@ const SHEET_ID_ENV = process.env.SMARTSHEET_SHEET_ID || "";
 const WIP_STEP_SHEET_NAME = process.env.SMARTSHEET_WIP_STEP_SHEET_NAME || "Work in Progress - STEP";
 const WIP_STEP_SHEET_ID_ENV = process.env.SMARTSHEET_WIP_STEP_SHEET_ID || process.env.SMARTSHEET_WORK_IN_PROGRESS_STEP_SHEET_ID || "";
 const TOKEN = process.env.SMARTSHEET_TOKEN || process.env.SMARTSHEET_ACCESS_TOKEN || process.env.SMARTSHEET_API_TOKEN || process.env.SMARTSHEET_BEARER_TOKEN || process.env.SMARTSHEET_PAT || process.env.SMARTSHEET_PERSONAL_ACCESS_TOKEN || "5pP36OjBaD1W2HWyxf6aoGxXasPvEl8gbqOmQ";
-const PROJECTS_FAST_CACHE_MS = Number(process.env.PROJECTS_FAST_CACHE_MS || 45000);
+const PROJECTS_FAST_CACHE_MS = Number(process.env.PROJECTS_FAST_CACHE_MS || 120000);
+const SESSION_HYDRATION_CACHE_MS = Number(process.env.SESSION_HYDRATION_CACHE_MS || 5 * 60 * 1000);
 
 const cache = global.__STEP_PROGRESS_CACHE__ || {
   sheetId: null,
@@ -21,6 +22,9 @@ const cache = global.__STEP_PROGRESS_CACHE__ || {
 };
 global.__STEP_PROGRESS_CACHE__ = cache;
 if (cache.lastVersionCheck == null) cache.lastVersionCheck = null;
+
+const sessionHydrationCache = global.__SESSION_HYDRATION_CACHE__ || {};
+global.__SESSION_HYDRATION_CACHE__ = sessionHydrationCache;
 
 const STAGE_ORDER = [
   { key: "Drawing Execution Advance%", label: "AG. Emissão de detalhamento", type: "percent" },
@@ -1847,16 +1851,18 @@ async function buildPayload(options = {}) {
     return cache.payload;
   }
 
-  let wipPoData;
-  try {
-    wipPoData = await fetchWipStepPoMap();
-  } catch (error) {
-    wipPoData = { poMap: new Map(), version: cache.wipStepVersion || null, sheetName: cache.wipStepSheetName || WIP_STEP_SHEET_NAME, available: false, error: error.message };
-  }
+  const wipPoPromise = fetchWipStepPoMap().catch((error) => ({
+    poMap: new Map(),
+    version: cache.wipStepVersion || null,
+    sheetName: cache.wipStepSheetName || WIP_STEP_SHEET_NAME,
+    available: false,
+    error: error.message,
+  }));
 
+  let wipPoData;
   let sheet;
   try {
-    sheet = await fetchFullSheet(sheetId);
+    [wipPoData, sheet] = await Promise.all([wipPoPromise, fetchFullSheet(sheetId)]);
   } catch (error) {
     const stalePayload = !force ? cloneCachedPayloadWithMeta({ stale: true, staleReason: 'sheet-fetch-failed' }) : null;
     if (stalePayload) return stalePayload;
@@ -1962,40 +1968,58 @@ function projectBelongsToClientScope(project, session = {}) {
 }
 
 
+function mergeHydratedClientSession(session = {}, freshUser = {}) {
+  if (!freshUser) return session;
+  return {
+    ...session,
+    ...freshUser,
+    sub: session.sub,
+    username: freshUser.username || session.username,
+    role: freshUser.role || session.role,
+    clientKey: freshUser.clientKey || session.clientKey || '',
+    clientName: freshUser.clientName || session.clientName || freshUser.clientKey || '',
+    clientLogoUrl: freshUser.clientLogoUrl || session.clientLogoUrl || '',
+    clientPlatformImageUrl: freshUser.clientPlatformImageUrl || session.clientPlatformImageUrl || '',
+    clientPlatformImages: freshUser.clientPlatformImages || session.clientPlatformImages || {},
+    allowedClients: Array.isArray(freshUser.allowedClients) && freshUser.allowedClients.length
+      ? freshUser.allowedClients
+      : (Array.isArray(session.allowedClients) ? session.allowedClients : []),
+  };
+}
+
+function pruneSessionHydrationCache(now = Date.now()) {
+  Object.keys(sessionHydrationCache).forEach((key) => {
+    const savedAt = Number(sessionHydrationCache[key]?.savedAt || 0);
+    if (!savedAt || now - savedAt > SESSION_HYDRATION_CACHE_MS * 2) {
+      delete sessionHydrationCache[key];
+    }
+  });
+}
+
 async function hydrateClientSession(session = {}) {
   if (!session || session.role !== 'client') return session;
-
-  const hasClientScope = Boolean(
-    String(session.clientKey || '').trim()
-    || String(session.clientName || '').trim()
-    || (Array.isArray(session.allowedClients) && session.allowedClients.length)
-  );
 
   // Sessões antigas podem estar sem clientKey/clientName no cookie.
   // O frontend mostra o usuário correto via /api/auth-me, mas /api/projects usa o cookie.
   // Para evitar carteira vazia no Portal do Cliente, reidratamos a sessão pelo Supabase.
   if (!isSupabaseConfigured() || !session.sub) return session;
 
+  const cacheKey = String(session.sub);
+  const now = Date.now();
+  const cached = sessionHydrationCache[cacheKey];
+  if (cached?.user && now - Number(cached.savedAt || 0) <= SESSION_HYDRATION_CACHE_MS) {
+    return mergeHydratedClientSession(session, cached.user);
+  }
+
   try {
     const freshUser = await getUserById(session.sub);
     if (!freshUser) return session;
-    return {
-      ...session,
-      ...freshUser,
-      sub: session.sub,
-      username: freshUser.username || session.username,
-      role: freshUser.role || session.role,
-      clientKey: freshUser.clientKey || session.clientKey || '',
-      clientName: freshUser.clientName || session.clientName || freshUser.clientKey || '',
-      clientLogoUrl: freshUser.clientLogoUrl || session.clientLogoUrl || '',
-      clientPlatformImageUrl: freshUser.clientPlatformImageUrl || session.clientPlatformImageUrl || '',
-      clientPlatformImages: freshUser.clientPlatformImages || session.clientPlatformImages || {},
-      allowedClients: Array.isArray(freshUser.allowedClients) && freshUser.allowedClients.length
-        ? freshUser.allowedClients
-        : (Array.isArray(session.allowedClients) ? session.allowedClients : []),
-    };
+    sessionHydrationCache[cacheKey] = { savedAt: now, user: freshUser };
+    pruneSessionHydrationCache(now);
+    return mergeHydratedClientSession(session, freshUser);
   } catch (error) {
-    // Se o Supabase oscilar, mantém a sessão do cookie para não bloquear o painel.
+    // Se o Supabase oscilar, usa a última hidratação válida quando existir; caso contrário, mantém o cookie.
+    if (cached?.user) return mergeHydratedClientSession(session, cached.user);
     return session;
   }
 }

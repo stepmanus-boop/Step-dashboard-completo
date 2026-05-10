@@ -1,6 +1,19 @@
 const { jsonResponse, getSession } = require('./_auth');
 const { isSupabaseConfigured, getUserById } = require('./_supabase');
 
+const AUTH_ME_CACHE_MS = Number(process.env.AUTH_ME_CACHE_MS || 5 * 60 * 1000);
+const authMeUserCache = global.__AUTH_ME_USER_CACHE__ || {};
+global.__AUTH_ME_USER_CACHE__ = authMeUserCache;
+
+function getCachedFreshUser(sub) {
+  const cacheKey = String(sub || '');
+  if (!cacheKey) return null;
+  const cached = authMeUserCache[cacheKey];
+  if (!cached?.user) return null;
+  if (Date.now() - Number(cached.savedAt || 0) > AUTH_ME_CACHE_MS) return null;
+  return cached.user;
+}
+
 exports.handler = async (event) => {
   const session = getSession(event);
   if (!session) {
@@ -9,7 +22,15 @@ exports.handler = async (event) => {
 
   let freshUser = null;
   if (isSupabaseConfigured() && session.sub) {
-    try { freshUser = await getUserById(session.sub); } catch (_) { freshUser = null; }
+    freshUser = getCachedFreshUser(session.sub);
+    if (!freshUser) {
+      try {
+        freshUser = await getUserById(session.sub);
+        if (freshUser) authMeUserCache[String(session.sub)] = { savedAt: Date.now(), user: freshUser };
+      } catch (_) {
+        freshUser = null;
+      }
+    }
   }
 
   const user = freshUser || session;
