@@ -1,5 +1,5 @@
 {
-  "version": "v32.3_SMARTSHEET_CACHE_QUENTE_CORRIGIDA",
+  "version": "v32.4_SMARTSHEET_CACHE_QUENTE_CORRIGIDA",
   "status": "success",
   "timestamp": "2026-05-10T15:00:00Z",
   "validations": [
@@ -26,7 +26,7 @@
       "expected_performance": "< 3s com cache quente"
     },
     {
-      "test": "Pesquisa Inteligente",
+      "test": "Pesquisa Inteligente no Portal do Cliente",
       "features": ["Busca por BSP", "Busca por PO", "Busca por ISO"],
       "result": "passed"
     }

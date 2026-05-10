@@ -1,4 +1,4 @@
-# Relatório Técnico - Versão v32.3_SMARTSHEET_CACHE_QUENTE_CORRIGIDA
+# Relatório Técnico - Versão v32.4_SMARTSHEET_CACHE_QUENTE_CORRIGIDA
 
 ## 1. Diagnóstico do Problema
 O gargalo de lentidão no login foi identificado como sendo a leitura pesada e síncrona do Smartsheet (Tracking + WIP POs) no caminho crítico da autenticação. Mesmo com cache, o sistema forçava revalidações que bloqueavam a interface, resultando em telas vazias ou tempos de espera superiores a 10-15 segundos.
@@ -18,8 +18,8 @@ A lógica de cálculo de progresso foi totalmente refatorada para ser baseada no
 - **Estatísticas Reais:** O peso soldado e a contagem de tags concluídas agora refletem a soma exata do que está apontado em cada ISO.
 - **Rollup de Finalização:** Se a BSP for marcada como "Finalizada" na planilha, o sistema aplica um **Rollup Forçado de 100%** em todos os indicadores, garantindo que inconsistências de apontamento nas ISOs não "sujem" o dashboard de um projeto já entregue.
 
-## 4. Pesquisa Inteligente (v32.3)
-O campo de busca no topo do dashboard foi aprimorado para suportar múltiplos critérios:
+## 4. Pesquisa Inteligente no Portal do Cliente (v32.4)
+O campo de busca foi implementado especificamente na interface do **Portal do Cliente**, permitindo que os clientes localizem suas demandas rapidamente:
 - **Busca por BSP:** Localiza projetos pelo número (ex: `25-1165-33`).
 - **Busca por PO:** Localiza projetos pelo número da Purchase Order (ex: `4500135588`).
 - **Busca por ISO:** Localiza projetos que contenham uma ISO específica em seu detalhamento.
@@ -49,4 +49,4 @@ Configure um serviço como **UptimeRobot** ou **GitHub Actions** para realizar u
 - [x] Projeto 25-1165-33 aparece como "Finalizado".
 - [x] Botão "Atualizar agora" força sincronização manual.
 - [x] Snapshot em disco atualizado automaticamente.
-- [x] Pesquisa inteligente por BSP e PO implementada.
+- [x] Pesquisa inteligente por BSP e PO implementada no Portal do Cliente.

@@ -5369,6 +5369,38 @@ body:not(.client-mode) .client-exec-modal {
   text-transform: uppercase;
 }
 
+.client-search-row {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-end;
+  margin-bottom: 2rem;
+  padding: 1.5rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.client-search-row .search-box {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.client-search-row input {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  padding: 0.75rem 1rem;
+  font-size: 1rem;
+  width: 100%;
+  border-radius: 8px;
+}
+
+.client-search-row input:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 200, 255, 0.2);
+}
+
 .client-exec-header--macro {
   background: linear-gradient(135deg, rgba(255,255,255,.82), rgba(233, 247, 255, .78));
 }

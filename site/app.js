@@ -3530,6 +3530,13 @@ function ensureClientDashboardEl() {
       <article><span>M² programada</span><strong id="client-stat-m2">--</strong></article>
       <article><span>Progresso médio</span><strong id="client-stat-progress">--</strong></article>
     </div>
+    <div class="client-search-row">
+      <div class="search-box">
+        <span class="search-label">Localizar BSP ou PO</span>
+        <input id="client-project-search" type="text" placeholder="Digite o número da BSP ou PO..." autocomplete="off" />
+      </div>
+      <button id="client-clear-search" class="ghost-button" type="button">Limpar busca</button>
+    </div>
     <div class="client-section-head">
       <div><p class="client-kicker">Vessels / Unidades</p><h3>Carteira por unidade</h3></div>
       <p>Clique em uma unidade para abrir as BSPs vinculadas.</p>
@@ -3551,6 +3558,34 @@ function ensureClientDashboardEl() {
   else document.querySelector('.page-shell')?.appendChild(el);
   el.addEventListener('click', handleClientDashboardClick);
   el.addEventListener('dblclick', handleClientDashboardDblClick);
+
+  const searchInput = el.querySelector('#client-project-search');
+  const clearBtn = el.querySelector('#client-clear-search');
+
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      state.searchQuery = e.target.value;
+      // Sincroniza com o campo de busca global para manter consistência
+      const globalSearch = document.getElementById('project-search');
+      if (globalSearch) globalSearch.value = e.target.value;
+      
+      applyFilter();
+      renderClientDashboard();
+    });
+  }
+
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      state.searchQuery = '';
+      if (searchInput) searchInput.value = '';
+      const globalSearch = document.getElementById('project-search');
+      if (globalSearch) globalSearch.value = '';
+      
+      applyFilter();
+      renderClientDashboard();
+    });
+  }
+
   return el;
 }
 
@@ -3591,7 +3626,10 @@ function renderClientDashboard() {
   setClientDashboardMode();
   if (!isClientUser()) return;
   const el = ensureClientDashboardEl();
-  const projects = Array.isArray(state.projects) ? state.projects : [];
+  // v32.4: Usa filteredProjects se houver uma busca ativa, caso contrário usa todos os projetos do cliente
+  const projects = (state.searchQuery && state.searchQuery.trim()) 
+    ? (state.filteredProjects || []) 
+    : (state.projects || []);
   const logo = document.getElementById('client-dashboard-logo');
   if (logo) logo.src = getClientPortalLogo();
   const nameEl = document.getElementById('client-dashboard-name');
