@@ -1,6 +1,6 @@
-const CACHE_NAME = "step-gerencia-pwa-v30-carregamento-fallback";
-// Versão v30: mantém correção de finalizados e adiciona fallback seguro para carregamento rápido dos dados
-// - Mantém assets do app shell versionados para liberar app.js corrigido imediatamente
+const CACHE_NAME = "step-gerencia-pwa-v31-login-instantaneo";
+// Versão v31: mantém correção de finalizados e separa o login do carregamento pesado da API
+// - Mantém assets do app shell versionados para liberar app.js e endpoint rápido imediatamente
 // - API continua sem cache no Service Worker; dados operacionais usam cache local do app
 // - Interceptação de /api restrita à própria origem para evitar efeitos colaterais
 const APP_SHELL = [

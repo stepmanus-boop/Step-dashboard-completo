@@ -5,7 +5,7 @@ const PRESENCE_HEARTBEAT_MS = 90000;
 const AUTH_REFRESH_MS = 300000;
 const ADMIN_REFRESH_MS = 60000;
 const ALERT_NOTIFICATION_COOLDOWN_MS = 4 * 60 * 60 * 1000;
-const PROJECTS_CACHE_KEY = 'step_dashboard_projects_cache_v6_carregamento_fallback';
+const PROJECTS_CACHE_KEY = 'step_dashboard_projects_cache_v7_login_instantaneo';
 
 let adminResponsesPollTimer = null;
 
@@ -6472,8 +6472,9 @@ async function loadProjects(options = {}) {
     }
 
     if (!force && !background && !state.loadingProjectsRequest) {
-      // Stale-while-revalidate: a tela aparece imediatamente e a API atualiza em background.
-      window.setTimeout(() => revalidateProjectsInBackground(false), 0);
+      // Stale-while-revalidate: a tela aparece imediatamente; a atualização viva fica desacoplada
+      // para não concorrer com o login, renderização inicial e pintura da tabela.
+      window.setTimeout(() => revalidateProjectsInBackground(false), 4000);
     }
 
     // Em navegações/login, não bloqueia a thread aguardando a API quando já existe cache aproveitável.
@@ -6517,7 +6518,7 @@ async function loadProjects(options = {}) {
         refreshProjectsButtonEl.textContent = force ? 'Atualizando...' : 'Sincronizando...';
       }
       const preferServerCache = Boolean(options.preferServerCache || (!background && !force));
-      const requestUrl = force ? "/api/projects?force=1" : (preferServerCache ? "/api/projects?preferCache=1" : "/api/projects");
+      const requestUrl = force ? "/api/projects?force=1" : (preferServerCache ? "/api/projects-fast" : "/api/projects");
       const response = await fetch(requestUrl, { cache: "no-store", credentials: "same-origin" });
       let data = null;
 
@@ -7796,11 +7797,13 @@ async function ensureDashboardDataReadyBeforeRelease(options = {}) {
   throw new Error('Os dados ainda não apareceram na tela. O painel não será liberado vazio; tente novamente em alguns segundos.');
 }
 
-async function completeLoginProgress() {
+async function completeLoginProgress(options = {}) {
   stopLoginProgressTimer();
-  await ensureDashboardDataReadyBeforeRelease({ maxAttempts: 1, retryDelayMs: 300 });
+  if (options.verify === true) {
+    await ensureDashboardDataReadyBeforeRelease({ maxAttempts: 1, retryDelayMs: 300 });
+  }
   setLoginProgress(100, LOGIN_PROGRESS_STEPS[LOGIN_PROGRESS_STEPS.length - 1]);
-  await new Promise((resolve) => window.setTimeout(resolve, 520));
+  await new Promise((resolve) => window.setTimeout(resolve, 120));
   hideLoginProgressOverlay();
 }
 
@@ -9117,49 +9120,36 @@ async function handleLoginSubmit(event) {
     }
     updateSessionUi();
     closeLoginModal();
-    setProjectsLoadingState('Acesso validado. Carregando painel...');
-    setLoginProgress(34, {
-      title: 'Carregando BSPs...',
-      message: 'Estamos carregando as BSPs e organizando os projetos por cliente e unidade.',
-      detail: 'BSPs em processamento.',
+    setProjectsLoadingState('Acesso validado. Abrindo painel operacional...');
+    setLoginProgress(42, {
+      title: 'Abrindo painel...',
+      message: 'Estamos buscando a base operacional rápida para exibir os dados agora.',
+      detail: 'Consulta rápida de projetos em andamento.',
     });
 
-    const sessionPromise = bootstrapSession();
-    const projectsPromise = loadProjects({ preferServerCache: true, requireData: true }).then((result) => {
-      setLoginProgress(72, {
-        title: 'Atualizando indicadores...',
-        message: 'Estamos calculando pesos, status, pendências e alertas operacionais.',
-        detail: 'Indicadores sendo preparados.',
-      });
-      return result;
-    });
-    const authenticated = await sessionPromise;
-    if (!authenticated) {
-      failLoginProgress('Sua sessão não pôde ser confirmada. Faça login novamente.');
-      return;
+    const projectsResult = await loadProjects({ preferServerCache: true, requireData: false });
+    if (!projectsResult?.ok && !state.projects.length) {
+      throw new Error('Não foi possível carregar a base operacional rápida. Tente novamente em alguns segundos.');
     }
-    setLoginProgress(55, {
-      title: 'Carregando POs...',
-      message: 'Estamos carregando as POs, demandas e referências de fabricação.',
-      detail: 'POs e demandas em processamento.',
-    });
-    await projectsPromise;
-    setLoginProgress(88, {
-      title: 'Definindo dashboards...',
-      message: 'Estamos definindo os dashboards e montando a visualização final.',
-      detail: 'Dashboard quase pronto.',
-    });
 
-    await ensureDashboardDataReadyBeforeRelease({ maxAttempts: 3, retryDelayMs: 900 });
+    setLoginProgress(88, {
+      title: 'Painel pronto.',
+      message: 'Os dados operacionais já foram carregados. Atualizações completas continuarão em segundo plano.',
+      detail: 'Liberando visualização.',
+    });
 
     syncStageDraftsForCurrentSector();
     const autoOpenStageValidation = shouldOpenStageValidationWorkspaceFromUrl() && canValidateStageWorkspace();
     if (autoOpenStageValidation) {
       openStageUpdatesModal({ loading: true });
     }
-    startPostSessionBackgroundLoads({ autoOpenStageValidation });
-    startPresenceHeartbeat();
-    startPolling();
+    window.setTimeout(() => {
+      startPresenceHeartbeat();
+      startPolling();
+    }, 1200);
+    window.setTimeout(() => bootstrapSession().catch(() => null), 1800);
+    window.setTimeout(() => startPostSessionBackgroundLoads({ autoOpenStageValidation }), 2500);
+    window.setTimeout(() => revalidateProjectsInBackground(true), 5000);
     await completeLoginProgress();
   } catch (error) {
     loginFeedbackEl.textContent = error.message || "Falha ao autenticar.";

@@ -2198,7 +2198,12 @@ exports.handler = async (event) => {
   try {
     const force = String(event.queryStringParameters?.force || "") === "1";
     const preferCache = String(event.queryStringParameters?.preferCache || "") === "1";
-    const sessionPromise = hydrateClientSession(auth.session);
+    // Caminho crítico de login/F5: preferCache=1 deve responder em milissegundos.
+    // A sessão recém-criada pelo login já contém clientKey/clientName/allowedClients;
+    // portanto não aguardamos nova leitura Supabase aqui. Sessões antigas ainda são
+    // hidratadas nas atualizações completas/background, fora do bloqueio de entrada.
+    const shouldHydrateSession = !preferCache;
+    const sessionPromise = shouldHydrateSession ? hydrateClientSession(auth.session) : Promise.resolve(auth.session);
     const payloadPromise = buildPayload({ force, preferCache });
     const [session, rawPayload] = await Promise.all([sessionPromise, payloadPromise]);
     const payload = scopePayloadForSession(rawPayload, session);
