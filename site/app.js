@@ -2485,6 +2485,8 @@ function enrichProjects(projects) {
       project.client,
       project.vessel,
       project.observations,
+      project.customerPo,
+      ...(project.customerPoList || []),
       ...(project.spools || []).flatMap((spool) => [spool.iso, spool.description, spool.drawing, spool.observations]),
     ];
 
