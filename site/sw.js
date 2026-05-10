@@ -1,5 +1,5 @@
-const CACHE_NAME = "step-gerencia-pwa-v30-restaura-v28-paineis-seguros";
-// Versão v30: restaura motor rápido da v28 e ajusta apenas painéis/status no frontend
+const CACHE_NAME = "step-gerencia-pwa-v32-smartsheet-cache-quente";
+// Versão v28: preserva cache local entre logouts e usa caminho rápido pós-login
 // - Mantém assets do app shell versionados para liberar app.js corrigido imediatamente
 // - API continua sem cache no Service Worker; dados operacionais usam cache local do app
 // - Interceptação de /api restrita à própria origem para evitar efeitos colaterais

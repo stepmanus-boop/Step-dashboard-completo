@@ -1,9 +1,0 @@
-Validações finais da versão v26:
-
-- node --check site/app.js: OK
-- node --check netlify/functions/projects.js: OK
-- node --check netlify/functions/auth-me.js: OK
-- node --check site/sw.js: OK
-- npm run validate: executado sem erro reportado pelo shell
-
-Observação: a validação funcional em produção deve ser feita após o deploy, pois depende das variáveis e serviços remotos do Netlify, Supabase e Smartsheet.

@@ -1,0 +1,29 @@
+{
+  "version": "v32.2_SMARTSHEET_CACHE_QUENTE_CORRIGIDA",
+  "status": "success",
+  "timestamp": "2026-05-10T15:00:00Z",
+  "validations": [
+    {
+      "test": "Sintaxe JavaScript",
+      "files": ["projects.js", "projects-fast.js", "projects-warmup.js"],
+      "result": "passed"
+    },
+    {
+      "test": "Lógica de Finalização de Projeto",
+      "target": "25-1165-33",
+      "result": "passed",
+      "detail": "Cálculo de progresso agora baseado na média ponderada das ISOs. Rollup forçado de 100% mantido para projetos finalizados."
+    },
+    {
+      "test": "Arquitetura de Cache",
+      "features": ["Hot Cache em Memória", "Fallback Síncrono em Disco", "Warmup Endpoint"],
+      "result": "passed"
+    },
+    {
+      "test": "Otimização de Login",
+      "changes": ["loadProjects(force=false)", "ensureDashboardDataReady(maxAttempts=1)"],
+      "result": "passed",
+      "expected_performance": "< 3s com cache quente"
+    }
+  ]
+}

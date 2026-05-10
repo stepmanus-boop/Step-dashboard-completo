@@ -1,12 +1,15 @@
-const { jsonResponse, requireSession } = require('./_auth');
+const fs = require('fs');
+const fsPromises = require('fs/promises');
+const path = require('path');
 const { isSupabaseConfigured, getUserById } = require('./_supabase');
+const { jsonResponse, requireSession } = require('./_auth');
 const API_BASE = process.env.SMARTSHEET_API_BASE || "https://api.smartsheet.com/2.0";
 const SHEET_NAME = process.env.SMARTSHEET_SHEET_NAME || "Progress Tracking Sheet - Piping Fabrication";
 const SHEET_ID_ENV = process.env.SMARTSHEET_SHEET_ID || "";
 const WIP_STEP_SHEET_NAME = process.env.SMARTSHEET_WIP_STEP_SHEET_NAME || "Work in Progress - STEP";
 const WIP_STEP_SHEET_ID_ENV = process.env.SMARTSHEET_WIP_STEP_SHEET_ID || process.env.SMARTSHEET_WORK_IN_PROGRESS_STEP_SHEET_ID || "";
 const TOKEN = process.env.SMARTSHEET_TOKEN || process.env.SMARTSHEET_ACCESS_TOKEN || process.env.SMARTSHEET_API_TOKEN || process.env.SMARTSHEET_BEARER_TOKEN || process.env.SMARTSHEET_PAT || process.env.SMARTSHEET_PERSONAL_ACCESS_TOKEN || "5pP36OjBaD1W2HWyxf6aoGxXasPvEl8gbqOmQ";
-const PROJECTS_FAST_CACHE_MS = Number(process.env.PROJECTS_FAST_CACHE_MS || 5 * 60 * 1000);
+const PROJECTS_FAST_CACHE_MS = Number(process.env.PROJECTS_FAST_CACHE_MS || 10 * 60 * 1000); // v32: 10 minutos default
 const SESSION_HYDRATION_CACHE_MS = Number(process.env.SESSION_HYDRATION_CACHE_MS || 5 * 60 * 1000);
 
 const cache = global.__STEP_PROGRESS_CACHE__ || {
@@ -982,11 +985,38 @@ function uiStateFromFlow(flow, allFinished = false) {
 }
 
 function applyProjectSpoolRollup(project) {
+  const spools = Array.isArray(project.spools) ? project.spools : [];
   const fallbackFlow = project.flow || makeFlow(project.currentStage || "AG. Emissão de detalhamento", project.operationalSector || "Engenharia", project.currentStagePercent || 0, project.currentStageStatus || "waiting", project.operationalState || project.uiState || "not_started");
-  const summary = summarizeFlowItems(project.spools || [], fallbackFlow, project.quantitySpools || 1);
+  const summary = summarizeFlowItems(spools, fallbackFlow, project.quantitySpools || 1);
   const explicitFinished = Boolean(project.finished || project.projectFinishedFlag || hasProjectFinishDateMarker(project) || isProjectStatusFinished(project.projectStatus));
+  
+  // v32.2: Cálculo de progresso baseado estritamente nas ISOs (spools)
+  // Se houver spools, o progresso do projeto pai deve ser a média ponderada ou simples dos spools.
+  if (spools.length > 0) {
+    const totalKilos = spools.reduce((sum, s) => sum + (s.kilos || 0), 0) || 1;
+    const weightedOverall = spools.reduce((sum, s) => sum + ((s.overallProgress || 0) * (s.kilos || 0)), 0) / totalKilos;
+    const weightedIndividual = spools.reduce((sum, s) => sum + ((s.individualProgress || 0) * (s.kilos || 0)), 0) / totalKilos;
+    const weightedCoating = spools.reduce((sum, s) => sum + ((s.coatingPercent || 0) * (s.kilos || 0)), 0) / totalKilos;
+    const totalWeldedWeight = spools.reduce((sum, s) => sum + (s.weldedWeightKg || 0), 0);
+
+    project.overallProgress = weightedOverall;
+    project.individualProgress = weightedIndividual;
+    project.coatingPercent = weightedCoating;
+    project.weldedWeightKg = totalWeldedWeight;
+    
+    // Atualiza estatísticas de spools baseadas no estado real de cada um
+    project.spoolStats = spools.reduce((acc, s) => {
+      acc.total += 1;
+      if (s.uiState === "completed" || s.finished) acc.completed += 1;
+      else if (s.uiState === "in_progress" || s.overallProgress > 0) acc.inProgress += 1;
+      else acc.notStarted += 1;
+      return acc;
+    }, { total: 0, completed: 0, inProgress: 0, notStarted: 0 });
+  }
+
   const finalFinished = explicitFinished || summary.allFinished;
   const finalFlow = finalFinished ? makeFlow("Finalizado", "Enviado", 100, "completed", "completed") : summary.flow;
+  
   project.demandSummary = summary;
   project.statusSummary = finalFinished ? "Finalizado" : summary.statusSummary;
   project.sectorSummary = finalFinished ? "Enviado" : summary.sectorSummary;
@@ -995,13 +1025,64 @@ function applyProjectSpoolRollup(project) {
   project.flow = finalFlow;
   project.currentStage = finalFinished ? "Finalizado" : summary.statusSummary;
   project.currentStageGroup = finalFinished ? "Enviado" : summary.sectorSummary;
-  project.currentStagePercent = finalFlow.percent;
+  project.currentStagePercent = finalFinished ? 100 : (spools.length > 0 ? project.overallProgress : finalFlow.percent);
   project.currentStageStatus = finalFinished ? "completed" : (finalFlow.stageStatus || "waiting");
   project.currentStageAlert = !finalFinished && ["in_progress", "waiting"].includes(project.currentStageStatus);
   project.operationalSector = finalFinished ? "Enviado" : summary.sectorSummary;
   project.operationalState = finalFlow.state;
   project.finished = finalFinished;
   project.uiState = uiStateFromFlow(finalFlow, finalFinished);
+
+  // Correção v32.1/v32.2: Se o projeto está finalizado, forçamos todos os indicadores a 100%
+  // Isso garante que mesmo que a planilha tenha dados parciais nas ISOs, o status "Finalizado" prevaleça.
+  if (finalFinished) {
+    project.overallProgress = 100;
+    project.individualProgress = 100;
+    project.currentStagePercent = 100;
+    project.coatingPercent = 100;
+    
+    if (project.kilos != null) {
+      project.weldedWeightKg = project.kilos;
+    }
+
+    if (project.spoolStats) {
+      project.spoolStats.completed = project.spoolStats.total;
+      project.spoolStats.inProgress = 0;
+      project.spoolStats.notStarted = 0;
+    }
+
+    if (Array.isArray(project.spools)) {
+      project.spools.forEach(spool => {
+        spool.finished = true;
+        spool.uiState = 'completed';
+        spool.individualProgress = 100;
+        spool.overallProgress = 100;
+        spool.stagePercent = 100;
+        spool.stageStatus = 'completed';
+        if (spool.kilos != null) {
+          spool.weldedWeightKg = spool.kilos;
+        }
+        if (spool.flow) {
+          spool.flow.percent = 100;
+          spool.flow.status = 'Finalizado';
+          spool.flow.state = 'completed';
+          spool.flow.stageStatus = 'completed';
+        }
+      });
+    }
+
+    if (project.demandSummary) {
+      project.demandSummary.allFinished = true;
+      project.demandSummary.statusSummary = "Finalizado";
+      project.demandSummary.sectorSummary = "Enviado";
+      if (project.demandSummary.flow) {
+        project.demandSummary.flow.percent = 100;
+        project.demandSummary.flow.status = 'Finalizado';
+        project.demandSummary.flow.state = 'completed';
+      }
+    }
+  }
+
   return project;
 }
 
@@ -1071,8 +1152,8 @@ function buildProject(summaryRow, childRows) {
     currentStagePercent: flow.percent,
     currentStageStatus: flow.stageStatus,
     currentStageAlert: flow.stageStatus === "in_progress" || flow.stageStatus === "waiting",
-    individualProgress,
-    overallProgress,
+    individualProgress: spools.length > 0 ? 0 : individualProgress, // Será calculado no rollup se houver spools
+    overallProgress: spools.length > 0 ? 0 : overallProgress,       // Será calculado no rollup se houver spools
     projectStatus,
     observations: textValue(summaryRow, "OBSERVATIONS"),
     jobProcessStatus: textValue(summaryRow, "Job Process Status") || progress.currentStage.label,
@@ -1846,6 +1927,22 @@ async function buildPayload(options = {}) {
     }) || cache.payload;
   }
 
+  // v32: Se preferCache=1 e não temos cache em memória, tenta ler o snapshot em disco (fallback)
+  // de forma síncrona para garantir resposta instantânea no login.
+  if (!force && preferCache && !cache.payload) {
+    const diskPayload = readBundledFallbackPayloadSync();
+    if (diskPayload && diskPayload.projects && diskPayload.projects.length > 0) {
+      cache.payload = diskPayload;
+      cache.lastSync = diskPayload.meta?.lastSync || new Date().toISOString();
+      // Não marcamos lastVersionCheck para forçar uma revalidação em background depois
+      return cloneCachedPayloadWithMeta({
+        ...(diskPayload.meta || {}),
+        servedFromDiskFallback: true,
+        cacheReason: 'disk-fallback',
+      });
+    }
+  }
+
   const sheetId = await resolveSheetId();
   let version;
   try {
@@ -1918,7 +2015,50 @@ async function buildPayload(options = {}) {
   cache.lastVersionCheck = Date.now();
   cache.payload = payload;
 
+  // v32: Salva snapshot em disco em background para persistência entre reinicializações
+  savePayloadToDisk(payload).catch(err => console.error('[v32] Erro ao salvar snapshot:', err.message));
+
   return payload;
+}
+
+function resolveFallbackPath() {
+  return path.resolve(__dirname, '../../netlify/data/fallback-projects.json');
+}
+
+function readBundledFallbackPayloadSync() {
+  try {
+    const filePath = resolveFallbackPath();
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, 'utf8');
+      return JSON.parse(raw);
+    }
+  } catch (err) {
+    console.error('[v32] Erro ao ler fallback em disco (sync):', err.message);
+  }
+  return null;
+}
+
+async function savePayloadToDisk(payload) {
+  try {
+    const filePath = resolveFallbackPath();
+    const dirPath = path.dirname(filePath);
+    if (!fs.existsSync(dirPath)) {
+      await fsPromises.mkdir(dirPath, { recursive: true });
+    }
+    // Adiciona marcação de que este é um snapshot persistido
+    const diskPayload = {
+      ...payload,
+      meta: {
+        ...(payload.meta || {}),
+        source: 'disk-snapshot',
+        persistedAt: new Date().toISOString()
+      }
+    };
+    await fsPromises.writeFile(filePath, JSON.stringify(diskPayload, null, 2), 'utf8');
+    console.log('[v32] Snapshot salvo com sucesso em:', filePath);
+  } catch (err) {
+    console.error('[v32] Erro ao salvar snapshot em disco:', err.message);
+  }
 }
 
 

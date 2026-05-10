@@ -438,7 +438,7 @@ async function registerServiceWorker() {
       window.location.reload();
     });
 
-    const registration = await navigator.serviceWorker.register('./sw.js?v=5', { updateViaCache: 'none' });
+    const registration = await navigator.serviceWorker.register('./sw.js?v=32', { updateViaCache: 'none' });
     if (typeof registration.update === 'function') {
       registration.update().catch(() => {});
     }
@@ -2233,10 +2233,6 @@ function getAwaitingShipmentTags(project) {
 }
 
 function getProjectStatusPresentation(project) {
-  if (isProjectFinishedForTotal(project)) {
-    return { text: 'Finalizado', state: 'completed' };
-  }
-
   if (projectHasAwaitingShipmentPackage(project) && project?.uiState !== 'completed') {
     return { text: 'Aguardando envio', state: 'awaiting_shipment' };
   }
@@ -2266,7 +2262,6 @@ function getProjectStatusPresentation(project) {
 }
 
 function isProjectFinalizedForDisplay(project) {
-  if (isProjectFinishedForTotal(project)) return true;
   const statusText = normalizeText([
     project?.statusSummary,
     project?.currentStatus,
@@ -2298,7 +2293,6 @@ function getFlowSectorKey(flow = {}) {
 }
 
 function getProjectOpenFlowItems(project) {
-  if (isProjectFinishedForTotal(project)) return [];
   const spools = Array.isArray(project?.spools) ? project.spools : [];
   const source = spools.length
     ? spools.map((spool) => ({ flow: spool.flow || { status: spool.stage || spool.currentStatus, sector: spool.currentSector || spool.operationalSector, state: spool.operationalState || spool.uiState }, spool }))
@@ -2780,47 +2774,7 @@ function isMeaningfulFinishValue(value) {
   const raw = String(value).trim();
   if (!raw) return false;
   const compact = normalizeText(raw).replace(/[^a-z0-9]+/g, '');
-  return !['na', 'n/a', 'none', 'null', 'false', 'no', 'nao', 'não', 'naoaplicavel', 'notapplicable', '0'].includes(compact);
-}
-
-function hasTruthyFinishedValue(value) {
-  if (typeof value === 'boolean') return value;
-  const compact = normalizeText(value || '').replace(/[^a-z0-9]+/g, '');
-  return ['true', 'yes', 'sim', 'y', '1', 'finalizado', 'concluido', 'completed', 'finished', 'delivered', 'entregue', 'enviado'].includes(compact);
-}
-
-function getMilestoneValue(item, labels = []) {
-  const wanted = new Set(labels.map((label) => normalizeText(label).replace(/[^a-z0-9]+/g, '')));
-  const milestones = Array.isArray(item?.milestones) ? item.milestones : [];
-  for (const milestone of milestones) {
-    const key = normalizeText(milestone?.key || milestone?.label || '').replace(/[^a-z0-9]+/g, '');
-    if (wanted.has(key)) return milestone?.value;
-  }
-  return undefined;
-}
-
-function isSpoolFinishedForPanels(spool) {
-  if (!spool) return false;
-  const finishedFlag = spool.stageValues?.['Project Finished?']
-    ?? spool.stageValues?.['PROJECT FINISHED?']
-    ?? getMilestoneValue(spool, ['Project Finished?', 'PROJECT FINISHED?', 'Concluído?', 'Concluido?', 'Finalizado?']);
-  const finishDate = spool.stageValues?.['Project Finish Date']
-    ?? spool.stageValues?.['PROJECT FINISH DATE']
-    ?? getMilestoneValue(spool, ['Project Finish Date', 'PROJECT FINISH DATE', 'Data de envio', 'DATA DE ENVIO']);
-  return Boolean(
-    spool.finished
-    || spool.projectFinishedFlag
-    || spool.uiState === 'completed'
-    || spool.operationalState === 'completed'
-    || spool.flow?.state === 'completed'
-    || spool.flow?.status === 'Finalizado'
-    || isProjectStatusFinished(spool.projectStatus)
-    || isProjectStatusFinished(spool.status)
-    || isProjectStatusFinished(spool.currentStatus)
-    || isProjectStatusFinished(spool.stage)
-    || hasTruthyFinishedValue(finishedFlag)
-    || isMeaningfulFinishValue(finishDate)
-  );
+  return !['na', 'n/a', 'none', 'null', 'false', 'no', 'nao', 'não', '0'].includes(compact);
 }
 
 function isProjectStatusFinished(projectStatus) {
@@ -2842,30 +2796,34 @@ function hasProjectFinishDateMarker(project) {
     project.shipmentDate,
     project.stageValues?.['Project Finish Date'],
     project.stageValues?.['PROJECT FINISH DATE'],
-    getMilestoneValue(project, ['Project Finish Date', 'PROJECT FINISH DATE', 'Data de envio', 'DATA DE ENVIO']),
   ];
   return values.some(isMeaningfulFinishValue);
 }
 
 function hasProjectFinishedBooleanMarker(project) {
   if (!project) return false;
-  const values = [
-    project.finished,
-    project.projectFinishedFlag,
-    project.stageValues?.['Project Finished?'],
-    project.stageValues?.['PROJECT FINISHED?'],
-    project.status,
-    project.currentStatus,
-    project.statusSummary,
-    project.flow?.status,
-    getMilestoneValue(project, ['Project Finished?', 'PROJECT FINISHED?', 'Concluído?', 'Concluido?', 'Finalizado?']),
-  ];
-  return values.some(hasTruthyFinishedValue);
+  const values = [project.finished, project.projectFinishedFlag, project.stageValues?.['Project Finished?'], project.stageValues?.['PROJECT FINISHED?']];
+  return values.some((value) => {
+    if (typeof value === 'boolean') return value;
+    const compact = normalizeText(value || '').replace(/[^a-z0-9]+/g, '');
+    return ['true', 'yes', 'sim', 'y', '1', 'finalizado', 'concluido', 'completed', 'finished'].includes(compact);
+  });
 }
 
 function areAllProjectSpoolsFinished(project) {
   const spools = Array.isArray(project?.spools) ? project.spools : [];
-  return spools.length > 0 && spools.every((spool) => isSpoolFinishedForPanels(spool));
+  return spools.length > 0 && spools.every((spool) => Boolean(
+    spool?.finished
+    || spool?.projectFinishedFlag
+    || spool?.uiState === 'completed'
+    || spool?.operationalState === 'completed'
+    || spool?.flow?.state === 'completed'
+    || spool?.flow?.status === 'Finalizado'
+    || isProjectStatusFinished(spool?.projectStatus)
+    || isProjectStatusFinished(spool?.status)
+    || isProjectStatusFinished(spool?.currentStatus)
+    || isMeaningfulFinishValue(spool?.stageValues?.['Project Finish Date'])
+  ));
 }
 
 function isProjectFinishedForTotal(project) {
@@ -2985,6 +2943,13 @@ function buildClientStats(projects) {
     const spools = Array.isArray(project.spools) ? project.spools : [];
     const tags = Number(project.quantitySpools || spools.length || 0);
     const isFinishedProject = isProjectFinishedForTotal(project);
+    stats.totalSpools += tags;
+    stats.totalWeightKg += Number(project.kilos || 0);
+    stats.totalWeldedWeightKg += Number(project.weldedWeightKg || 0);
+    const openPaintingM2 = spools.length
+      ? spools.filter((spool) => spool.flow?.state !== 'completed' && spool.flow?.status !== 'Finalizado').reduce((total, spool) => total + Number(spool.m2Painting || 0), 0)
+      : 0;
+    stats.totalPaintingM2 += isFinishedProject ? 0 : (openPaintingM2 > 0 ? openPaintingM2 : Number(project.m2Painting || 0));
     const isHoldProject = isProjectOnHold(project);
     const isPendingProject = isProjectPending(project);
 
@@ -3003,14 +2968,6 @@ function buildClientStats(projects) {
       stats.completedTags += tags;
       continue;
     }
-
-    stats.totalSpools += tags;
-    stats.totalWeightKg += Number(project.kilos || 0);
-    stats.totalWeldedWeightKg += Number(project.weldedWeightKg || 0);
-    const openPaintingM2 = spools.length
-      ? spools.filter((spool) => !isSpoolFinishedForPanels(spool)).reduce((total, spool) => total + Number(spool.m2Painting || 0), 0)
-      : 0;
-    stats.totalPaintingM2 += openPaintingM2 > 0 ? openPaintingM2 : Number(project.m2Painting || 0);
 
     progressAccumulator += Number(project.overallProgress || 0);
 
@@ -3066,7 +3023,7 @@ function getTotalWeldedWeightAllProjects() {
 
 function getTotalFinishedWeightAllProjects() {
   return getStatsProjectsSource().reduce((total, project) => {
-    if (!isProjectFinishedForTotal(project)) return total;
+    if (!project?.finished) return total;
     return total + Number(project?.kilos || 0);
   }, 0);
 }
@@ -3467,7 +3424,7 @@ function getSelectedProject() {
 }
 
 function getBacklogKg(project) {
-  if (!project || isProjectFinishedForTotal(project)) return 0;
+  if (!project) return 0;
   const total = Number(project.kilos || 0);
   const welded = Number(project.weldedWeightKg || 0);
   return Math.max(0, total - welded);
@@ -3738,7 +3695,9 @@ function getClientSpoolProgress(spool) {
 
 function isClientSpoolFinished(spool) {
   const progress = getClientSpoolProgress(spool);
-  return progress >= 99.9 || isSpoolFinishedForPanels(spool);
+  const statusText = normalizeText(spool?.currentStatus || spool?.stage || uiStateLabel(spool?.uiState));
+  const uiState = normalizeCompactText(spool?.uiState || '');
+  return progress >= 99.9 || uiState === 'completed' || /finalizado|concluido|completed|finished|enviado|delivered/.test(statusText);
 }
 
 function getClientSpoolVisualState(spool) {
@@ -4796,7 +4755,6 @@ function getDisplaySpoolsForProject(project, sourceSpools = null) {
 }
 
 function getPendingSpools(project) {
-  if (isProjectFinishedForTotal(project)) return [];
   return (project?.spools || []).filter((spool) => {
     const total = Number(spool.kilos || 0);
     const welded = Number(spool.weldedWeightKg || 0);
@@ -7820,11 +7778,11 @@ async function ensureDashboardDataReadyBeforeRelease(options = {}) {
     });
 
     await loadProjects({
-      force: true,
-      skipLocalCache: true,
+      force: false,
+      skipLocalCache: false,
       suppressLoadingState: true,
-      preferServerCache: attempt === 1,
-      requireData: true,
+      preferServerCache: true,
+      requireData: false,
     });
     await waitForNextRenderFrame();
     if (hasDashboardDataReady()) return true;
@@ -9164,7 +9122,7 @@ async function handleLoginSubmit(event) {
     });
 
     const sessionPromise = bootstrapSession();
-    const projectsPromise = loadProjects({ preferServerCache: true, requireData: true }).then((result) => {
+    const projectsPromise = loadProjects({ preferServerCache: true, requireData: false }).then((result) => {
       setLoginProgress(72, {
         title: 'Atualizando indicadores...',
         message: 'Estamos calculando pesos, status, pendências e alertas operacionais.',
@@ -9189,7 +9147,7 @@ async function handleLoginSubmit(event) {
       detail: 'Dashboard quase pronto.',
     });
 
-    await ensureDashboardDataReadyBeforeRelease({ maxAttempts: 3, retryDelayMs: 900 });
+    await ensureDashboardDataReadyBeforeRelease({ maxAttempts: 1, retryDelayMs: 300 });
 
     syncStageDraftsForCurrentSector();
     const autoOpenStageValidation = shouldOpenStageValidationWorkspaceFromUrl() && canValidateStageWorkspace();
