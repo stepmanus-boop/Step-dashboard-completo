@@ -5,7 +5,7 @@ const PRESENCE_HEARTBEAT_MS = 90000;
 const AUTH_REFRESH_MS = 300000;
 const ADMIN_REFRESH_MS = 60000;
 const ALERT_NOTIFICATION_COOLDOWN_MS = 4 * 60 * 60 * 1000;
-const PROJECTS_CACHE_KEY = 'step_dashboard_projects_cache_v4_client_scope';
+const PROJECTS_CACHE_KEY = 'step_dashboard_projects_cache_v5_tracking_finalizado';
 
 let adminResponsesPollTimer = null;
 

@@ -984,24 +984,89 @@ function uiStateFromFlow(flow, allFinished = false) {
 function applyProjectSpoolRollup(project) {
   const fallbackFlow = project.flow || makeFlow(project.currentStage || "AG. Emissão de detalhamento", project.operationalSector || "Engenharia", project.currentStagePercent || 0, project.currentStageStatus || "waiting", project.operationalState || project.uiState || "not_started");
   const summary = summarizeFlowItems(project.spools || [], fallbackFlow, project.quantitySpools || 1);
-  const explicitFinished = Boolean(project.finished || project.projectFinishedFlag || hasProjectFinishDateMarker(project) || isProjectStatusFinished(project.projectStatus));
-  const finalFinished = explicitFinished || summary.allFinished;
+  const explicitFinished = Boolean(
+    hasProjectFinishedBooleanMarker(project)
+    || hasProjectFinishDateMarker(project)
+    || isProjectStatusFinished(project.projectStatus)
+    || isProjectStatusFinished(project.status)
+    || isProjectStatusFinished(project.currentStatus)
+    || isProjectStatusFinished(project.statusSummary)
+    || isProjectStatusFinished(project.flow?.status)
+  );
+  const finalFinished = explicitFinished || summary.allFinished || areAllProjectSpoolsFinished(project);
   const finalFlow = finalFinished ? makeFlow("Finalizado", "Enviado", 100, "completed", "completed") : summary.flow;
+
+  if (finalFinished) {
+    const totalSpools = Math.max(1, Number(project.quantitySpools || 0), Array.isArray(project.spools) ? project.spools.length : 0);
+    const finishedStatusBreakdown = [{ label: "Finalizado", count: totalSpools }];
+    const finishedSectorBreakdown = [{ label: "Enviado", count: totalSpools }];
+
+    if (Array.isArray(project.spools)) {
+      project.spools = project.spools.map((spool) => ({
+        ...spool,
+        flow: { ...finalFlow },
+        finished: true,
+        projectFinishedFlag: spool.projectFinishedFlag || explicitFinished,
+        uiState: "completed",
+        operationalState: "completed",
+        operationalSector: "Enviado",
+        currentStatus: "Finalizado",
+        currentSector: "Enviado",
+        stage: "Finalizado",
+        stagePercent: 100,
+        stageStatus: "completed",
+        stageAlert: false,
+        individualProgress: 100,
+        overallProgress: 100,
+      }));
+    }
+
+    project.demandSummary = {
+      ...summary,
+      flow: finalFlow,
+      allFinished: true,
+      statusSummary: "Finalizado",
+      sectorSummary: "Enviado",
+      statusBreakdown: finishedStatusBreakdown,
+      sectorBreakdown: finishedSectorBreakdown,
+    };
+    project.statusSummary = "Finalizado";
+    project.sectorSummary = "Enviado";
+    project.statusBreakdown = finishedStatusBreakdown;
+    project.sectorBreakdown = finishedSectorBreakdown;
+    project.flow = finalFlow;
+    project.currentStage = "Finalizado";
+    project.currentStageGroup = "Enviado";
+    project.currentStagePercent = 100;
+    project.currentStageStatus = "completed";
+    project.currentStageAlert = false;
+    project.currentStatus = "Finalizado";
+    project.currentSector = "Enviado";
+    project.operationalSector = "Enviado";
+    project.operationalState = "completed";
+    project.finished = true;
+    project.uiState = "completed";
+    project.individualProgress = 100;
+    project.overallProgress = 100;
+    project.spoolStats = { total: totalSpools, completed: totalSpools, inProgress: 0, notStarted: 0 };
+    return project;
+  }
+
   project.demandSummary = summary;
-  project.statusSummary = finalFinished ? "Finalizado" : summary.statusSummary;
-  project.sectorSummary = finalFinished ? "Enviado" : summary.sectorSummary;
+  project.statusSummary = summary.statusSummary;
+  project.sectorSummary = summary.sectorSummary;
   project.statusBreakdown = summary.statusBreakdown;
   project.sectorBreakdown = summary.sectorBreakdown;
   project.flow = finalFlow;
-  project.currentStage = finalFinished ? "Finalizado" : summary.statusSummary;
-  project.currentStageGroup = finalFinished ? "Enviado" : summary.sectorSummary;
+  project.currentStage = summary.statusSummary;
+  project.currentStageGroup = summary.sectorSummary;
   project.currentStagePercent = finalFlow.percent;
-  project.currentStageStatus = finalFinished ? "completed" : (finalFlow.stageStatus || "waiting");
-  project.currentStageAlert = !finalFinished && ["in_progress", "waiting"].includes(project.currentStageStatus);
-  project.operationalSector = finalFinished ? "Enviado" : summary.sectorSummary;
+  project.currentStageStatus = finalFlow.stageStatus || "waiting";
+  project.currentStageAlert = ["in_progress", "waiting"].includes(project.currentStageStatus);
+  project.operationalSector = summary.sectorSummary;
   project.operationalState = finalFlow.state;
-  project.finished = finalFinished;
-  project.uiState = uiStateFromFlow(finalFlow, finalFinished);
+  project.finished = false;
+  project.uiState = uiStateFromFlow(finalFlow, false);
   return project;
 }
 
