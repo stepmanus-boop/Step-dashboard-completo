@@ -3852,15 +3852,16 @@ function getClientStageValue(project, keys) {
 }
 
 function getClientFabricationProgress(project) {
-  // v32.6: Fabricação agora termina na Pintura (100% Pintura = 100% Fabricação)
   const stages = [
-    { keys: ['Welding Preparation', 'Spool Assemble and tack weld'], weight: 15 },
-    { keys: ['Initial Dimensional Inspection/3D'], weight: 10 },
-    { keys: ['Full welding execution'], weight: 30 },
-    { keys: ['Non Destructive Examination (QC)'], weight: 15 },
-    { keys: ['Final Dimensional Inpection/3D (QC)'], weight: 10 },
-    { keys: ['Hydro Test Pressure (QC)'], weight: 10 },
-    { keys: ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)'], weight: 10 },
+    { keys: ['Welding Preparation', 'Spool Assemble and tack weld'], weight: 10 },
+    { keys: ['Initial Dimensional Inspection/3D'], weight: 8 },
+    { keys: ['Full welding execution'], weight: 25 },
+    { keys: ['Non Destructive Examination (QC)'], weight: 12 },
+    { keys: ['Final Dimensional Inpection/3D (QC)'], weight: 8 },
+    { keys: ['Hydro Test Pressure (QC)'], weight: 7 },
+    { keys: ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)'], weight: 15 },
+    { keys: ['Final Inspection'], weight: 8 },
+    { keys: ['Package and Delivered'], weight: 7 },
   ];
   const totalWeight = stages.reduce((sum, item) => sum + item.weight, 0);
   if (!totalWeight) return 0;
@@ -3878,14 +3879,7 @@ function getClientDatabookProgress(project) {
 }
 
 function getClientPackageProgress(project) {
-  // v32.6: Logística engloba Inspeção Final e Entrega
-  const stages = [
-    { keys: ['Final Inspection'], weight: 50 },
-    { keys: ['Package and Delivered'], weight: 50 },
-  ];
-  const totalWeight = stages.reduce((sum, item) => sum + item.weight, 0);
-  if (!totalWeight) return 0;
-  return clampClientPercent(stages.reduce((sum, item) => sum + getClientStageValue(project, item.keys) * item.weight, 0) / totalWeight);
+  return getClientStageValue(project, ['Package and Delivered', 'Final Inspection']);
 }
 
 function getClientProductionStages(project) {

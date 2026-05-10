@@ -351,7 +351,7 @@ function deriveOperationalStage(stageValues, fabricationStartDate, coatingPercen
   const finalInspectionCompleted = finalInspection >= 100;
 
   if (coatingCompleted && finalInspectionCompleted && packageDelivered >= 100) {
-    return makeFlow("Enviado", "Logística", packageDelivered, "completed", "completed");
+    return makeFlow("Preparado para envio", "Logística", packageDelivered, "completed", "awaiting_shipment");
   }
   if (coatingCompleted && finalInspectionCompleted && packageDelivered >= 25) {
     return makeFlow("Aguardando envio", "Logística", packageDelivered, null, "awaiting_shipment");
@@ -363,11 +363,10 @@ function deriveOperationalStage(stageValues, fabricationStartDate, coatingPercen
     return makeFlow("Preparado para envio", "Logística", finalInspection, "waiting", "awaiting_shipment");
   }
   if (coatingCompleted && finalInspectionStarted) {
-    return makeFlow("Inspeção Final", "Logística", finalInspection, "active", "inspection");
+    return makeFlow("Unitização e Inspeção", "Logística", finalInspection, null, "preparing_shipment");
   }
   if (coatingCompleted) {
-    // v32.6: Se a pintura acabou, a fabricação está 100%. Entra em Logística.
-    return makeFlow("Aguardando Inspeção Final", "Logística", 0, "waiting", "inspection");
+    return makeFlow("Unitização e Inspeção", "Logística", coating, "waiting", "awaiting_shipment");
   }
   if (coating > 0) {
     return makeFlow(paintingStatusFromPercent(coating), "Pintura", coating, null, "in_production");

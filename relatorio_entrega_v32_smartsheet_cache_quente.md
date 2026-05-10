@@ -1,4 +1,4 @@
-# Relatório Técnico - Versão v32.6_SMARTSHEET_CACHE_QUENTE_CORRIGIDA
+# Relatório Técnico - Versão v32.5_SMARTSHEET_CACHE_QUENTE_CORRIGIDA
 
 ## 1. Diagnóstico do Problema
 O gargalo de lentidão no login foi identificado como sendo a leitura pesada e síncrona do Smartsheet (Tracking + WIP POs) no caminho crítico da autenticação. Mesmo com cache, o sistema forçava revalidações que bloqueavam a interface, resultando em telas vazias ou tempos de espera superiores a 10-15 segundos.
@@ -12,16 +12,13 @@ A versão v32 introduz o conceito de **Sincronização Desacoplada**, transforma
 - **Endpoint de Pré-aquecimento (`/api/projects-warmup`):** Novo endpoint protegido por token para forçar a atualização do cache via cron job externo.
 - **Frontend Otimizado:** O `app.js` agora prioriza o cache no login e não bloqueia a liberação do painel aguardando o Smartsheet.
 
-## 3. Correção de Dados e Regras de Negócio (v32.6)
-A lógica de cálculo de progresso foi refinada para refletir a realidade operacional:
-- **Fabricação Concluída:** A etapa de **Fabricação** agora é considerada 100% concluída assim que o processo de **Pintura** atinge 100%.
-- **Separação Logística:** As etapas de *Final Inspection*, *Packing* e *Delivery* foram movidas para o grupo de **Logística / Envio**, não afetando mais o progresso da fabricação propriamente dita.
-- **Fonte de Verdade (v32.2):** O progresso da BSP continua sendo calculado como a **média ponderada (por peso/kilos)** de todas as ISOs vinculadas.
+## 3. Correção de Dados (Cálculo via ISOs - v32.2)
+A lógica de cálculo de progresso foi totalmente refatorada para ser baseada no detalhamento das ISOs (spools) do Tracking:
 - **Fonte de Verdade:** O progresso da BSP não é mais lido da linha de resumo, mas sim calculado como a **média ponderada (por peso/kilos)** de todas as ISOs vinculadas.
 - **Estatísticas Reais:** O peso soldado e a contagem de tags concluídas agora refletem a soma exata do que está apontado em cada ISO.
 - **Rollup de Finalização:** Se a BSP for marcada como "Finalizada" na planilha, o sistema aplica um **Rollup Forçado de 100%** em todos os indicadores, garantindo que inconsistências de apontamento nas ISOs não "sujem" o dashboard de um projeto já entregue.
 
-## 4. Pesquisa Inteligente no Portal do Cliente (v32.6)
+## 4. Pesquisa Inteligente no Portal do Cliente (v32.5)
 O campo de busca foi implementado e refinado na interface do **Portal do Cliente**:
 - **Filtragem em Tempo Real:** Ao digitar uma PO ou BSP, tanto os cards de Unidades quanto a tabela detalhada de BSPs são filtrados simultaneamente.
 - **Seleção Facilitada:** O sistema agora exibe apenas os resultados correspondentes na tabela, permitindo que o cliente clique no item desejado para abrir os gráficos e a visão executiva sem precisar navegar por listas extensas.
@@ -56,4 +53,3 @@ Configure um serviço como **UptimeRobot** ou **GitHub Actions** para realizar u
 - [x] Snapshot em disco atualizado automaticamente.
 - [x] Pesquisa inteligente por BSP e PO implementada no Portal do Cliente.
 - [x] Filtragem em tempo real da tabela de BSPs do cliente corrigida.
-- [x] Regra de Fabricação 100% (Pintura concluída) aplicada.

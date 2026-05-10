@@ -1,5 +1,5 @@
 {
-  "version": "v32.6_SMARTSHEET_CACHE_QUENTE_CORRIGIDA",
+  "version": "v32.5_SMARTSHEET_CACHE_QUENTE_CORRIGIDA",
   "status": "success",
   "timestamp": "2026-05-10T15:00:00Z",
   "validations": [
@@ -28,11 +28,6 @@
     {
       "test": "Pesquisa Inteligente no Portal do Cliente",
       "features": ["Busca por BSP", "Busca por PO", "Busca por ISO", "Filtragem em tempo real da tabela"],
-      "result": "passed"
-    },
-    {
-      "test": "Regra de Fabricação 100%",
-      "features": ["Pintura 100% = Fabricação 100%", "Separação de Logística"],
       "result": "passed"
     }
   ]
