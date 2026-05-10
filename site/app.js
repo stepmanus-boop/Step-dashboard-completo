@@ -6479,13 +6479,23 @@ async function loadProjects(options = {}) {
     // Em navegações/login, não bloqueia a thread aguardando a API quando já existe cache aproveitável.
     if (!force && !background) {
       if (fresh) state.lastProjectsFetchAt = Date.now();
-      return { fromCache: true, revalidating: true };
+      return {
+        ok: true,
+        fromCache: true,
+        revalidating: true,
+        projectsCount: Array.isArray(state.projects) ? state.projects.length : 0,
+      };
     }
 
     // Em polling/background, cache fresco evita tráfego; cache vencido segue para a API.
     if (!force && background && fresh) {
       state.lastProjectsFetchAt = Date.now();
-      return { fromCache: true, revalidating: false };
+      return {
+        ok: true,
+        fromCache: true,
+        revalidating: false,
+        projectsCount: Array.isArray(state.projects) ? state.projects.length : 0,
+      };
     }
   }
   if (isClientUser() && !shouldUseCache && cached) {
@@ -6529,14 +6539,30 @@ async function loadProjects(options = {}) {
       if (!response.ok || !data.ok) {
         throw new Error(data?.error || "Falha ao carregar projetos.");
       }
-      if (isClientUser() && (!data.projects || data.projects.length === 0)) {
+      const projectsFromApi = Array.isArray(data.projects) ? data.projects : [];
+      if (options.requireData && projectsFromApi.length === 0) {
+        throw new Error(isClientUser()
+          ? 'As BSPs do cliente ainda não foram recebidas. Mantendo carregamento até os dados aparecerem.'
+          : 'Os dados operacionais ainda não foram recebidos. Mantendo carregamento até os dados aparecerem.');
+      }
+      if (isClientUser() && projectsFromApi.length === 0) {
         console.warn('[LoadProjects] Aviso: usuário cliente recebeu 0 projetos da API');
       }
       state.lastProjectsFetchAt = Date.now();
       writeProjectsCache(data);
       applyProjectsPayload(data, { fromCache: false });
+      return {
+        ok: true,
+        fromCache: false,
+        revalidating: false,
+        projectsCount: projectsFromApi.length,
+      };
     } catch (error) {
       const fallbackMessage = error?.message || "Falha ao atualizar dados operacionais.";
+
+      if (options.requireData) {
+        throw error;
+      }
 
       if (state.projects.length) {
         const staleSuffix = state.meta?.lastSync
@@ -7717,8 +7743,59 @@ function failLoginProgress(message) {
   window.setTimeout(hideLoginProgressOverlay, 1200);
 }
 
+function hasDashboardDataReady() {
+  const projects = Array.isArray(state.projects) ? state.projects : [];
+  if (!state.user || projects.length === 0) return false;
+
+  if (isClientUser()) {
+    const bspsText = String(document.getElementById('client-stat-bsps')?.textContent || '').trim();
+    const vesselGrid = document.getElementById('client-vessel-grid');
+    const hasVisibleClientCards = Boolean(vesselGrid && vesselGrid.querySelector('[data-client-vessel]'));
+    return bspsText !== '' && bspsText !== '--' && bspsText !== '0' && hasVisibleClientCards;
+  }
+
+  const countText = String(searchCountEl?.textContent || '').trim();
+  const hasTableRows = Boolean(bodyEl && bodyEl.querySelector('tr[data-project-id]'));
+  return hasTableRows || (Array.isArray(state.filteredProjects) && state.filteredProjects.length > 0 && countText !== '0 resultado(s)');
+}
+
+function waitForNextRenderFrame() {
+  return new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+}
+
+async function ensureDashboardDataReadyBeforeRelease(options = {}) {
+  const maxAttempts = Number(options.maxAttempts || 3);
+  const retryDelayMs = Number(options.retryDelayMs || 900);
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    await waitForNextRenderFrame();
+    if (hasDashboardDataReady()) return true;
+
+    setLoginProgress(Math.min(96, 88 + attempt * 2), {
+      title: 'Conferindo dados na tela...',
+      message: 'Estamos garantindo que as BSPs, POs e dashboards já apareceram no painel.',
+      detail: `Validação visual dos dados ${attempt}/${maxAttempts}.`,
+    });
+
+    await loadProjects({
+      force: true,
+      skipLocalCache: true,
+      suppressLoadingState: true,
+      preferServerCache: attempt === 1,
+      requireData: true,
+    });
+    await waitForNextRenderFrame();
+    if (hasDashboardDataReady()) return true;
+
+    await new Promise((resolve) => window.setTimeout(resolve, retryDelayMs));
+  }
+
+  throw new Error('Os dados ainda não apareceram na tela. O painel não será liberado vazio; tente novamente em alguns segundos.');
+}
+
 async function completeLoginProgress() {
   stopLoginProgressTimer();
+  await ensureDashboardDataReadyBeforeRelease({ maxAttempts: 1, retryDelayMs: 300 });
   setLoginProgress(100, LOGIN_PROGRESS_STEPS[LOGIN_PROGRESS_STEPS.length - 1]);
   await new Promise((resolve) => window.setTimeout(resolve, 520));
   hideLoginProgressOverlay();
@@ -9045,7 +9122,7 @@ async function handleLoginSubmit(event) {
     });
 
     const sessionPromise = bootstrapSession();
-    const projectsPromise = loadProjects({ preferServerCache: true }).then((result) => {
+    const projectsPromise = loadProjects({ preferServerCache: true, requireData: true }).then((result) => {
       setLoginProgress(72, {
         title: 'Atualizando indicadores...',
         message: 'Estamos calculando pesos, status, pendências e alertas operacionais.',
@@ -9069,6 +9146,8 @@ async function handleLoginSubmit(event) {
       message: 'Estamos definindo os dashboards e montando a visualização final.',
       detail: 'Dashboard quase pronto.',
     });
+
+    await ensureDashboardDataReadyBeforeRelease({ maxAttempts: 3, retryDelayMs: 900 });
 
     syncStageDraftsForCurrentSector();
     const autoOpenStageValidation = shouldOpenStageValidationWorkspaceFromUrl() && canValidateStageWorkspace();
