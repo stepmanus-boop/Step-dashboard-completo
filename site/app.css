@@ -6186,3 +6186,141 @@ body.client-mode .client-logo-box img,
   background: rgba(126, 204, 255, .35);
   border-radius: 999px;
 }
+
+
+/* ===== v34.8 - Prioridade para ISOs no detalhamento da BSP ===== */
+
+/* Reduz o bloco de sinalizações/alertas para liberar área para a tabela de ISOs */
+.project-signals-card,
+.project-signals-panel,
+.project-signal-list,
+.client-project-signals,
+.detail-signals-card,
+.detail-signals-panel,
+#project-signals-card,
+#client-project-signals {
+  max-height: 150px !important;
+  overflow: auto !important;
+  padding: 10px 12px !important;
+  border-radius: 14px !important;
+}
+
+/* Compacta títulos e itens de sinalização */
+.project-signals-card h3,
+.project-signals-card h4,
+.project-signals-panel h3,
+.project-signals-panel h4,
+.detail-signals-card h3,
+.detail-signals-card h4,
+.detail-signals-panel h3,
+.detail-signals-panel h4 {
+  font-size: .9rem !important;
+  margin-bottom: 6px !important;
+}
+
+.project-signals-card article,
+.project-signals-panel article,
+.project-signal-list article,
+.detail-signals-card article,
+.detail-signals-panel article,
+.client-project-signals article {
+  padding: 7px 9px !important;
+  margin-bottom: 6px !important;
+  font-size: .78rem !important;
+  line-height: 1.25 !important;
+}
+
+/* Quando o detalhamento tiver coluna lateral, dá mais espaço para a tabela */
+.client-bsp-content,
+.project-detail-content,
+.detail-layout,
+.bsp-detail-layout {
+  grid-template-columns: minmax(0, 2.35fr) minmax(260px, .65fr) !important;
+  gap: 12px !important;
+}
+
+/* ISOs/TAGs completos: remove corte com reticências */
+.modal-table th:first-child,
+.modal-table td:first-child,
+.project-details-table th:first-child,
+.project-details-table td:first-child,
+.bsp-details-table th:first-child,
+.bsp-details-table td:first-child,
+.client-bsp-table th:first-child,
+.client-bsp-table td:first-child {
+  min-width: 360px !important;
+  width: 360px !important;
+  max-width: none !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  word-break: normal !important;
+  overflow-wrap: anywhere !important;
+  line-height: 1.28 !important;
+  vertical-align: middle !important;
+}
+
+/* Mantém a primeira coluna fixa, porém larga o suficiente para o ISO completo */
+.modal-table th:first-child,
+.modal-table td:first-child,
+.project-details-table th:first-child,
+.project-details-table td:first-child,
+.bsp-details-table th:first-child,
+.bsp-details-table td:first-child {
+  position: sticky !important;
+  left: 0 !important;
+  z-index: 18 !important;
+  background: #0b3558 !important;
+  font-weight: 800 !important;
+}
+
+/* Cabeçalho da primeira coluna acima das demais */
+.modal-table thead th:first-child,
+.project-details-table thead th:first-child,
+.bsp-details-table thead th:first-child,
+.client-bsp-table thead th:first-child {
+  z-index: 45 !important;
+  background: #0c416d !important;
+}
+
+/* Dá mais altura útil ao bloco da tabela no modal/detalhamento */
+.modal-table-wrapper,
+.project-details-table-wrapper,
+.bsp-details-table-wrapper,
+.client-table-wrap {
+  max-height: 82vh !important;
+}
+
+/* Em telas menores, ainda mantém ISO completo, mas com largura menor */
+@media (max-width: 1100px) {
+  .client-bsp-content,
+  .project-detail-content,
+  .detail-layout,
+  .bsp-detail-layout {
+    grid-template-columns: 1fr !important;
+  }
+
+  .project-signals-card,
+  .project-signals-panel,
+  .project-signal-list,
+  .client-project-signals,
+  .detail-signals-card,
+  .detail-signals-panel,
+  #project-signals-card,
+  #client-project-signals {
+    max-height: 120px !important;
+  }
+
+  .modal-table th:first-child,
+  .modal-table td:first-child,
+  .project-details-table th:first-child,
+  .project-details-table td:first-child,
+  .bsp-details-table th:first-child,
+  .bsp-details-table td:first-child,
+  .client-bsp-table th:first-child,
+  .client-bsp-table td:first-child {
+    min-width: 300px !important;
+    width: 300px !important;
+  }
+}
+
