@@ -4369,8 +4369,8 @@ button.alert-badge {
 }
 .client-identity { display: flex; align-items: center; gap: 16px; }
 .client-logo-box {
-  width: 132px;
-  height: 92px;
+  width: 174px;
+  height: 112px;
   border-radius: 18px;
   display: grid;
   place-items: center;
@@ -4378,7 +4378,19 @@ button.alert-badge {
   border: 1px solid rgba(255,255,255,0.12);
   overflow: hidden;
 }
-.client-logo-box img { width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; padding: 8px; box-sizing: border-box; display: block; }
+.client-logo-box img {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  object-position: center;
+  padding: 6px;
+  box-sizing: border-box;
+  display: block;
+  background: rgba(255,255,255,.96);
+  border-radius: 14px;
+}
 .client-kicker { margin: 0 0 4px; color: #64c2ff; font-size: .78rem; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; }
 .client-hero h2, .client-section-head h3, .client-detail-head h3 { margin: 0; color: #f6fbff; }
 .client-hero p, .client-section-head p, .client-detail-head p { color: #9fc2d8; }
@@ -4619,14 +4631,17 @@ body.client-mode .client-hero {
   min-height: 58px;
 }
 body.client-mode .client-logo-box {
-  width: 128px;
-  height: 82px;
-  border-radius: 12px;
+  width: 224px;
+  height: 124px;
+  border-radius: 18px;
   background: rgba(255,255,255,.13);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.10), 0 14px 28px rgba(0,0,0,.14);
 }
 body.client-mode .client-logo-box img {
-  padding: 8px;
+  padding: 6px;
   object-fit: contain;
+  object-position: center;
+  border-radius: 14px;
 }
 body.client-mode .client-summary-grid article {
   background: rgba(10, 61, 96, 0.86);
@@ -4664,6 +4679,10 @@ body.client-mode .client-vessel-media {
   body.client-mode .session-card,
   body.client-mode .clock-card {
     min-height: auto;
+  }
+  body.client-mode .client-logo-box {
+    width: min(100%, 224px);
+    height: 116px;
   }
 }
 
@@ -4752,6 +4771,42 @@ body.client-exec-open {
   margin: 0;
   color: #3d647f;
 }
+
+.client-exec-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.client-exec-pdf-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid rgba(11, 155, 122, .28);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #0b9b7a, #087e67);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  cursor: pointer;
+  box-shadow: 0 10px 26px rgba(11, 155, 122, .22);
+  transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease;
+}
+
+.client-exec-pdf-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(11, 155, 122, .28);
+}
+
+.client-exec-pdf-button:disabled {
+  cursor: wait;
+  opacity: .7;
+}
+
 
 .client-exec-dates {
   display: grid;

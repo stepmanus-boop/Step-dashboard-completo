@@ -1,0 +1,24 @@
+Versão v32.9 — Exportar gráficos em PDF
+
+Alteração aplicada:
+- Incluído botão "Baixar PDF" na visão executiva/gráficos do Portal do Cliente.
+- Na visão executiva de uma BSP/PO, o PDF é gerado com resumo operacional, indicadores, Curva S, processos, schedule executivo e detalhamento de tags/ISOs.
+- O nome do arquivo segue a regra solicitada:
+  - Se houver PO: relatorio_PO_NUMERO.pdf
+  - Se houver mais de uma PO: relatorio_PO_NUMERO1_NUMERO2.pdf
+  - Se não houver PO identificada: relatorio.pdf
+- Na visão executiva macro da carteira, o botão também gera PDF consolidado e usa relatorio.pdf.
+
+Arquivos alterados:
+- site/app.js
+- site/app.css
+
+Observações:
+- Não foi necessário SQL no Supabase.
+- Não houve alteração em Smartsheet, Supabase, autenticação, filtros, regras de status, cache ou backend.
+- A geração usa as bibliotecas já carregadas no projeto: jsPDF e jsPDF AutoTable.
+
+Validação executada:
+- node --check site/app.js
+- node --check netlify/functions/projects.js
+- npm run lint

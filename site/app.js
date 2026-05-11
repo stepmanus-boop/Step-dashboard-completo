@@ -4320,6 +4320,13 @@ function ensureClientBspExecutiveModalEl() {
   `;
   document.body.appendChild(modal);
   modal.addEventListener('click', (event) => {
+    const pdfButton = event.target.closest('[data-client-download-pdf]');
+    if (pdfButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      handleClientExecutivePdfDownload(pdfButton);
+      return;
+    }
     if (event.target.closest('[data-client-exec-close]')) closeClientBspExecutive();
   });
   return modal;
@@ -4508,6 +4515,380 @@ function renderClientMacroProjectRows(projects = state.projects) {
   }).join('');
 }
 
+
+function sanitizeClientReportFilenamePart(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 90);
+}
+
+function getClientReportPoLabel(project) {
+  const values = [];
+  if (Array.isArray(project?.customerPoList)) values.push(...project.customerPoList);
+  values.push(project?.customerPo, project?.customerPoDisplay, project?.clientDisplayCode);
+  const found = [];
+  for (const value of values) {
+    const raw = String(value || '').trim();
+    if (!raw || /aguardando\s+po/i.test(raw)) continue;
+    const explicitPo = raw.match(/(?:^|[-–—]\s*)POs?\s+(.+)$/i);
+    const cleaned = (explicitPo ? explicitPo[1] : raw)
+      .replace(/^POs?\s*/i, '')
+      .replace(/\bPOs?\b/ig, '')
+      .trim();
+    const parts = cleaned.split(/[\/;,]+/).map((part) => part.trim()).filter(Boolean);
+    for (const part of parts) {
+      const safe = sanitizeClientReportFilenamePart(part);
+      if (safe && !found.includes(safe)) found.push(safe);
+    }
+  }
+  return found.slice(0, 3).join('_');
+}
+
+function buildClientExecutivePdfFileName(project = null) {
+  const po = getClientReportPoLabel(project);
+  if (po) return `relatorio_PO_${po}.pdf`;
+  return 'relatorio.pdf';
+}
+
+function drawClientPdfFooter(doc) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(86, 107, 124);
+  doc.text(`STEP • Página ${doc.internal.getNumberOfPages()}`, pageWidth - 14, pageHeight - 7, { align: 'right' });
+}
+
+async function drawClientPdfHeader(doc, title, subtitle, metaLine = '') {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const generatedAt = new Date().toLocaleString('pt-BR');
+  const logoDataUrl = await loadImageAsDataUrl('./assets/step-logo.png');
+  doc.setFillColor(238, 248, 255);
+  doc.rect(0, 0, pageWidth, 34, 'F');
+  if (logoDataUrl) {
+    try { doc.addImage(logoDataUrl, 'PNG', 12, 8, 34, 11); } catch (error) { console.warn('Não foi possível renderizar a logo no PDF.', error); }
+  }
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.setTextColor(11, 55, 97);
+  doc.text(title, 52, 13);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(61, 100, 127);
+  doc.text(subtitle, 52, 20);
+  if (metaLine) doc.text(metaLine, 52, 27);
+  doc.text(`Gerado em: ${generatedAt}`, pageWidth - 14, 13, { align: 'right' });
+  drawClientPdfFooter(doc);
+}
+
+function drawClientPdfKpi(doc, x, y, w, h, label, value) {
+  doc.setDrawColor(193, 216, 232);
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(x, y, w, h, 2, 2, 'FD');
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(95, 127, 149);
+  doc.text(String(label || ''), x + 3, y + 5);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.setTextColor(8, 46, 81);
+  const lines = doc.splitTextToSize(String(value || '—'), w - 6);
+  doc.text(lines.slice(0, 2), x + 3, y + 12);
+}
+
+function drawClientPdfProgressBar(doc, x, y, w, label, percent, tone = 'normal') {
+  const p = clampClientPercent(percent);
+  const fill = tone === 'planned' ? [239, 193, 79] : [11, 155, 122];
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(11, 55, 97);
+  doc.text(String(label || '—'), x, y);
+  doc.setDrawColor(210, 220, 226);
+  doc.setFillColor(232, 239, 244);
+  doc.roundedRect(x + 55, y - 4, w, 4, 1.5, 1.5, 'FD');
+  doc.setFillColor(...fill);
+  doc.roundedRect(x + 55, y - 4, Math.max(1, (w * p) / 100), 4, 1.5, 1.5, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.text(formatPercent(p), x + 57 + w, y);
+}
+
+function drawClientPdfSCurve(doc, points, x, y, width, height, title) {
+  const safePoints = Array.isArray(points) ? points : [];
+  const padLeft = 12;
+  const padBottom = 12;
+  const chartX = x + padLeft;
+  const chartY = y + 8;
+  const chartW = width - padLeft - 4;
+  const chartH = height - padBottom - 12;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(11, 55, 97);
+  doc.text(title, x, y);
+  doc.setDrawColor(214, 224, 232);
+  doc.setLineWidth(0.1);
+  [0, 25, 50, 75, 100].forEach((value) => {
+    const gy = chartY + (1 - value / 100) * chartH;
+    doc.line(chartX, gy, chartX + chartW, gy);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(95, 127, 149);
+    doc.text(`${value}%`, x, gy + 2);
+  });
+  doc.setDrawColor(110, 135, 153);
+  doc.line(chartX, chartY, chartX, chartY + chartH);
+  doc.line(chartX, chartY + chartH, chartX + chartW, chartY + chartH);
+
+  const toXY = (point, index) => {
+    const px = chartX + (index / Math.max(1, safePoints.length - 1)) * chartW;
+    const value = clampClientPercent(point);
+    const py = chartY + (1 - value / 100) * chartH;
+    return { px, py };
+  };
+  const drawSeries = (getter, color, dashed = false) => {
+    const series = safePoints.map((point, index) => ({ value: getter(point), index })).filter((item) => item.value != null);
+    if (series.length < 2) return;
+    doc.setDrawColor(...color);
+    doc.setLineWidth(0.7);
+    if (dashed && doc.setLineDashPattern) doc.setLineDashPattern([2, 1.5], 0);
+    for (let i = 1; i < series.length; i += 1) {
+      const a = toXY(series[i - 1].value, series[i - 1].index);
+      const b = toXY(series[i].value, series[i].index);
+      doc.line(a.px, a.py, b.px, b.py);
+    }
+    if (doc.setLineDashPattern) doc.setLineDashPattern([], 0);
+  };
+  drawSeries((point) => point.planned, [239, 193, 79], true);
+  drawSeries((point) => point.actual, [11, 155, 122], false);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(61, 100, 127);
+  const first = safePoints[0]?.date ? clientFormatDateValue(safePoints[0].date) : '';
+  const last = safePoints[safePoints.length - 1]?.date ? clientFormatDateValue(safePoints[safePoints.length - 1].date) : '';
+  if (first) doc.text(first, chartX, y + height - 2);
+  if (last) doc.text(last, chartX + chartW, y + height - 2, { align: 'right' });
+  doc.setFillColor(239, 193, 79);
+  doc.circle(x + width - 44, y + 2, 1.3, 'F');
+  doc.text('Planejado', x + width - 40, y + 3);
+  doc.setFillColor(11, 155, 122);
+  doc.circle(x + width - 20, y + 2, 1.3, 'F');
+  doc.text('Realizado', x + width - 16, y + 3);
+}
+
+function clientReportStageLabel(key) {
+  return (state.meta?.stageOrder || []).find((stage) => stage.key === key)?.label || key;
+}
+
+function handleClientExecutivePdfDownload(button) {
+  const type = button?.dataset?.clientReportType || 'project';
+  const projectId = button?.dataset?.clientReportProjectId || '';
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Gerando PDF...';
+  const task = type === 'macro'
+    ? downloadClientMacroExecutivePdf()
+    : downloadClientBspExecutivePdf(state.projects.find((item) => String(item.rowId) === String(projectId)));
+  Promise.resolve(task)
+    .catch((error) => {
+      console.error('Falha ao gerar PDF executivo.', error);
+      window.alert(error?.message || 'Não foi possível gerar o PDF. Atualize a página e tente novamente.');
+    })
+    .finally(() => {
+      button.disabled = false;
+      button.textContent = originalText || 'Baixar PDF';
+    });
+}
+
+async function downloadClientBspExecutivePdf(project) {
+  if (!project) throw new Error('Nenhuma BSP selecionada para gerar o relatório.');
+  const jsPdfApi = window.jspdf?.jsPDF;
+  if (!jsPdfApi) throw new Error('A biblioteca de PDF não foi carregada.');
+  const doc = new jsPdfApi({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const status = getProjectStatusPresentation(project);
+  const stages = getClientProductionStages(project);
+  const overall = getClientOverallProgress(project);
+  const fabrication = getClientFabricationProgress(project);
+  const plannedToday = getClientPlannedToday(project);
+  const totalTags = getProjectItemCount(project);
+  const completedTags = getClientCompletedTags(project);
+  const remainingTags = Math.max(0, totalTags - completedTags);
+  const weight = Number(project.kilos || 0);
+  const welded = Number(project.weldedWeightKg || 0);
+  const pending = Math.max(0, weight - welded);
+  const projectCode = getClientProjectDisplayCode(project);
+  const subtitle = `${getProjectClientLabel(project)} • ${getProjectVesselLabel(project)} • ${status.text}`;
+  const metaLine = `BSP/PO: ${projectCode}`;
+
+  await drawClientPdfHeader(doc, 'Relatório Operacional STEP', subtitle, metaLine);
+
+  const kpis = [
+    ['Progresso geral', formatPercent(overall)],
+    ['Fabricação', formatPercent(fabrication)],
+    ['Planejado hoje', formatPercent(plannedToday)],
+    ['Peso programado', `${formatNumber(weight, 0)} kg`],
+    ['Peso soldado', `${formatNumber(welded, 0)} kg`],
+    ['Peso restante', `${formatNumber(pending, 0)} kg`],
+    ['Tags totais', formatNumber(totalTags)],
+    ['Tags restantes', formatNumber(remainingTags)],
+  ];
+  const startX = 12;
+  const boxW = (pageWidth - 24 - 7 * 4) / 8;
+  kpis.forEach((item, index) => drawClientPdfKpi(doc, startX + index * (boxW + 4), 42, boxW, 20, item[0], item[1]));
+
+  let y = 73;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(11, 55, 97);
+  doc.text('Indicadores dos gráficos', 12, y);
+  y += 9;
+  drawClientPdfProgressBar(doc, 12, y, 78, 'Overall Progress', overall);
+  y += 9;
+  drawClientPdfProgressBar(doc, 12, y, 78, 'Fabrication Progress', fabrication);
+  y += 9;
+  drawClientPdfProgressBar(doc, 12, y, 78, 'Planejado hoje', plannedToday, 'planned');
+  y += 13;
+  stages.forEach((stage) => {
+    drawClientPdfProgressBar(doc, 12, y, 78, stage.label, stage.percent);
+    y += 8;
+  });
+
+  drawClientPdfSCurve(doc, buildClientSCurveData(project), 132, 73, 150, 82, 'Curva S | Planejado x Realizado');
+
+  doc.addPage('a4', 'landscape');
+  await drawClientPdfHeader(doc, 'Relatório Operacional STEP', subtitle, metaLine);
+  const detailStageKeys = ['Drawing Execution Advance%', 'Procuremnt Status %', 'Material Separation', 'Full welding execution', 'Non Destructive Examination (QC)', 'Hydro Test Pressure (QC)', 'Surface preparation and/or coating', 'Final Inspection', 'Package and Delivered'];
+  const stageRows = detailStageKeys.map((key) => [clientReportStageLabel(key), formatPercent(getClientStageValue(project, [key]))]);
+  doc.autoTable({
+    startY: 42,
+    head: [['Processo', '%']],
+    body: stageRows,
+    tableWidth: 128,
+    styles: { font: 'helvetica', fontSize: 8, cellPadding: 2, lineColor: [220, 228, 236], lineWidth: 0.1 },
+    headStyles: { fillColor: [22, 83, 126], textColor: [255, 255, 255], fontStyle: 'bold' },
+    margin: { left: 12, right: 12 },
+    didDrawPage: () => drawClientPdfFooter(doc),
+  });
+  const scheduleRows = buildClientExecutiveSchedule(project).map((row) => [
+    row.type === 'group' ? row.label : `  ${row.label}`,
+    row.type === 'group' ? 'Grupo' : 'Etapa',
+    formatPercent(row.progress),
+    String(row.duration || '—'),
+    formatClientDateShort(row.start),
+    formatClientDateShort(row.finish),
+  ]);
+  doc.autoTable({
+    startY: 42,
+    head: [['Schedule Executivo', 'Tipo', '%', 'Dias úteis', 'Início', 'Fim']],
+    body: scheduleRows,
+    tableWidth: pageWidth - 158,
+    margin: { left: 148, right: 12 },
+    styles: { font: 'helvetica', fontSize: 7.5, cellPadding: 1.7, lineColor: [220, 228, 236], lineWidth: 0.1 },
+    headStyles: { fillColor: [22, 83, 126], textColor: [255, 255, 255], fontStyle: 'bold' },
+    didDrawPage: () => drawClientPdfFooter(doc),
+  });
+
+  doc.addPage('a4', 'landscape');
+  await drawClientPdfHeader(doc, 'Relatório Operacional STEP', subtitle, metaLine);
+  const spools = Array.isArray(project.spools) ? project.spools : [];
+  const spoolRows = spools.slice(0, 180).map((spool) => [
+    String(spool.iso || '—'),
+    String(spool.description || '—'),
+    String(spool.currentStatus || spool.stage || uiStateLabel(spool.uiState) || '—'),
+    String(spool.currentSector || spool.operationalSector || '—'),
+    formatPercent(spool.overallProgress),
+    `${formatNumber(spool.kilos, 2)} kg`,
+  ]);
+  doc.autoTable({
+    startY: 42,
+    head: [['Tag/ISO', 'Descrição', 'Status', 'Etapa', '%', 'Peso']],
+    body: spoolRows.length ? spoolRows : [['—', 'Nenhuma tag detalhada encontrada para esta BSP.', '—', '—', '—', '—']],
+    styles: { font: 'helvetica', fontSize: 7, cellPadding: 1.4, overflow: 'linebreak', valign: 'middle', lineColor: [220, 228, 236], lineWidth: 0.1 },
+    headStyles: { fillColor: [22, 83, 126], textColor: [255, 255, 255], fontStyle: 'bold' },
+    columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 66 }, 2: { cellWidth: 38 }, 3: { cellWidth: 34 }, 4: { cellWidth: 16 }, 5: { cellWidth: 22 } },
+    margin: { left: 12, right: 12 },
+    didDrawPage: () => drawClientPdfFooter(doc),
+  });
+
+  doc.save(buildClientExecutivePdfFileName(project));
+}
+
+async function downloadClientMacroExecutivePdf() {
+  const jsPdfApi = window.jspdf?.jsPDF;
+  if (!jsPdfApi) throw new Error('A biblioteca de PDF não foi carregada.');
+  const list = getClientMacroProjects(state.projects);
+  const doc = new jsPdfApi({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const totals = getClientMacroTotals(list);
+  const overall = getClientMacroOverallProgress(list);
+  const fabrication = getClientMacroFabricationProgress(list);
+  const plannedToday = getClientMacroPlannedToday(list);
+  const stages = getClientMacroProductionStages(list);
+  const range = getClientMacroDateRange(list);
+  await drawClientPdfHeader(doc, 'Relatório Operacional STEP', getClientPortalName(), `Carteira do cliente • ${formatNumber(totals.bsps)} BSP(s) • ${formatNumber(totals.tags)} tag(s)`);
+  const kpis = [
+    ['BSPs', formatNumber(totals.bsps)],
+    ['Tags totais', formatNumber(totals.tags)],
+    ['Tags restantes', formatNumber(totals.remainingTags)],
+    ['Progresso geral', formatPercent(overall)],
+    ['Fabricação', formatPercent(fabrication)],
+    ['Planejado hoje', formatPercent(plannedToday)],
+    ['Peso programado', `${formatNumber(totals.weight, 0)} kg`],
+    ['M² programada', formatNumber(totals.m2, 3)],
+  ];
+  const boxW = (pageWidth - 24 - 7 * 4) / 8;
+  kpis.forEach((item, index) => drawClientPdfKpi(doc, 12 + index * (boxW + 4), 42, boxW, 20, item[0], item[1]));
+  let y = 76;
+  drawClientPdfProgressBar(doc, 12, y, 88, 'Overall Progress', overall);
+  y += 10;
+  drawClientPdfProgressBar(doc, 12, y, 88, 'Fabrication Progress', fabrication);
+  y += 10;
+  stages.forEach((stage) => {
+    drawClientPdfProgressBar(doc, 12, y, 88, stage.label, stage.percent);
+    y += 9;
+  });
+  drawClientPdfSCurve(doc, buildClientMacroSCurveData(list), 132, 73, 150, 82, 'Curva S | Carteira do Cliente');
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(61, 100, 127);
+  doc.text(`Início macro: ${clientFormatDateValue(range.start) || '—'}  •  Término macro: ${clientFormatDateValue(range.finish) || '—'}`, 12, 166);
+
+  doc.addPage('a4', 'landscape');
+  await drawClientPdfHeader(doc, 'Relatório Operacional STEP', getClientPortalName(), 'Detalhamento macro das BSPs');
+  const projectRows = getClientMacroProjects(list).map((project) => {
+    const status = getProjectStatusPresentation(project);
+    return [
+      getClientProjectDisplayCode(project),
+      getProjectVesselLabel(project) || '—',
+      formatNumber(getProjectItemCount(project)),
+      `${formatNumber(project.kilos, 0)} kg`,
+      `${formatNumber(project.weldedWeightKg, 0)} kg`,
+      status.text,
+      formatPercent(getClientOverallProgress(project)),
+      String(project.plannedFinishDate || '—'),
+    ];
+  });
+  doc.autoTable({
+    startY: 42,
+    head: [['BSP / PO', 'Unidade', 'Tags', 'Peso', 'Soldado', 'Status', '% Geral', 'Término']],
+    body: projectRows.length ? projectRows : [['—', '—', '—', '—', '—', 'Nenhuma BSP encontrada para este cliente.', '—', '—']],
+    styles: { font: 'helvetica', fontSize: 7, cellPadding: 1.4, overflow: 'linebreak', valign: 'middle', lineColor: [220, 228, 236], lineWidth: 0.1 },
+    headStyles: { fillColor: [22, 83, 126], textColor: [255, 255, 255], fontStyle: 'bold' },
+    columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 34 }, 2: { cellWidth: 16 }, 3: { cellWidth: 24 }, 4: { cellWidth: 24 }, 5: { cellWidth: 34 }, 6: { cellWidth: 18 }, 7: { cellWidth: 24 } },
+    margin: { left: 12, right: 12 },
+    didDrawPage: () => drawClientPdfFooter(doc),
+  });
+  doc.save('relatorio.pdf');
+}
+
 function openClientMacroExecutive(projects = state.projects) {
   if (!isClientUser()) return;
   const list = getClientMacroProjects(projects);
@@ -4534,6 +4915,7 @@ function openClientMacroExecutive(projects = state.projects) {
         <p class="client-kicker">Visão Executiva da Carteira</p>
         <h2>${escapeHtml(getClientPortalName())}</h2>
         <p>Carteira completa do cliente • ${formatNumber(totals.bsps)} BSP(s) • ${formatNumber(totals.tags)} tag(s)</p>
+        <div class="client-exec-header-actions"><button class="client-exec-pdf-button" type="button" data-client-download-pdf data-client-report-type="macro">Baixar PDF</button></div>
       </div>
       <div class="client-exec-dates">
         <span>Início macro: <strong>${escapeHtml(clientFormatDateValue(range.start) || '—')}</strong></span>
@@ -4654,6 +5036,7 @@ function openClientBspExecutive(project) {
         <p class="client-kicker">Visão Executiva da BSP</p>
         <h2>${escapeHtml(getClientProjectDisplayCode(project))}</h2>
         <p>${escapeHtml(getProjectClientLabel(project))} • ${escapeHtml(getProjectVesselLabel(project))} • <span class="cell-status cell-status--${status.state}">${escapeHtml(status.text)}</span></p>
+        <div class="client-exec-header-actions"><button class="client-exec-pdf-button" type="button" data-client-download-pdf data-client-report-type="project" data-client-report-project-id="${escapeHtml(project.rowId)}">Baixar PDF</button></div>
       </div>
       <div class="client-exec-dates">
         <span>Início: <strong>${escapeHtml(startDate || '—')}</strong></span>
@@ -8795,7 +9178,14 @@ function renderAdminPresence(users = []) {
 function readImageFileAsOptimizedDataUrl(file, options = {}) {
   const maxWidth = Number(options.maxWidth || 900);
   const maxHeight = Number(options.maxHeight || 520);
+  const outputWidth = Number(options.outputWidth || 0);
+  const outputHeight = Number(options.outputHeight || 0);
+  const padding = Math.max(0, Number(options.padding || 0));
   const quality = Number(options.quality || 0.78);
+  const background = String(options.background || '#041a2d');
+  const mimeType = String(options.mimeType || 'image/jpeg');
+  const allowUpscale = Boolean(options.allowUpscale);
+
   return new Promise((resolve, reject) => {
     if (!file || !String(file.type || '').startsWith('image/')) {
       reject(new Error('Selecione um arquivo de imagem válido.'));
@@ -8807,19 +9197,46 @@ function readImageFileAsOptimizedDataUrl(file, options = {}) {
       const img = new Image();
       img.onerror = () => reject(new Error('Não foi possível processar a imagem selecionada.'));
       img.onload = () => {
-        let width = img.naturalWidth || img.width || maxWidth;
-        let height = img.naturalHeight || img.height || maxHeight;
+        const naturalWidth = img.naturalWidth || img.width || maxWidth;
+        const naturalHeight = img.naturalHeight || img.height || maxHeight;
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        if (outputWidth > 0 && outputHeight > 0) {
+          canvas.width = Math.max(1, Math.round(outputWidth));
+          canvas.height = Math.max(1, Math.round(outputHeight));
+          ctx.fillStyle = background;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          const innerWidth = Math.max(1, canvas.width - (padding * 2));
+          const innerHeight = Math.max(1, canvas.height - (padding * 2));
+          const containRatio = Math.min(innerWidth / naturalWidth, innerHeight / naturalHeight);
+          const ratio = allowUpscale ? containRatio : Math.min(containRatio, 1);
+          const drawWidth = Math.max(1, Math.round(naturalWidth * ratio));
+          const drawHeight = Math.max(1, Math.round(naturalHeight * ratio));
+          const drawX = Math.round((canvas.width - drawWidth) / 2);
+          const drawY = Math.round((canvas.height - drawHeight) / 2);
+
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+          resolve(canvas.toDataURL(mimeType, quality));
+          return;
+        }
+
+        let width = naturalWidth;
+        let height = naturalHeight;
         const ratio = Math.min(maxWidth / width, maxHeight / height, 1);
         width = Math.max(1, Math.round(width * ratio));
         height = Math.max(1, Math.round(height * ratio));
-        const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#041a2d';
+        ctx.fillStyle = background;
         ctx.fillRect(0, 0, width, height);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', quality));
+        resolve(canvas.toDataURL(mimeType, quality));
       };
       img.src = String(reader.result || '');
     };
@@ -8835,7 +9252,9 @@ async function importAdminClientImage(fileInput, targetInput, label) {
   }
   try {
     const isLogo = String(label || '').toLowerCase().includes('logo');
-    const dataUrl = await readImageFileAsOptimizedDataUrl(file, isLogo ? { maxWidth: 360, maxHeight: 180, quality: 0.76 } : { maxWidth: 520, maxHeight: 340, quality: 0.68 });
+    const dataUrl = await readImageFileAsOptimizedDataUrl(file, isLogo
+      ? { outputWidth: 560, outputHeight: 320, padding: 24, quality: 0.86, background: '#ffffff', allowUpscale: true }
+      : { maxWidth: 520, maxHeight: 340, quality: 0.68 });
     if (targetInput) {
       targetInput.value = dataUrl;
       targetInput.dispatchEvent(new Event('input', { bubbles: true }));
