@@ -3675,6 +3675,15 @@ function renderClientDashboard() {
   if (!state.clientPortal.selectedVesselKey && groups.length) state.clientPortal.selectedVesselKey = groups[0].key;
   const grid = document.getElementById('client-vessel-grid');
   if (grid) {
+    // v34.1: trava o layout das unidades no próprio componente.
+    // Isso evita que regras antigas de auto-fit/auto-fill ou cache visual empilhem 7/8 cards por linha.
+    grid.classList.add('client-vessel-grid--locked');
+    grid.style.display = 'grid';
+    grid.style.gridTemplateColumns = 'repeat(4, minmax(0, 1fr))';
+    grid.style.gap = '16px';
+    grid.style.alignItems = 'stretch';
+    grid.style.width = '100%';
+
     grid.innerHTML = groups.length ? groups.map((group) => `
       ${(() => {
         const platformImage = getClientPortalPlatformImage(group.label);
