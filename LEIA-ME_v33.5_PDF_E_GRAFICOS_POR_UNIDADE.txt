@@ -1,0 +1,31 @@
+Versão v33.5 - PDF e gráficos por unidade no Portal do Cliente
+
+Alteração implementada:
+- Os cards de Vessels / Unidades agora aceitam duplo clique.
+- Clique simples continua selecionando a unidade e listando as BSPs vinculadas.
+- Duplo clique abre a visão executiva filtrada somente pela unidade selecionada.
+- A visão executiva por unidade reaproveita os mesmos gráficos, indicadores, Curva S, attention points e detalhamento macro já existentes.
+- O botão de PDF dentro da visão executiva por unidade gera relatório apenas daquela unidade.
+
+Nome do arquivo PDF por unidade:
+- relatorio_CLIENTE_UNIDADE_NOME.pdf
+- Exemplo: relatorio_TRIDENT_ENERGY_UNIDADE_ATLANTA.pdf
+
+Escopo alterado:
+- site/app.js
+- site/app.css
+
+Não foi alterado:
+- Supabase
+- Smartsheet
+- Login/autenticação
+- Backend de projetos
+- Regras de cálculo de status
+- Regras de filtro por cliente
+- PDF individual por BSP/PO
+- PDF geral da carteira
+
+Validações:
+- node --check site/app.js: OK
+- node --check netlify/functions/projects.js: OK
+- npm run lint: OK

@@ -3552,7 +3552,7 @@ function ensureClientDashboardEl() {
     </div>
     <div class="client-section-head">
       <div><p class="client-kicker">Vessels / Unidades</p><h3>Carteira por unidade</h3></div>
-      <p>Clique em uma unidade para abrir as BSPs vinculadas.</p>
+      <p>Clique uma vez para listar as BSPs; dê 2 cliques para abrir os gráficos e o PDF da unidade.</p>
     </div>
     <div id="client-vessel-grid" class="client-vessel-grid"></div>
     <div id="client-bsp-panel" class="client-bsp-panel hidden">
@@ -3679,12 +3679,13 @@ function renderClientDashboard() {
       ${(() => {
         const platformImage = getClientPortalPlatformImage(group.label);
         return `
-          <button type="button" class="client-vessel-card ${platformImage ? 'has-media' : 'no-media'} ${state.clientPortal.selectedVesselKey === group.key ? 'is-active' : ''}" data-client-vessel="${escapeHtml(group.key)}">
+          <button type="button" class="client-vessel-card ${platformImage ? 'has-media' : 'no-media'} ${state.clientPortal.selectedVesselKey === group.key ? 'is-active' : ''}" data-client-vessel="${escapeHtml(group.key)}" title="Clique uma vez para listar as BSPs; dê 2 cliques para abrir os gráficos da unidade">
             <div class="client-vessel-info">
               <span>${escapeHtml(group.label)}</span>
               <strong>${formatNumber(group.projects.length)} BSP(s)</strong>
               <small>${formatNumber(group.tags)} tag(s) • ${formatNumber(group.weight, 0)} kg programado</small>
               <small>${formatNumber(group.welded, 0)} kg soldado • ${formatPercent(group.avgProgress)}</small>
+              <small class="client-vessel-action">2 cliques: gráficos / PDF da unidade</small>
             </div>
             ${platformImage ? `<div class="client-vessel-media"><img src="${escapeHtml(platformImage)}" alt="Foto da plataforma ${escapeHtml(group.label)}" /></div>` : ''}
           </button>
@@ -3695,16 +3696,28 @@ function renderClientDashboard() {
   renderClientBspPanel();
 }
 
-function getClientSelectedVesselProjects() {
+function getClientPortalSourceProjects() {
   // v32.5: Se houver pesquisa ativa, usa os projetos filtrados. Caso contrário, usa todos os projetos do cliente.
-  const sourceProjects = (state.searchQuery && state.searchQuery.trim()) 
-    ? (state.filteredProjects || []) 
+  return (state.searchQuery && state.searchQuery.trim())
+    ? (state.filteredProjects || [])
     : (state.projects || []);
-    
-  const selected = state.clientPortal.selectedVesselKey;
+}
+
+function getClientProjectsByVesselKey(vesselKey, projects = getClientPortalSourceProjects()) {
+  const selected = String(vesselKey || '').trim();
+  const sourceProjects = Array.isArray(projects) ? projects : [];
   if (!selected) return sourceProjects;
-  
   return sourceProjects.filter((project) => createProjectDrillKey(getProjectVesselLabel(project) || 'Unidade não informada') === selected);
+}
+
+function getClientVesselGroupByKey(vesselKey, projects = getClientPortalSourceProjects()) {
+  const selected = String(vesselKey || '').trim();
+  if (!selected) return null;
+  return getClientVesselGroups(projects).find((group) => group.key === selected) || null;
+}
+
+function getClientSelectedVesselProjects() {
+  return getClientProjectsByVesselKey(state.clientPortal.selectedVesselKey);
 }
 
 function renderClientBspPanel() {
@@ -4657,6 +4670,14 @@ function buildClientExecutivePdfFileName(project = null) {
   return 'relatorio.pdf';
 }
 
+function buildClientUnitExecutivePdfFileName(unitLabel = '') {
+  const client = sanitizeClientReportFilenamePart(getClientPortalName());
+  const unit = sanitizeClientReportFilenamePart(unitLabel || 'unidade');
+  if (client && unit) return `relatorio_${client}_UNIDADE_${unit}.pdf`;
+  if (unit) return `relatorio_UNIDADE_${unit}.pdf`;
+  return 'relatorio.pdf';
+}
+
 function drawClientPdfFooter(doc) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -4812,12 +4833,18 @@ function clientReportStageLabel(key) {
 function handleClientExecutivePdfDownload(button) {
   const type = button?.dataset?.clientReportType || 'project';
   const projectId = button?.dataset?.clientReportProjectId || '';
+  const unitKey = button?.dataset?.clientReportUnitKey || '';
   const originalText = button.textContent;
   button.disabled = true;
   button.textContent = 'Gerando PDF...';
-  const task = type === 'macro'
-    ? downloadClientMacroExecutivePdf()
-    : downloadClientBspExecutivePdf(state.projects.find((item) => String(item.rowId) === String(projectId)));
+  let task;
+  if (type === 'macro') {
+    task = downloadClientMacroExecutivePdf();
+  } else if (type === 'unit') {
+    task = downloadClientUnitExecutivePdf(unitKey);
+  } else {
+    task = downloadClientBspExecutivePdf(state.projects.find((item) => String(item.rowId) === String(projectId)));
+  }
   Promise.resolve(task)
     .catch((error) => {
       console.error('Falha ao gerar PDF executivo.', error);
@@ -4948,10 +4975,18 @@ async function downloadClientBspExecutivePdf(project) {
   doc.save(buildClientExecutivePdfFileName(project));
 }
 
-async function downloadClientMacroExecutivePdf() {
+async function downloadClientUnitExecutivePdf(unitKey = '') {
+  const group = getClientVesselGroupByKey(unitKey, state.projects);
+  if (!group) throw new Error('Nenhuma unidade encontrada para gerar o relatório.');
+  return downloadClientMacroExecutivePdf(group.projects, { scope: 'unit', unitKey: group.key, unitLabel: group.label });
+}
+
+async function downloadClientMacroExecutivePdf(projects = state.projects, options = {}) {
   const jsPdfApi = window.jspdf?.jsPDF;
   if (!jsPdfApi) throw new Error('A biblioteca de PDF não foi carregada.');
-  const list = getClientMacroProjects(state.projects);
+  const list = getClientMacroProjects(projects);
+  const unitLabel = String(options.unitLabel || '').trim();
+  const isUnitScope = options.scope === 'unit' && unitLabel;
   const doc = new jsPdfApi({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const contentX = 12;
@@ -4962,7 +4997,11 @@ async function downloadClientMacroExecutivePdf() {
   const plannedToday = getClientMacroPlannedToday(list);
   const stages = getClientMacroProductionStages(list);
   const range = getClientMacroDateRange(list);
-  await drawClientPdfHeader(doc, 'Relatório Operacional STEP', getClientPortalName(), `Carteira do cliente • ${formatNumber(totals.bsps)} BSP(s) • ${formatNumber(totals.tags)} tag(s)`);
+  const reportSubtitle = isUnitScope ? `${getClientPortalName()} • Unidade ${unitLabel}` : getClientPortalName();
+  const reportScopeLine = isUnitScope
+    ? `Relatório por unidade • ${formatNumber(totals.bsps)} BSP(s) • ${formatNumber(totals.tags)} tag(s)`
+    : `Carteira do cliente • ${formatNumber(totals.bsps)} BSP(s) • ${formatNumber(totals.tags)} tag(s)`;
+  await drawClientPdfHeader(doc, 'Relatório Operacional STEP', reportSubtitle, reportScopeLine);
   const kpis = [
     ['BSPs', formatNumber(totals.bsps)],
     ['Tags totais', formatNumber(totals.tags)],
@@ -4987,15 +5026,15 @@ async function downloadClientMacroExecutivePdf() {
     y += 9;
   });
   const curveY = Math.max(y + 10, 188);
-  drawClientPdfSCurve(doc, buildClientMacroSCurveData(list), contentX, curveY, contentW, 82, 'Curva S | Carteira do Cliente');
+  drawClientPdfSCurve(doc, buildClientMacroSCurveData(list), contentX, curveY, contentW, 82, isUnitScope ? 'Curva S | Unidade' : 'Curva S | Carteira do Cliente');
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(61, 100, 127);
   doc.text(`Início macro: ${clientFormatDateValue(range.start) || '—'}  •  Término macro: ${clientFormatDateValue(range.finish) || '—'}`, contentX, 278);
 
   doc.addPage('a4', 'portrait');
-  await drawClientPdfHeader(doc, 'Relatório Operacional STEP', getClientPortalName(), 'Detalhamento macro das BSPs');
-  drawClientPdfSectionTitle(doc, 'Detalhamento macro das BSPs', contentX, 42);
+  await drawClientPdfHeader(doc, 'Relatório Operacional STEP', reportSubtitle, isUnitScope ? `Detalhamento da unidade ${unitLabel}` : 'Detalhamento macro das BSPs');
+  drawClientPdfSectionTitle(doc, isUnitScope ? `Detalhamento da unidade ${unitLabel}` : 'Detalhamento macro das BSPs', contentX, 42);
   const projectRows = getClientMacroProjects(list).map((project) => {
     const status = getProjectStatusPresentation(project);
     return [
@@ -5019,15 +5058,27 @@ async function downloadClientMacroExecutivePdf() {
     margin: { left: contentX, right: contentX },
     didDrawPage: () => drawClientPdfFooter(doc),
   });
-  doc.save('relatorio.pdf');
+  doc.save(isUnitScope ? buildClientUnitExecutivePdfFileName(unitLabel) : 'relatorio.pdf');
 }
 
-function openClientMacroExecutive(projects = state.projects) {
+function openClientMacroExecutive(projects = state.projects, options = {}) {
   if (!isClientUser()) return;
   const list = getClientMacroProjects(projects);
   const modal = ensureClientBspExecutiveModalEl();
   const content = modal.querySelector('#client-bsp-executive-content');
   if (!content) return;
+  const unitLabel = String(options.unitLabel || '').trim();
+  const unitKey = String(options.unitKey || '').trim();
+  const isUnitScope = options.scope === 'unit' && unitLabel;
+  const reportTitle = isUnitScope ? unitLabel : getClientPortalName();
+  const reportKicker = isUnitScope ? 'Visão Executiva da Unidade' : 'Visão Executiva da Carteira';
+  const reportIntro = isUnitScope
+    ? `${getClientPortalName()} • Unidade ${unitLabel} • ${formatNumber(list.length)} BSP(s)`
+    : `Carteira completa do cliente • ${formatNumber(list.length)} BSP(s)`;
+  const reportButtonAttrs = isUnitScope
+    ? `data-client-report-type="unit" data-client-report-unit-key="${escapeHtml(unitKey)}"`
+    : 'data-client-report-type="macro"';
+  const reportButtonText = isUnitScope ? 'Baixar PDF da unidade' : 'Baixar PDF';
 
   const totals = getClientMacroTotals(list);
   const overall = getClientMacroOverallProgress(list);
@@ -5045,10 +5096,10 @@ function openClientMacroExecutive(projects = state.projects) {
   content.innerHTML = `
     <header class="client-exec-header client-exec-header--macro">
       <div>
-        <p class="client-kicker">Visão Executiva da Carteira</p>
-        <h2>${escapeHtml(getClientPortalName())}</h2>
-        <p>Carteira completa do cliente • ${formatNumber(totals.bsps)} BSP(s) • ${formatNumber(totals.tags)} tag(s)</p>
-        <div class="client-exec-header-actions"><button class="client-exec-pdf-button" type="button" data-client-download-pdf data-client-report-type="macro">Baixar PDF</button></div>
+        <p class="client-kicker">${escapeHtml(reportKicker)}</p>
+        <h2>${escapeHtml(reportTitle)}</h2>
+        <p>${escapeHtml(reportIntro)} • ${formatNumber(totals.tags)} tag(s)</p>
+        <div class="client-exec-header-actions"><button class="client-exec-pdf-button" type="button" data-client-download-pdf ${reportButtonAttrs}>${escapeHtml(reportButtonText)}</button></div>
       </div>
       <div class="client-exec-dates">
         <span>Início macro: <strong>${escapeHtml(clientFormatDateValue(range.start) || '—')}</strong></span>
@@ -5071,15 +5122,15 @@ function openClientMacroExecutive(projects = state.projects) {
 
     <div class="client-exec-grid client-exec-grid--top">
       <section class="client-exec-card">
-        <div class="client-exec-card-head"><h3>Overall Progress</h3><span>Carteira geral + desvio</span></div>
-        ${renderClientGauge(overall, 'carteira', plannedToday, { note: 'Meta macro até hoje' })}
+        <div class="client-exec-card-head"><h3>Overall Progress</h3><span>${isUnitScope ? 'Unidade consolidada + desvio' : 'Carteira geral + desvio'}</span></div>
+        ${renderClientGauge(overall, isUnitScope ? 'unidade' : 'carteira', plannedToday, { note: 'Meta macro até hoje' })}
       </section>
       <section class="client-exec-card">
-        <div class="client-exec-card-head"><h3>Fabrication Progress</h3><span>Fabricação ponderada da carteira</span></div>
+        <div class="client-exec-card-head"><h3>Fabrication Progress</h3><span>${isUnitScope ? 'Fabricação ponderada da unidade' : 'Fabricação ponderada da carteira'}</span></div>
         ${renderClientGauge(fabrication, 'fabricação', plannedToday, { note: 'Meta macro até hoje' })}
       </section>
       <section class="client-exec-card client-exec-card--bars">
-        <div class="client-exec-card-head"><h3>Progress by Production Stage</h3><span>Etapas principais da carteira</span></div>
+        <div class="client-exec-card-head"><h3>Progress by Production Stage</h3><span>${isUnitScope ? 'Etapas principais da unidade' : 'Etapas principais da carteira'}</span></div>
         <div class="client-exec-bars">
           ${stages.map((stage) => `<div class="client-exec-bar-row"><span>${escapeHtml(stage.label)}</span><div><i style="width:${clampClientPercent(stage.percent)}%"></i></div><strong>${formatPercent(stage.percent)}</strong></div>`).join('')}
         </div>
@@ -5088,13 +5139,13 @@ function openClientMacroExecutive(projects = state.projects) {
 
     <div class="client-exec-grid client-exec-grid--main">
       <section class="client-exec-card client-exec-card--curve">
-        <div class="client-exec-card-head"><h3>Curva S | Carteira do Cliente</h3><span>Planejado x realizado consolidado de todas as BSPs</span></div>
+        <div class="client-exec-card-head"><h3>${isUnitScope ? 'Curva S | Unidade' : 'Curva S | Carteira do Cliente'}</h3><span>Planejado x realizado consolidado das BSPs</span></div>
         <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span></div>
         ${renderClientMacroSCurveSvg(list)}
       </section>
       <aside class="client-exec-side">
         <section class="client-exec-card">
-          <div class="client-exec-card-head"><h3>Resumo BSPs</h3><span>Carteira consolidada</span></div>
+          <div class="client-exec-card-head"><h3>Resumo BSPs</h3><span>${isUnitScope ? 'Unidade consolidada' : 'Carteira consolidada'}</span></div>
           <div class="client-exec-mini-table">
             <div><span>Total</span><strong>${formatNumber(totals.bsps)}</strong></div>
             <div><span>Finalizadas</span><strong>${formatNumber(finishedBsps)}</strong></div>
@@ -5102,28 +5153,30 @@ function openClientMacroExecutive(projects = state.projects) {
           </div>
         </section>
         <section class="client-exec-card">
-          <div class="client-exec-card-head"><h3>Unidades</h3><span>BSPs por vessel</span></div>
+          <div class="client-exec-card-head"><h3>${isUnitScope ? 'Unidade' : 'Unidades'}</h3><span>${isUnitScope ? 'Escopo do relatório' : 'BSPs por vessel'}</span></div>
           <div class="client-exec-mini-table">
-            ${vesselGroups.slice(0, 8).map((group) => `<div><span>${escapeHtml(group.label)}</span><strong>${formatNumber(group.projects.length)} BSP(s)</strong></div>`).join('') || '<div><span>Sem unidade</span><strong>—</strong></div>'}
+            ${isUnitScope
+              ? `<div><span>${escapeHtml(unitLabel)}</span><strong>${formatNumber(totals.bsps)} BSP(s)</strong></div>`
+              : (vesselGroups.slice(0, 8).map((group) => `<div><span>${escapeHtml(group.label)}</span><strong>${formatNumber(group.projects.length)} BSP(s)</strong></div>`).join('') || '<div><span>Sem unidade</span><strong>—</strong></div>')}
           </div>
         </section>
       </aside>
     </div>
 
     <section class="client-exec-card">
-      <div class="client-exec-card-head"><h3>Timeline macro</h3><span>Resumo das etapas da carteira</span></div>
+      <div class="client-exec-card-head"><h3>Timeline macro</h3><span>${isUnitScope ? 'Resumo das etapas da unidade' : 'Resumo das etapas da carteira'}</span></div>
       <div class="client-exec-timeline">
         ${timeline.map((item) => `<div class="client-exec-step is-${item.state}"><span></span><strong>${escapeHtml(item.label)}</strong><small>${formatPercent(item.percent)}</small></div>`).join('')}
       </div>
     </section>
 
     <section class="client-exec-card client-exec-attention">
-      <div class="client-exec-card-head"><h3>S-Curve | Attention Points</h3><span>Análise automática da carteira</span></div>
+      <div class="client-exec-card-head"><h3>S-Curve | Attention Points</h3><span>${isUnitScope ? 'Análise automática da unidade' : 'Análise automática da carteira'}</span></div>
       <ul>${attention.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
     </section>
 
     <section class="client-exec-card client-exec-process-detail">
-      <div class="client-exec-card-head"><h3>Detalhamento macro das BSPs</h3><span>Menor progresso primeiro; finalizadas no final</span></div>
+      <div class="client-exec-card-head"><h3>${isUnitScope ? 'Detalhamento da unidade' : 'Detalhamento macro das BSPs'}</h3><span>Menor progresso primeiro; finalizadas no final</span></div>
       <div class="client-table-wrap client-table-wrap--compact client-exec-process-table">
         <table class="client-bsp-table"><thead><tr><th>BSP / PO</th><th>Unidade</th><th>Tags</th><th>Peso</th><th>Soldado</th><th>Status</th><th>% Geral</th><th>Término</th></tr></thead><tbody>
           ${renderClientMacroProjectRows(list)}
@@ -5310,6 +5363,20 @@ function handleClientDashboardClick(event) {
 }
 
 function handleClientDashboardDblClick(event) {
+  const vesselButton = event.target.closest('[data-client-vessel]');
+  if (vesselButton && isClientUser()) {
+    event.preventDefault();
+    event.stopPropagation();
+    const unitKey = vesselButton.dataset.clientVessel || '';
+    const group = getClientVesselGroupByKey(unitKey, getClientPortalSourceProjects());
+    if (!group) return;
+    state.clientPortal.selectedVesselKey = group.key;
+    state.clientPortal.selectedProjectId = null;
+    renderClientDashboard();
+    openClientMacroExecutive(group.projects, { scope: 'unit', unitKey: group.key, unitLabel: group.label });
+    return;
+  }
+
   const row = event.target.closest('[data-client-project-id]');
   if (!row || !isClientUser()) return;
   event.preventDefault();

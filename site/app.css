@@ -5643,3 +5643,16 @@ body.client-mode .client-logo-box img {
   border-radius: 10px;
   box-sizing: border-box;
 }
+
+/* v33.5 - Portal Cliente: indicação de gráficos/PDF por unidade */
+.client-vessel-action {
+  margin-top: 8px;
+  color: #8ce4ff !important;
+  font-weight: 800;
+  letter-spacing: .01em;
+}
+
+.client-vessel-card:hover .client-vessel-action,
+.client-vessel-card.is-active .client-vessel-action {
+  color: #ffffff !important;
+}
