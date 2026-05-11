@@ -6535,3 +6535,87 @@ body.client-mode .client-logo-box img,
   margin-top: 0 !important;
 }
 
+
+/* ===== v35.1 - Detalhamento operacional compacto: ISOs mais altos ===== */
+
+/* Remove o grande vazio entre sinalizações e a tabela */
+.modal-content,
+.detail-modal-content,
+#modal-content {
+  gap: 8px !important;
+}
+
+/* Sinalizações menores, sem ocupar altura desnecessária */
+.project-signals-section {
+  max-height: 86px !important;
+  min-height: 0 !important;
+  margin: 6px 0 6px !important;
+  padding: 8px 10px !important;
+  overflow: hidden !important;
+}
+
+.project-signals-head {
+  min-height: 0 !important;
+  margin-bottom: 4px !important;
+}
+
+.project-signals-list {
+  max-height: 34px !important;
+  overflow: auto !important;
+}
+
+.project-signals-list .empty-inline {
+  line-height: 1.15 !important;
+  font-size: .78rem !important;
+  padding: 0 !important;
+}
+
+/* Barra ISO discreta e logo acima da tabela */
+.modal-iso-toolbar {
+  margin: 2px 0 6px !important;
+  padding: 0 2px !important;
+  min-height: 26px !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+/* Evita que o modal crie um espaçador gigante antes dos ISOs */
+.modal-milestones {
+  margin-bottom: 4px !important;
+}
+
+.modal-table-wrap {
+  margin-top: 0 !important;
+  max-height: calc(100vh - 345px) !important;
+  min-height: 280px !important;
+  overflow: auto !important;
+}
+
+/* Em telas altas, sobe a tabela e aproveita mais área */
+@media (min-height: 850px) {
+  .modal-table-wrap {
+    max-height: calc(100vh - 330px) !important;
+  }
+}
+
+/* Em telas com zoom alto, ainda reduz espaços superiores */
+@media (max-height: 760px) {
+  .modal-summary-grid {
+    gap: 6px !important;
+  }
+
+  .metric-chip {
+    padding: 8px 10px !important;
+    min-height: 46px !important;
+  }
+
+  .project-signals-section {
+    max-height: 74px !important;
+  }
+
+  .modal-table-wrap {
+    max-height: calc(100vh - 300px) !important;
+    min-height: 220px !important;
+  }
+}
+
