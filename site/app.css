@@ -6324,3 +6324,142 @@ body.client-mode .client-logo-box img,
   }
 }
 
+
+/* ===== v34.9 - Filtro ISO/Urgência e sinalizações compactas ===== */
+
+/* Reduz de verdade o campo Sinalizações do projeto */
+.project-signals-section {
+  min-height: 0 !important;
+  max-height: 118px !important;
+  overflow: hidden !important;
+  padding: 8px 10px !important;
+  margin: 8px 0 10px !important;
+  border-radius: 14px !important;
+}
+
+.project-signals-head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  margin-bottom: 6px !important;
+}
+
+.project-signals-head strong {
+  font-size: .82rem !important;
+}
+
+.project-signals-head .manual-alert-tag {
+  font-size: .68rem !important;
+  padding: 3px 8px !important;
+}
+
+.project-signals-head .primary-button,
+.project-signals-head .ghost-button,
+.project-signals-head button {
+  min-height: 32px !important;
+  padding: 7px 12px !important;
+  font-size: .78rem !important;
+}
+
+.project-signals-list {
+  max-height: 58px !important;
+  overflow: auto !important;
+}
+
+.project-signals-list .empty-inline {
+  font-size: .8rem !important;
+  padding: 2px 0 !important;
+}
+
+.project-signals-list article {
+  padding: 6px 8px !important;
+  margin-bottom: 5px !important;
+  font-size: .75rem !important;
+  line-height: 1.2 !important;
+}
+
+/* Barra de ordenação dos ISOs */
+.modal-iso-toolbar {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  margin: 8px 0 8px !important;
+  padding: 8px 10px !important;
+  border: 1px solid rgba(126, 204, 255, .22) !important;
+  border-radius: 14px !important;
+  background: rgba(4, 29, 50, .72) !important;
+}
+
+.modal-iso-toolbar span {
+  display: block !important;
+  color: #8fb8d2 !important;
+  font-size: .68rem !important;
+  text-transform: uppercase !important;
+  letter-spacing: .08em !important;
+}
+
+.modal-iso-toolbar strong {
+  color: #eaf7ff !important;
+  font-size: .9rem !important;
+}
+
+.modal-iso-toolbar__actions {
+  display: flex !important;
+  gap: 8px !important;
+  flex-wrap: wrap !important;
+}
+
+.modal-sort-button {
+  border: 1px solid rgba(126, 204, 255, .28) !important;
+  background: rgba(9, 52, 86, .78) !important;
+  color: #bfe9ff !important;
+  border-radius: 999px !important;
+  padding: 7px 12px !important;
+  min-height: 32px !important;
+  font-size: .78rem !important;
+  font-weight: 800 !important;
+  cursor: pointer !important;
+}
+
+.modal-sort-button:hover,
+.modal-sort-button.is-active {
+  background: linear-gradient(135deg, rgba(30, 134, 200, .95), rgba(15, 90, 145, .95)) !important;
+  border-color: rgba(139, 224, 255, .8) !important;
+  color: #ffffff !important;
+}
+
+/* Prioridade total para leitura completa dos ISOs */
+.modal-table th:first-child,
+.modal-table td:first-child {
+  min-width: 420px !important;
+  width: 420px !important;
+  max-width: none !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  overflow-wrap: anywhere !important;
+  word-break: normal !important;
+  line-height: 1.22 !important;
+}
+
+/* Mais altura para a tabela após compactar sinalizações */
+.modal-table-wrap {
+  max-height: calc(100vh - 385px) !important;
+  overflow: auto !important;
+}
+
+@media (max-width: 1200px) {
+  .modal-table th:first-child,
+  .modal-table td:first-child {
+    min-width: 340px !important;
+    width: 340px !important;
+  }
+
+  .modal-iso-toolbar {
+    align-items: flex-start !important;
+    flex-direction: column !important;
+  }
+}
+

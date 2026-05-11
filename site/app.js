@@ -32,6 +32,7 @@ const state = {
   selectedProjectId: null,
   selectedProjectDrawerOpen: false,
   modalPendingOnly: false,
+  modalIsoSortMode: 'urgency',
   rowClickTimer: null,
   pollTimer: null,
   presenceHeartbeatTimer: null,
@@ -6671,11 +6672,14 @@ function renderModal(project) {
 
   const baseSpools = state.modalPendingOnly ? getPendingSpools(project) : (project.spools || []);
   const sourceSpools = getDisplaySpoolsForProject(project, baseSpools);
+  const modalIsoSortMode = state.modalIsoSortMode || 'urgency';
+  const sortByIsoNatural = (a, b) => String(a?.iso || '').localeCompare(String(b?.iso || ''), 'pt-BR', { numeric: true, sensitivity: 'base' });
   const sortedSpools = [...sourceSpools].sort((a, b) => {
+    if (modalIsoSortMode === 'iso') return sortByIsoNatural(a, b);
     const aProgress = Number.isFinite(Number(a?.individualProgress)) ? Number(a.individualProgress) : 999999;
     const bProgress = Number.isFinite(Number(b?.individualProgress)) ? Number(b.individualProgress) : 999999;
     if (aProgress !== bProgress) return aProgress - bProgress;
-    return String(a?.iso || '').localeCompare(String(b?.iso || ''), 'pt-BR', { numeric: true, sensitivity: 'base' });
+    return sortByIsoNatural(a, b);
   });
   const spoolRows = sortedSpools
     .map((spool) => {
@@ -6743,6 +6747,17 @@ function renderModal(project) {
     </section>
 
     ${renderProjectSignals(project)}
+
+    <section class="modal-iso-toolbar" aria-label="Ordenação dos ISOs">
+      <div>
+        <span>Organizar ISOs</span>
+        <strong>${modalIsoSortMode === 'iso' ? 'Por ISO' : 'Por urgência'}</strong>
+      </div>
+      <div class="modal-iso-toolbar__actions">
+        <button type="button" class="modal-sort-button ${modalIsoSortMode === 'urgency' ? 'is-active' : ''}" data-modal-iso-sort="urgency">Urgência</button>
+        <button type="button" class="modal-sort-button ${modalIsoSortMode === 'iso' ? 'is-active' : ''}" data-modal-iso-sort="iso">ISO</button>
+      </div>
+    </section>
 
     <section class="modal-table-wrap">
       <table class="modal-table">
@@ -8356,6 +8371,14 @@ if (adminUsersListEl) {
 
 
   modalContentEl.addEventListener("click", (event) => {
+    const isoSortButton = event.target.closest("[data-modal-iso-sort]");
+    if (isoSortButton) {
+      state.modalIsoSortMode = isoSortButton.dataset.modalIsoSort || 'urgency';
+      const project = getSelectedProject();
+      if (project) renderModal(project);
+      return;
+    }
+
     const backlogCard = event.target.closest("#modal-open-backlog");
     if (backlogCard) {
       const project = getSelectedProject();
