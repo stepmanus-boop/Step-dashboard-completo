@@ -2206,49 +2206,53 @@ function normalizeClientScopeValue(value) {
   return normalized;
 }
 
-function getClientScopeAliases(session = {}) {
-  const values = [
+const CLIENT_SCOPE_GENERIC_WORDS = new Set([
+  'de', 'da', 'do', 'das', 'dos', 'e', 'em', 'the', 'and', 'of', 'a', 'an',
+  'sa', 's', 'ltda', 'ltd', 'llc', 'inc', 'corp', 'company', 'companhia',
+  'brasil', 'brazil', 'global', 'international', 'internacional', 'energy',
+  'energia', 'offshore', 'oil', 'gas', 'petroleo', 'petroleum', 'services',
+  'service', 'servicos', 'solucoes', 'solutions', 'industrial', 'industria'
+]);
+
+function getClientScopeValues(session = {}) {
+  return [
     session.clientKey,
     session.clientName,
     ...(Array.isArray(session.allowedClients) ? session.allowedClients : []),
-  ];
-  const aliases = new Set();
-  values.forEach((value) => {
-    const normalized = normalizeClientScopeValue(value);
-    if (!normalized) return;
-    aliases.add(normalized);
-    normalized.split(/\s+/).forEach((part) => {
-      if (part && part.length >= 3) aliases.add(part);
-    });
-  });
-  return aliases;
+  ]
+    .map((value) => normalizeClientScopeValue(value))
+    .filter(Boolean);
+}
+
+function getClientPrimaryToken(value) {
+  const normalized = normalizeClientScopeValue(value);
+  if (!normalized) return '';
+  const words = normalized.split(/\s+/).filter(Boolean);
+  if (!words.length) return '';
+  return words.find((word) => word.length >= 2 && !CLIENT_SCOPE_GENERIC_WORDS.has(word)) || words[0];
 }
 
 function projectBelongsToClientScope(project, session = {}) {
   if (!project) return false;
-  const aliases = getClientScopeAliases(session);
-  if (!aliases.size) return false;
+  const scopeValues = getClientScopeValues(session);
+  if (!scopeValues.length) return false;
+
   const client = normalizeClientScopeValue(project.client);
   if (!client) return false;
-  
-  // Teste de compatibilidade: verifica se algum alias corresponde ao cliente do projeto
-  for (const alias of aliases) {
-    if (!alias) continue;
-    
-    // Teste 1: igualdade exata
-    if (client === alias) return true;
-    
-    // Teste 2: um está contido no outro
-    if (client.includes(alias) || alias.includes(client)) return true;
-    
-    // Teste 3: palavras-chave compartilhadas (pelo menos 2 palavras em comum)
-    const clientWords = client.split(/\s+/).filter(w => w.length >= 3);
-    const aliasWords = alias.split(/\s+/).filter(w => w.length >= 3);
-    if (clientWords.length > 0 && aliasWords.length > 0) {
-      const commonWords = clientWords.filter(w => aliasWords.includes(w));
-      if (commonWords.length > 0) return true;
-    }
+  const clientPrimary = getClientPrimaryToken(client);
+
+  for (const scopeValue of scopeValues) {
+    if (!scopeValue) continue;
+    const scopePrimary = getClientPrimaryToken(scopeValue);
+
+    // Mantém igualdade exata para cadastros que usam o nome completo do cliente.
+    if (client === scopeValue) return true;
+
+    // Portal do Cliente: prioriza a primeira palavra/nome principal.
+    // Ex.: TRIDENT ENERGY deve bater com TRIDENT, mas não com BW ENERGY apenas por conter ENERGY.
+    if (clientPrimary && scopePrimary && clientPrimary === scopePrimary) return true;
   }
+
   return false;
 }
 
