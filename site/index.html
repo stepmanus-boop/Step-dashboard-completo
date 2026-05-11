@@ -476,26 +476,22 @@
                 <input id="admin-user-client-logo-file" type="file" accept="image/*" />
                 <button id="admin-user-client-logo-import" class="ghost-button ghost-button--compact" type="button">Importar logo do computador</button>
               </div>
-              <small>Opcional. Você pode colar uma URL/caminho ou importar uma imagem local. Ao importar, o sistema redimensiona automaticamente para encaixar no quadro do Portal.</small>
+              <small>Opcional. Você pode colar uma URL/caminho ou importar uma imagem local. Ao importar, ajuste a prévia e clique em “Aplicar ajuste”.</small>
               <div id="admin-client-logo-editor" class="client-logo-editor hidden" aria-label="Prévia e ajuste da logo do cliente">
-                <div class="client-logo-editor-head">
-                  <strong>Prévia da logo no Portal</strong>
-                  <span>Ajuste até preencher o quadro com elegância.</span>
-                </div>
-                <div class="client-logo-editor-preview" id="admin-client-logo-preview">
+                <div class="client-logo-editor__preview">
                   <img id="admin-client-logo-preview-img" alt="Prévia da logo do cliente" />
                 </div>
-                <div class="client-logo-editor-controls">
-                  <button id="admin-client-logo-zoom-out" class="ghost-button ghost-button--compact" type="button">Zoom -</button>
-                  <button id="admin-client-logo-zoom-in" class="ghost-button ghost-button--compact" type="button">Zoom +</button>
-                  <button id="admin-client-logo-move-left" class="ghost-button ghost-button--compact" type="button">←</button>
-                  <button id="admin-client-logo-move-right" class="ghost-button ghost-button--compact" type="button">→</button>
-                  <button id="admin-client-logo-move-up" class="ghost-button ghost-button--compact" type="button">↑</button>
-                  <button id="admin-client-logo-move-down" class="ghost-button ghost-button--compact" type="button">↓</button>
-                  <button id="admin-client-logo-reset" class="ghost-button ghost-button--compact" type="button">Resetar</button>
-                  <button id="admin-client-logo-apply" class="primary-button primary-button--compact" type="button">Aplicar ajuste</button>
+                <div class="client-logo-editor__controls">
+                  <button type="button" class="ghost-button ghost-button--compact" data-logo-adjust="zoomOut">Zoom -</button>
+                  <button type="button" class="ghost-button ghost-button--compact" data-logo-adjust="zoomIn">Zoom +</button>
+                  <button type="button" class="ghost-button ghost-button--compact" data-logo-adjust="left">←</button>
+                  <button type="button" class="ghost-button ghost-button--compact" data-logo-adjust="right">→</button>
+                  <button type="button" class="ghost-button ghost-button--compact" data-logo-adjust="up">↑</button>
+                  <button type="button" class="ghost-button ghost-button--compact" data-logo-adjust="down">↓</button>
+                  <button type="button" class="ghost-button ghost-button--compact" data-logo-adjust="reset">Resetar</button>
+                  <button type="button" class="primary-button primary-button--compact" data-logo-adjust="apply">Aplicar ajuste</button>
                 </div>
-                <small>O que aparece nesta prévia será salvo como imagem final. Use zoom e setas para remover sobras brancas ou centralizar a marca.</small>
+                <small>A prévia usa o mesmo formato do Portal do Cliente. Ajuste até preencher o quadro sem excesso de branco.</small>
               </div>
             </label>
             <input id="admin-user-client-platform-image-url" type="hidden" value="" />

@@ -11,14 +11,6 @@ let adminResponsesPollTimer = null;
 let projectsWarmupPromise = null;
 let projectsWarmupResetTimer = null;
 
-const adminClientLogoEditorState = {
-  source: '',
-  image: null,
-  zoom: 1,
-  offsetX: 0,
-  offsetY: 0,
-};
-
 const state = {
   projects: [],
   filteredProjects: [],
@@ -341,16 +333,7 @@ const adminUserClientLogoUrlEl = document.getElementById("admin-user-client-logo
 const adminUserClientLogoFileEl = document.getElementById("admin-user-client-logo-file");
 const adminUserClientLogoImportEl = document.getElementById("admin-user-client-logo-import");
 const adminClientLogoEditorEl = document.getElementById("admin-client-logo-editor");
-const adminClientLogoPreviewEl = document.getElementById("admin-client-logo-preview");
 const adminClientLogoPreviewImgEl = document.getElementById("admin-client-logo-preview-img");
-const adminClientLogoZoomOutEl = document.getElementById("admin-client-logo-zoom-out");
-const adminClientLogoZoomInEl = document.getElementById("admin-client-logo-zoom-in");
-const adminClientLogoMoveLeftEl = document.getElementById("admin-client-logo-move-left");
-const adminClientLogoMoveRightEl = document.getElementById("admin-client-logo-move-right");
-const adminClientLogoMoveUpEl = document.getElementById("admin-client-logo-move-up");
-const adminClientLogoMoveDownEl = document.getElementById("admin-client-logo-move-down");
-const adminClientLogoResetEl = document.getElementById("admin-client-logo-reset");
-const adminClientLogoApplyEl = document.getElementById("admin-client-logo-apply");
 const adminUserClientPlatformImageUrlEl = document.getElementById("admin-user-client-platform-image-url");
 const adminUserClientPlatformImageFileEl = document.getElementById("admin-user-client-platform-image-file");
 const adminUserClientPlatformImageImportEl = document.getElementById("admin-user-client-platform-image-import");
@@ -381,6 +364,8 @@ const attentionPopupCloseEl = document.getElementById('attention-popup-close');
 const installAppButtonEl = document.getElementById("install-app-button");
 const connectionStatusEl = document.getElementById("connection-status");
 let deferredInstallPrompt = null;
+let adminLogoEditorState = { source: '', zoom: 1, x: 0, y: 0 };
+
 
 
 function setAdminActiveTab(tab) {
@@ -7807,147 +7792,35 @@ if (adminUserRoleEl) {
 }
 
 if (adminUserClientLogoImportEl) {
-  adminUserClientLogoImportEl.addEventListener('click', () => openAdminClientLogoEditorFromFile());
+  adminUserClientLogoImportEl.addEventListener('click', importAdminClientLogoWithEditor);
 }
-
-if (adminClientLogoZoomOutEl) adminClientLogoZoomOutEl.addEventListener('click', () => adjustAdminClientLogo({ zoomDelta: -0.08 }));
-if (adminClientLogoZoomInEl) adminClientLogoZoomInEl.addEventListener('click', () => adjustAdminClientLogo({ zoomDelta: 0.08 }));
-if (adminClientLogoMoveLeftEl) adminClientLogoMoveLeftEl.addEventListener('click', () => adjustAdminClientLogo({ moveX: -10 }));
-if (adminClientLogoMoveRightEl) adminClientLogoMoveRightEl.addEventListener('click', () => adjustAdminClientLogo({ moveX: 10 }));
-if (adminClientLogoMoveUpEl) adminClientLogoMoveUpEl.addEventListener('click', () => adjustAdminClientLogo({ moveY: -8 }));
-if (adminClientLogoMoveDownEl) adminClientLogoMoveDownEl.addEventListener('click', () => adjustAdminClientLogo({ moveY: 8 }));
-if (adminClientLogoResetEl) adminClientLogoResetEl.addEventListener('click', () => resetAdminClientLogoEditor());
-if (adminClientLogoApplyEl) adminClientLogoApplyEl.addEventListener('click', () => applyAdminClientLogoAdjustment());
 
 if (adminUserClientLogoUrlEl) {
   adminUserClientLogoUrlEl.addEventListener('input', () => {
-    const value = String(adminUserClientLogoUrlEl.value || '').trim();
-    if (!value || value.startsWith('data:')) return;
-    adminClientLogoEditorState.source = value;
-    adminClientLogoEditorState.image = null;
-    resetAdminClientLogoEditor();
+    resetAdminLogoEditor(adminUserClientLogoUrlEl.value || '');
   });
 }
 
-
-
-
-function clampAdminClientLogo(value, min, max) {
-  return Math.min(max, Math.max(min, Number(value) || 0));
-}
-
-function updateAdminClientLogoPreview() {
-  if (!adminClientLogoEditorEl || !adminClientLogoPreviewImgEl || !adminClientLogoEditorState.source) return;
-  adminClientLogoEditorEl.classList.remove('hidden');
-  adminClientLogoPreviewImgEl.src = adminClientLogoEditorState.source;
-  adminClientLogoPreviewImgEl.style.transform = `translate(${adminClientLogoEditorState.offsetX}px, ${adminClientLogoEditorState.offsetY}px) scale(${adminClientLogoEditorState.zoom})`;
-}
-
-function resetAdminClientLogoEditor() {
-  adminClientLogoEditorState.zoom = 1;
-  adminClientLogoEditorState.offsetX = 0;
-  adminClientLogoEditorState.offsetY = 0;
-  updateAdminClientLogoPreview();
-}
-
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Falha ao ler a imagem.'));
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.readAsDataURL(file);
-  });
-}
-
-function loadImageElement(src) {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('Falha ao carregar a imagem.'));
-    image.src = src;
-  });
-}
-
-async function openAdminClientLogoEditorFromFile() {
-  const file = adminUserClientLogoFileEl?.files?.[0];
-  if (!file) {
-    window.alert('Selecione a imagem da logo do cliente primeiro.');
-    return;
-  }
-  try {
-    const source = await readFileAsDataUrl(file);
-    const image = await loadImageElement(source);
-    adminClientLogoEditorState.source = source;
-    adminClientLogoEditorState.image = image;
-    adminClientLogoEditorState.zoom = 1;
-    adminClientLogoEditorState.offsetX = 0;
-    adminClientLogoEditorState.offsetY = 0;
-    updateAdminClientLogoPreview();
-    if (adminUserFeedbackEl) adminUserFeedbackEl.textContent = 'Logo carregada na prévia. Ajuste o enquadramento e clique em Aplicar ajuste.';
-  } catch (error) {
-    window.alert(error.message || 'Falha ao abrir editor da logo.');
-  }
-}
-
-function adjustAdminClientLogo({ zoomDelta = 0, moveX = 0, moveY = 0 } = {}) {
-  if (!adminClientLogoEditorState.source) return;
-  if (zoomDelta) adminClientLogoEditorState.zoom = clampAdminClientLogo(adminClientLogoEditorState.zoom + zoomDelta, 0.65, 3.2);
-  adminClientLogoEditorState.offsetX = clampAdminClientLogo(adminClientLogoEditorState.offsetX + moveX, -180, 180);
-  adminClientLogoEditorState.offsetY = clampAdminClientLogo(adminClientLogoEditorState.offsetY + moveY, -120, 120);
-  updateAdminClientLogoPreview();
-}
-
-function renderAdjustedClientLogoDataUrl() {
-  const image = adminClientLogoEditorState.image;
-  if (!image) throw new Error('Nenhuma logo carregada para aplicar.');
-
-  // Mesmo formato visual do quadro do Portal do Cliente: retangular horizontal.
-  const outputWidth = 720;
-  const outputHeight = 390;
-  const canvas = document.createElement('canvas');
-  canvas.width = outputWidth;
-  canvas.height = outputHeight;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, outputWidth, outputHeight);
-
-  const naturalWidth = image.naturalWidth || image.width || outputWidth;
-  const naturalHeight = image.naturalHeight || image.height || outputHeight;
-  const baseScale = Math.max(outputWidth / naturalWidth, outputHeight / naturalHeight);
-  const scale = baseScale * adminClientLogoEditorState.zoom;
-  const drawWidth = naturalWidth * scale;
-  const drawHeight = naturalHeight * scale;
-
-  // Os controles são calibrados pela prévia. No canvas final, convertemos proporcionalmente.
-  const previewWidth = adminClientLogoPreviewEl?.clientWidth || 360;
-  const previewHeight = adminClientLogoPreviewEl?.clientHeight || 195;
-  const offsetX = (adminClientLogoEditorState.offsetX / previewWidth) * outputWidth;
-  const offsetY = (adminClientLogoEditorState.offsetY / previewHeight) * outputHeight;
-  const x = (outputWidth - drawWidth) / 2 + offsetX;
-  const y = (outputHeight - drawHeight) / 2 + offsetY;
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(image, x, y, drawWidth, drawHeight);
-  return canvas.toDataURL('image/png', 0.96);
-}
-
-function applyAdminClientLogoAdjustment() {
-  try {
-    const dataUrl = renderAdjustedClientLogoDataUrl();
-    if (adminUserClientLogoUrlEl) {
-      adminUserClientLogoUrlEl.value = dataUrl;
-      adminUserClientLogoUrlEl.dispatchEvent(new Event('input', { bubbles: true }));
+if (adminClientLogoEditorEl) {
+  adminClientLogoEditorEl.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-logo-adjust]');
+    if (!button) return;
+    const action = button.dataset.logoAdjust;
+    if (action === 'zoomIn') adminLogoEditorState.zoom = Math.min(3, adminLogoEditorState.zoom + 0.08);
+    if (action === 'zoomOut') adminLogoEditorState.zoom = Math.max(0.35, adminLogoEditorState.zoom - 0.08);
+    if (action === 'left') adminLogoEditorState.x -= 8;
+    if (action === 'right') adminLogoEditorState.x += 8;
+    if (action === 'up') adminLogoEditorState.y -= 8;
+    if (action === 'down') adminLogoEditorState.y += 8;
+    if (action === 'reset') resetAdminLogoEditor();
+    if (action === 'apply') {
+      await applyAdminClientLogoAdjustment();
+      return;
     }
-    if (adminUserClientLogoFileEl) adminUserClientLogoFileEl.value = '';
-  if (adminClientLogoEditorEl) adminClientLogoEditorEl.classList.add('hidden');
-  adminClientLogoEditorState.source = '';
-  adminClientLogoEditorState.image = null;
-    if (adminUserFeedbackEl) adminUserFeedbackEl.textContent = 'Logo ajustada e aplicada. Salve o usuário para gravar no Portal do Cliente.';
-    updateAdminClientLogoPreview();
-  } catch (error) {
-    window.alert(error.message || 'Falha ao aplicar ajuste da logo.');
-  }
+    updateAdminLogoEditorPreview();
+  });
 }
+
 
 function setClientPlatformImageLine(platformName, imageUrl) {
   const key = String(platformName || '').trim();
@@ -9632,6 +9505,108 @@ function readImageFileAsOptimizedDataUrl(file, options = {}) {
   });
 }
 
+
+function updateAdminLogoEditorPreview() {
+  if (!adminClientLogoEditorEl || !adminClientLogoPreviewImgEl) return;
+  const src = String(adminLogoEditorState.source || adminUserClientLogoUrlEl?.value || '').trim();
+  if (!src) {
+    adminClientLogoEditorEl.classList.add('hidden');
+    adminClientLogoPreviewImgEl.removeAttribute('src');
+    return;
+  }
+  adminClientLogoEditorEl.classList.remove('hidden');
+  adminClientLogoPreviewImgEl.src = src;
+  adminClientLogoPreviewImgEl.style.transform = `translate(${adminLogoEditorState.x}px, ${adminLogoEditorState.y}px) scale(${adminLogoEditorState.zoom})`;
+}
+
+function resetAdminLogoEditor(source = '') {
+  adminLogoEditorState = {
+    source: String(source || adminUserClientLogoUrlEl?.value || '').trim(),
+    zoom: 1,
+    x: 0,
+    y: 0,
+  };
+  updateAdminLogoEditorPreview();
+}
+
+function drawAdjustedClientLogoToDataUrl() {
+  return new Promise((resolve, reject) => {
+    const src = String(adminLogoEditorState.source || adminUserClientLogoUrlEl?.value || '').trim();
+    if (!src) {
+      reject(new Error('Importe ou informe uma logo antes de aplicar o ajuste.'));
+      return;
+    }
+
+    const img = new Image();
+    img.onload = () => {
+      const outputWidth = 720;
+      const outputHeight = 420;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = outputWidth;
+      canvas.height = outputHeight;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, outputWidth, outputHeight);
+
+      const naturalWidth = img.naturalWidth || img.width || outputWidth;
+      const naturalHeight = img.naturalHeight || img.height || outputHeight;
+      const baseRatio = Math.max(outputWidth / naturalWidth, outputHeight / naturalHeight);
+      const ratio = baseRatio * Math.max(0.2, Number(adminLogoEditorState.zoom || 1));
+      const drawWidth = naturalWidth * ratio;
+      const drawHeight = naturalHeight * ratio;
+      const drawX = ((outputWidth - drawWidth) / 2) + Number(adminLogoEditorState.x || 0);
+      const drawY = ((outputHeight - drawHeight) / 2) + Number(adminLogoEditorState.y || 0);
+
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+      resolve(canvas.toDataURL('image/png', 0.92));
+    };
+    img.onerror = () => reject(new Error('Não foi possível renderizar a logo ajustada.'));
+    img.src = src;
+  });
+}
+
+async function importAdminClientLogoWithEditor() {
+  const file = adminUserClientLogoFileEl?.files?.[0];
+  if (!file) {
+    window.alert('Selecione a imagem da logo do cliente primeiro.');
+    return;
+  }
+  try {
+    const dataUrl = await readImageFileAsOptimizedDataUrl(file, {
+      maxWidth: 1400,
+      maxHeight: 900,
+      quality: 0.92,
+      background: '#ffffff',
+      mimeType: 'image/png'
+    });
+    if (adminUserClientLogoUrlEl) {
+      adminUserClientLogoUrlEl.value = dataUrl;
+      adminUserClientLogoUrlEl.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    resetAdminLogoEditor(dataUrl);
+    if (adminUserFeedbackEl) adminUserFeedbackEl.textContent = 'Logo importada. Ajuste a prévia e clique em Aplicar ajuste antes de salvar.';
+  } catch (error) {
+    window.alert(error.message || 'Falha ao importar logo do cliente.');
+  }
+}
+
+async function applyAdminClientLogoAdjustment() {
+  try {
+    const adjusted = await drawAdjustedClientLogoToDataUrl();
+    if (adminUserClientLogoUrlEl) {
+      adminUserClientLogoUrlEl.value = adjusted;
+      adminUserClientLogoUrlEl.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    resetAdminLogoEditor(adjusted);
+    if (adminUserFeedbackEl) adminUserFeedbackEl.textContent = 'Ajuste da logo aplicado. Salve o usuário para gravar.';
+  } catch (error) {
+    window.alert(error.message || 'Falha ao aplicar ajuste da logo.');
+  }
+}
+
+
 async function importAdminClientImage(fileInput, targetInput, label) {
   const file = fileInput?.files?.[0];
   if (!file) {
@@ -9682,6 +9657,7 @@ function resetAdminUserForm() {
   if (adminUserClientKeyEl) adminUserClientKeyEl.value = '';
   if (adminUserClientNameEl) adminUserClientNameEl.value = '';
   if (adminUserClientLogoUrlEl) adminUserClientLogoUrlEl.value = '';
+  resetAdminLogoEditor('');
   if (adminUserClientLogoFileEl) adminUserClientLogoFileEl.value = '';
   if (adminUserClientPlatformImageUrlEl) adminUserClientPlatformImageUrlEl.value = '';
   if (adminUserClientPlatformNameEl) adminUserClientPlatformNameEl.value = '';
@@ -9710,17 +9686,8 @@ function startEditUser(userId) {
   if (adminUserClientKeyEl) adminUserClientKeyEl.value = user.clientKey || '';
   if (adminUserClientNameEl) adminUserClientNameEl.value = user.clientName || '';
   if (adminUserClientLogoUrlEl) adminUserClientLogoUrlEl.value = user.clientLogoUrl || '';
+  resetAdminLogoEditor(user.clientLogoUrl || '');
   if (adminUserClientLogoFileEl) adminUserClientLogoFileEl.value = '';
-  if (user.clientLogoUrl && adminClientLogoEditorEl) {
-    adminClientLogoEditorState.source = user.clientLogoUrl;
-    adminClientLogoEditorState.image = null;
-    adminClientLogoEditorState.zoom = 1;
-    adminClientLogoEditorState.offsetX = 0;
-    adminClientLogoEditorState.offsetY = 0;
-    updateAdminClientLogoPreview();
-  } else if (adminClientLogoEditorEl) {
-    adminClientLogoEditorEl.classList.add('hidden');
-  }
   if (adminUserClientPlatformImageUrlEl) {
     const platformUrl = user.clientPlatformImageUrl || '';
     adminUserClientPlatformImageUrlEl.value = ''; // imagem padrão desativada: use apenas fotos por plataforma
