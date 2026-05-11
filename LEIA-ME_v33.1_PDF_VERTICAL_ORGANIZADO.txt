@@ -1,0 +1,25 @@
+VERSÃO v33.1 - PDF VERTICAL ORGANIZADO
+
+Alteração realizada:
+- O relatório PDF do Portal do Cliente deixou de ser gerado em formato horizontal/landscape.
+- Agora o PDF é gerado em formato vertical/retrato A4.
+- Os cards de indicadores foram reorganizados em grade 4x2 para melhorar leitura.
+- Os gráficos e indicadores foram reposicionados para evitar aparência espremida.
+- As tabelas de processos, schedule executivo e detalhamento de tags/ISOs foram ajustadas para caberem no formato vertical.
+
+Arquivos alterados:
+- site/app.js
+
+Não foram alterados:
+- API Smartsheet
+- Supabase
+- Login
+- Cache warmup
+- Regras de status
+- Cálculos de progresso
+- CSS do painel
+
+Validações:
+- node --check site/app.js
+- node --check netlify/functions/projects.js
+- npm run lint

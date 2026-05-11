@@ -2235,6 +2235,14 @@ function getAwaitingShipmentTags(project) {
 }
 
 function getProjectStatusPresentation(project) {
+  if (hasClientIncompleteProductionEvidence(project)) {
+    const openStage = getClientFirstIncompleteProductionStage(project);
+    if (openStage?.key === 'package') return { text: 'Aguardando envio', state: 'awaiting_shipment' };
+    if (openStage?.key === 'engineering') return { text: 'Engenharia em andamento', state: 'in_progress' };
+    if (openStage?.key === 'procurement') return { text: 'Suprimento em andamento', state: 'in_progress' };
+    return { text: 'Em produção', state: 'in_progress' };
+  }
+
   if (projectHasAwaitingShipmentPackage(project) && project?.uiState !== 'completed') {
     return { text: 'Aguardando envio', state: 'awaiting_shipment' };
   }
@@ -2264,6 +2272,8 @@ function getProjectStatusPresentation(project) {
 }
 
 function isProjectFinalizedForDisplay(project) {
+  if (hasClientIncompleteProductionEvidence(project)) return false;
+
   const statusText = normalizeText([
     project?.statusSummary,
     project?.currentStatus,
@@ -2816,7 +2826,7 @@ function hasProjectFinishedBooleanMarker(project) {
 
 function areAllProjectSpoolsFinished(project) {
   const spools = Array.isArray(project?.spools) ? project.spools : [];
-  return spools.length > 0 && spools.every((spool) => Boolean(
+  return spools.length > 0 && spools.every((spool) => !hasClientIncompleteProductionEvidence(spool) && Boolean(
     spool?.finished
     || spool?.projectFinishedFlag
     || spool?.uiState === 'completed'
@@ -2832,6 +2842,7 @@ function areAllProjectSpoolsFinished(project) {
 
 function isProjectFinishedForTotal(project) {
   if (!project) return false;
+  if (hasClientIncompleteProductionEvidence(project)) return false;
   return Boolean(
     hasProjectFinishedBooleanMarker(project)
     || hasProjectFinishDateMarker(project)
@@ -3883,6 +3894,93 @@ function getClientStageValue(project, keys) {
   return 0;
 }
 
+const CLIENT_PRODUCTION_STAGE_EVIDENCE_KEYS = [
+  'Drawing Execution Advance%',
+  'Drawing',
+  'Procuremnt Status %',
+  'Procurement Status %',
+  'Procurement',
+  'Material Separation',
+  'Material Release to Fabrication',
+  'Welding Preparation',
+  'Spool Assemble and tack weld',
+  'Initial Dimensional Inspection/3D',
+  'Full welding execution',
+  'Non Destructive Examination (QC)',
+  'Final Dimensional Inpection/3D (QC)',
+  'Hydro Test Pressure (QC)',
+  'Surface preparation and/or coating',
+  'HDG / FBE.  (PAINT)',
+  'Final Inspection',
+  'Package and Delivered',
+];
+
+function hasClientStageEvidence(project, keys = CLIENT_PRODUCTION_STAGE_EVIDENCE_KEYS) {
+  const stageValues = project?.stageValues || {};
+  return keys.some((key) => {
+    const value = stageValues[key];
+    return value != null && value !== '' && value !== 'N/A' && value !== 'Não';
+  });
+}
+
+function getClientStageEvidenceValue(project, keys) {
+  const stageValues = project?.stageValues || {};
+  for (const key of keys) {
+    const value = stageValues[key];
+    if (value != null && value !== '' && value !== 'N/A' && value !== 'Não') {
+      return { hasEvidence: true, percent: clientPercentValue(value) };
+    }
+  }
+  return { hasEvidence: false, percent: 0 };
+}
+
+function getClientProductionStageSnapshots(project) {
+  const engineering = getClientStageEvidenceValue(project, ['Drawing Execution Advance%', 'Drawing']);
+  const procurementCandidates = [
+    getClientStageEvidenceValue(project, ['Procuremnt Status %', 'Procurement Status %', 'Procurement']),
+    getClientStageEvidenceValue(project, ['Material Separation']),
+    getClientStageEvidenceValue(project, ['Material Release to Fabrication']),
+  ];
+  const procurement = procurementCandidates.reduce((best, item) => {
+    if (!item.hasEvidence) return best;
+    if (!best.hasEvidence || item.percent > best.percent) return item;
+    return best;
+  }, { hasEvidence: false, percent: 0 });
+  const fabrication = { hasEvidence: hasClientStageEvidence(project, [
+    'Welding Preparation',
+    'Spool Assemble and tack weld',
+    'Initial Dimensional Inspection/3D',
+    'Full welding execution',
+    'Non Destructive Examination (QC)',
+    'Final Dimensional Inpection/3D (QC)',
+    'Hydro Test Pressure (QC)',
+    'Surface preparation and/or coating',
+    'HDG / FBE.  (PAINT)',
+  ]), percent: getClientFabricationProgress(project) };
+  const packageDelivery = getClientStageEvidenceValue(project, ['Package and Delivered', 'Final Inspection']);
+  return [
+    { key: 'engineering', label: 'Engineering / Drawing', percent: engineering.percent, weight: 15, hasEvidence: engineering.hasEvidence },
+    { key: 'procurement', label: 'Procurement', percent: procurement.percent, weight: 15, hasEvidence: procurement.hasEvidence },
+    { key: 'fabrication', label: 'Fabrication', percent: fabrication.percent, weight: 65, hasEvidence: fabrication.hasEvidence },
+    { key: 'package', label: 'Package / Delivery', percent: packageDelivery.percent, weight: 5, hasEvidence: packageDelivery.hasEvidence },
+  ];
+}
+
+function hasClientIncompleteProductionEvidence(project) {
+  const stages = getClientProductionStageSnapshots(project);
+  return stages.some((stage) => stage.hasEvidence && clampClientPercent(stage.percent) < 99.9);
+}
+
+function getClientFirstIncompleteProductionStage(project) {
+  return getClientProductionStageSnapshots(project).find((stage) => stage.hasEvidence && clampClientPercent(stage.percent) < 99.9) || null;
+}
+
+function getClientStageBasedOverallProgress(project) {
+  const stages = getClientProductionStages(project);
+  const totalWeight = stages.reduce((sum, stage) => sum + stage.weight, 0) || 100;
+  return clampClientPercent(stages.reduce((sum, stage) => sum + stage.percent * stage.weight, 0) / totalWeight);
+}
+
 function getClientFabricationProgress(project) {
   const painting = getClientStageValue(project, ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)']);
   if (painting >= 99.9) return 100;
@@ -3933,11 +4031,12 @@ function getClientProductionStages(project) {
 }
 
 function getClientOverallProgress(project) {
+  const stageBased = getClientStageBasedOverallProgress(project);
+  if (hasClientStageEvidence(project)) return stageBased;
+
   const direct = clientPercentValue(project?.overallProgress);
   if (direct > 0) return direct;
-  const stages = getClientProductionStages(project);
-  const totalWeight = stages.reduce((sum, stage) => sum + stage.weight, 0) || 100;
-  return clampClientPercent(stages.reduce((sum, stage) => sum + stage.percent * stage.weight, 0) / totalWeight);
+  return stageBased;
 }
 
 function getClientAnalyticStartDate(project) {
@@ -4127,7 +4226,7 @@ function renderClientGauge(percent, label, plannedPercent = null, options = {}) 
 function getClientCompletedTags(project) {
   const spools = Array.isArray(project?.spools) ? project.spools : [];
   if (!spools.length) return 0;
-  return spools.filter((spool) => clientPercentValue(spool?.overallProgress) >= 100 || String(spool?.uiState || '').toLowerCase() === 'completed').length;
+  return spools.filter((spool) => !hasClientIncompleteProductionEvidence(spool) && (clientPercentValue(spool?.overallProgress) >= 100 || String(spool?.uiState || '').toLowerCase() === 'completed')).length;
 }
 
 function getClientAttentionPoints(project) {
@@ -4493,6 +4592,7 @@ function getClientMacroAttentionPoints(projects = state.projects) {
 
 function getClientProjectVisualState(project) {
   const progress = getClientOverallProgress(project);
+  if (hasClientIncompleteProductionEvidence(project)) return progress <= 0 ? 'not-started' : 'in-progress';
   if (progress >= 99.9 || isProjectFinishedForTotal(project)) return 'completed';
   if (progress <= 0) return 'not-started';
   return 'in-progress';
@@ -4603,6 +4703,28 @@ function drawClientPdfKpi(doc, x, y, w, h, label, value) {
   doc.text(lines.slice(0, 2), x + 3, y + 12);
 }
 
+function drawClientPdfKpiGrid(doc, kpis, yStart, options = {}) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = options.margin || 12;
+  const gap = options.gap || 4;
+  const columns = options.columns || 4;
+  const boxH = options.boxH || 18;
+  const boxW = (pageWidth - margin * 2 - gap * (columns - 1)) / columns;
+  kpis.forEach((item, index) => {
+    const col = index % columns;
+    const row = Math.floor(index / columns);
+    drawClientPdfKpi(doc, margin + col * (boxW + gap), yStart + row * (boxH + gap), boxW, boxH, item[0], item[1]);
+  });
+  return yStart + Math.ceil(kpis.length / columns) * boxH + Math.max(0, Math.ceil(kpis.length / columns) - 1) * gap;
+}
+
+function drawClientPdfSectionTitle(doc, title, x, y) {
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(11, 55, 97);
+  doc.text(String(title || ''), x, y);
+}
+
 function drawClientPdfProgressBar(doc, x, y, w, label, percent, tone = 'normal') {
   const p = clampClientPercent(percent);
   const fill = tone === 'planned' ? [239, 193, 79] : [11, 155, 122];
@@ -4711,8 +4833,10 @@ async function downloadClientBspExecutivePdf(project) {
   if (!project) throw new Error('Nenhuma BSP selecionada para gerar o relatório.');
   const jsPdfApi = window.jspdf?.jsPDF;
   if (!jsPdfApi) throw new Error('A biblioteca de PDF não foi carregada.');
-  const doc = new jsPdfApi({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const doc = new jsPdfApi({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
+  const contentX = 12;
+  const contentW = pageWidth - 24;
   const status = getProjectStatusPresentation(project);
   const stages = getClientProductionStages(project);
   const overall = getClientOverallProgress(project);
@@ -4740,43 +4864,44 @@ async function downloadClientBspExecutivePdf(project) {
     ['Tags totais', formatNumber(totalTags)],
     ['Tags restantes', formatNumber(remainingTags)],
   ];
-  const startX = 12;
-  const boxW = (pageWidth - 24 - 7 * 4) / 8;
-  kpis.forEach((item, index) => drawClientPdfKpi(doc, startX + index * (boxW + 4), 42, boxW, 20, item[0], item[1]));
+  const afterKpisY = drawClientPdfKpiGrid(doc, kpis, 42, { columns: 4, boxH: 18 });
 
-  let y = 73;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(11, 55, 97);
-  doc.text('Indicadores dos gráficos', 12, y);
+  let y = afterKpisY + 12;
+  drawClientPdfSectionTitle(doc, 'Indicadores dos gráficos', contentX, y);
+  y += 10;
+  drawClientPdfProgressBar(doc, contentX, y, 112, 'Overall Progress', overall);
   y += 9;
-  drawClientPdfProgressBar(doc, 12, y, 78, 'Overall Progress', overall);
+  drawClientPdfProgressBar(doc, contentX, y, 112, 'Fabrication Progress', fabrication);
   y += 9;
-  drawClientPdfProgressBar(doc, 12, y, 78, 'Fabrication Progress', fabrication);
-  y += 9;
-  drawClientPdfProgressBar(doc, 12, y, 78, 'Planejado hoje', plannedToday, 'planned');
+  drawClientPdfProgressBar(doc, contentX, y, 112, 'Planejado hoje', plannedToday, 'planned');
   y += 13;
   stages.forEach((stage) => {
-    drawClientPdfProgressBar(doc, 12, y, 78, stage.label, stage.percent);
+    drawClientPdfProgressBar(doc, contentX, y, 112, stage.label, stage.percent);
     y += 8;
   });
 
-  drawClientPdfSCurve(doc, buildClientSCurveData(project), 132, 73, 150, 82, 'Curva S | Planejado x Realizado');
+  const curveY = Math.max(y + 10, 188);
+  drawClientPdfSCurve(doc, buildClientSCurveData(project), contentX, curveY, contentW, 82, 'Curva S | Planejado x Realizado');
 
-  doc.addPage('a4', 'landscape');
+  doc.addPage('a4', 'portrait');
   await drawClientPdfHeader(doc, 'Relatório Operacional STEP', subtitle, metaLine);
+  drawClientPdfSectionTitle(doc, 'Processos da BSP por etapa', contentX, 42);
   const detailStageKeys = ['Drawing Execution Advance%', 'Procuremnt Status %', 'Material Separation', 'Full welding execution', 'Non Destructive Examination (QC)', 'Hydro Test Pressure (QC)', 'Surface preparation and/or coating', 'Final Inspection', 'Package and Delivered'];
   const stageRows = detailStageKeys.map((key) => [clientReportStageLabel(key), formatPercent(getClientStageValue(project, [key]))]);
   doc.autoTable({
-    startY: 42,
+    startY: 48,
     head: [['Processo', '%']],
     body: stageRows,
-    tableWidth: 128,
-    styles: { font: 'helvetica', fontSize: 8, cellPadding: 2, lineColor: [220, 228, 236], lineWidth: 0.1 },
+    tableWidth: contentW,
+    styles: { font: 'helvetica', fontSize: 8, cellPadding: 2, lineColor: [220, 228, 236], lineWidth: 0.1, overflow: 'linebreak' },
     headStyles: { fillColor: [22, 83, 126], textColor: [255, 255, 255], fontStyle: 'bold' },
-    margin: { left: 12, right: 12 },
+    columnStyles: { 0: { cellWidth: 150 }, 1: { cellWidth: 36, halign: 'center' } },
+    margin: { left: contentX, right: contentX },
     didDrawPage: () => drawClientPdfFooter(doc),
   });
+
+  const scheduleStartY = Math.min((doc.lastAutoTable?.finalY || 104) + 12, 132);
+  drawClientPdfSectionTitle(doc, 'Schedule Executivo', contentX, scheduleStartY);
   const scheduleRows = buildClientExecutiveSchedule(project).map((row) => [
     row.type === 'group' ? row.label : `  ${row.label}`,
     row.type === 'group' ? 'Grupo' : 'Etapa',
@@ -4786,18 +4911,20 @@ async function downloadClientBspExecutivePdf(project) {
     formatClientDateShort(row.finish),
   ]);
   doc.autoTable({
-    startY: 42,
+    startY: scheduleStartY + 6,
     head: [['Schedule Executivo', 'Tipo', '%', 'Dias úteis', 'Início', 'Fim']],
     body: scheduleRows,
-    tableWidth: pageWidth - 158,
-    margin: { left: 148, right: 12 },
-    styles: { font: 'helvetica', fontSize: 7.5, cellPadding: 1.7, lineColor: [220, 228, 236], lineWidth: 0.1 },
+    tableWidth: contentW,
+    margin: { left: contentX, right: contentX },
+    styles: { font: 'helvetica', fontSize: 7.5, cellPadding: 1.7, lineColor: [220, 228, 236], lineWidth: 0.1, overflow: 'linebreak' },
     headStyles: { fillColor: [22, 83, 126], textColor: [255, 255, 255], fontStyle: 'bold' },
+    columnStyles: { 0: { cellWidth: 60 }, 1: { cellWidth: 22 }, 2: { cellWidth: 20, halign: 'center' }, 3: { cellWidth: 28, halign: 'center' }, 4: { cellWidth: 28 }, 5: { cellWidth: 28 } },
     didDrawPage: () => drawClientPdfFooter(doc),
   });
 
-  doc.addPage('a4', 'landscape');
+  doc.addPage('a4', 'portrait');
   await drawClientPdfHeader(doc, 'Relatório Operacional STEP', subtitle, metaLine);
+  drawClientPdfSectionTitle(doc, 'Detalhamento das Tags / ISOs', contentX, 42);
   const spools = Array.isArray(project.spools) ? project.spools : [];
   const spoolRows = spools.slice(0, 180).map((spool) => [
     String(spool.iso || '—'),
@@ -4808,13 +4935,13 @@ async function downloadClientBspExecutivePdf(project) {
     `${formatNumber(spool.kilos, 2)} kg`,
   ]);
   doc.autoTable({
-    startY: 42,
+    startY: 48,
     head: [['Tag/ISO', 'Descrição', 'Status', 'Etapa', '%', 'Peso']],
     body: spoolRows.length ? spoolRows : [['—', 'Nenhuma tag detalhada encontrada para esta BSP.', '—', '—', '—', '—']],
-    styles: { font: 'helvetica', fontSize: 7, cellPadding: 1.4, overflow: 'linebreak', valign: 'middle', lineColor: [220, 228, 236], lineWidth: 0.1 },
+    styles: { font: 'helvetica', fontSize: 6.8, cellPadding: 1.35, overflow: 'linebreak', valign: 'middle', lineColor: [220, 228, 236], lineWidth: 0.1 },
     headStyles: { fillColor: [22, 83, 126], textColor: [255, 255, 255], fontStyle: 'bold' },
-    columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 66 }, 2: { cellWidth: 38 }, 3: { cellWidth: 34 }, 4: { cellWidth: 16 }, 5: { cellWidth: 22 } },
-    margin: { left: 12, right: 12 },
+    columnStyles: { 0: { cellWidth: 42 }, 1: { cellWidth: 40 }, 2: { cellWidth: 36 }, 3: { cellWidth: 30 }, 4: { cellWidth: 16, halign: 'center' }, 5: { cellWidth: 22, halign: 'right' } },
+    margin: { left: contentX, right: contentX },
     didDrawPage: () => drawClientPdfFooter(doc),
   });
 
@@ -4825,8 +4952,10 @@ async function downloadClientMacroExecutivePdf() {
   const jsPdfApi = window.jspdf?.jsPDF;
   if (!jsPdfApi) throw new Error('A biblioteca de PDF não foi carregada.');
   const list = getClientMacroProjects(state.projects);
-  const doc = new jsPdfApi({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const doc = new jsPdfApi({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
+  const contentX = 12;
+  const contentW = pageWidth - 24;
   const totals = getClientMacroTotals(list);
   const overall = getClientMacroOverallProgress(list);
   const fabrication = getClientMacroFabricationProgress(list);
@@ -4844,25 +4973,29 @@ async function downloadClientMacroExecutivePdf() {
     ['Peso programado', `${formatNumber(totals.weight, 0)} kg`],
     ['M² programada', formatNumber(totals.m2, 3)],
   ];
-  const boxW = (pageWidth - 24 - 7 * 4) / 8;
-  kpis.forEach((item, index) => drawClientPdfKpi(doc, 12 + index * (boxW + 4), 42, boxW, 20, item[0], item[1]));
-  let y = 76;
-  drawClientPdfProgressBar(doc, 12, y, 88, 'Overall Progress', overall);
+  const afterKpisY = drawClientPdfKpiGrid(doc, kpis, 42, { columns: 4, boxH: 18 });
+
+  let y = afterKpisY + 12;
+  drawClientPdfSectionTitle(doc, 'Indicadores dos gráficos', contentX, y);
   y += 10;
-  drawClientPdfProgressBar(doc, 12, y, 88, 'Fabrication Progress', fabrication);
+  drawClientPdfProgressBar(doc, contentX, y, 112, 'Overall Progress', overall);
   y += 10;
+  drawClientPdfProgressBar(doc, contentX, y, 112, 'Fabrication Progress', fabrication);
+  y += 12;
   stages.forEach((stage) => {
-    drawClientPdfProgressBar(doc, 12, y, 88, stage.label, stage.percent);
+    drawClientPdfProgressBar(doc, contentX, y, 112, stage.label, stage.percent);
     y += 9;
   });
-  drawClientPdfSCurve(doc, buildClientMacroSCurveData(list), 132, 73, 150, 82, 'Curva S | Carteira do Cliente');
+  const curveY = Math.max(y + 10, 188);
+  drawClientPdfSCurve(doc, buildClientMacroSCurveData(list), contentX, curveY, contentW, 82, 'Curva S | Carteira do Cliente');
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(61, 100, 127);
-  doc.text(`Início macro: ${clientFormatDateValue(range.start) || '—'}  •  Término macro: ${clientFormatDateValue(range.finish) || '—'}`, 12, 166);
+  doc.text(`Início macro: ${clientFormatDateValue(range.start) || '—'}  •  Término macro: ${clientFormatDateValue(range.finish) || '—'}`, contentX, 278);
 
-  doc.addPage('a4', 'landscape');
+  doc.addPage('a4', 'portrait');
   await drawClientPdfHeader(doc, 'Relatório Operacional STEP', getClientPortalName(), 'Detalhamento macro das BSPs');
+  drawClientPdfSectionTitle(doc, 'Detalhamento macro das BSPs', contentX, 42);
   const projectRows = getClientMacroProjects(list).map((project) => {
     const status = getProjectStatusPresentation(project);
     return [
@@ -4877,13 +5010,13 @@ async function downloadClientMacroExecutivePdf() {
     ];
   });
   doc.autoTable({
-    startY: 42,
+    startY: 48,
     head: [['BSP / PO', 'Unidade', 'Tags', 'Peso', 'Soldado', 'Status', '% Geral', 'Término']],
     body: projectRows.length ? projectRows : [['—', '—', '—', '—', '—', 'Nenhuma BSP encontrada para este cliente.', '—', '—']],
-    styles: { font: 'helvetica', fontSize: 7, cellPadding: 1.4, overflow: 'linebreak', valign: 'middle', lineColor: [220, 228, 236], lineWidth: 0.1 },
+    styles: { font: 'helvetica', fontSize: 6.6, cellPadding: 1.35, overflow: 'linebreak', valign: 'middle', lineColor: [220, 228, 236], lineWidth: 0.1 },
     headStyles: { fillColor: [22, 83, 126], textColor: [255, 255, 255], fontStyle: 'bold' },
-    columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 34 }, 2: { cellWidth: 16 }, 3: { cellWidth: 24 }, 4: { cellWidth: 24 }, 5: { cellWidth: 34 }, 6: { cellWidth: 18 }, 7: { cellWidth: 24 } },
-    margin: { left: 12, right: 12 },
+    columnStyles: { 0: { cellWidth: 44 }, 1: { cellWidth: 24 }, 2: { cellWidth: 13, halign: 'center' }, 3: { cellWidth: 19, halign: 'right' }, 4: { cellWidth: 19, halign: 'right' }, 5: { cellWidth: 30 }, 6: { cellWidth: 16, halign: 'center' }, 7: { cellWidth: 21 } },
+    margin: { left: contentX, right: contentX },
     didDrawPage: () => drawClientPdfFooter(doc),
   });
   doc.save('relatorio.pdf');
@@ -9253,7 +9386,7 @@ async function importAdminClientImage(fileInput, targetInput, label) {
   try {
     const isLogo = String(label || '').toLowerCase().includes('logo');
     const dataUrl = await readImageFileAsOptimizedDataUrl(file, isLogo
-      ? { outputWidth: 560, outputHeight: 320, padding: 24, quality: 0.86, background: '#ffffff', allowUpscale: true }
+      ? { outputWidth: 720, outputHeight: 420, padding: 56, quality: 0.92, background: '#ffffff', allowUpscale: true, mimeType: 'image/png' }
       : { maxWidth: 520, maxHeight: 340, quality: 0.68 });
     if (targetInput) {
       targetInput.value = dataUrl;

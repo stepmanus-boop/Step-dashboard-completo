@@ -296,6 +296,121 @@ function pct(stageValues, key) {
   return numberFromStageValue(stageValues, key) ?? 0;
 }
 
+const PRODUCTION_STAGE_EVIDENCE_KEYS = [
+  "Drawing Execution Advance%",
+  "Drawing",
+  "Procuremnt Status %",
+  "Procurement Status %",
+  "Procurement",
+  "Material Separation",
+  "Material Release to Fabrication",
+  "Welding Preparation",
+  "Spool Assemble and tack weld",
+  "Initial Dimensional Inspection/3D",
+  "Full welding execution",
+  "Non Destructive Examination (QC)",
+  "Final Dimensional Inpection/3D (QC)",
+  "Hydro Test Pressure (QC)",
+  "Surface preparation and/or coating",
+  "HDG / FBE.  (PAINT)",
+  "Final Inspection",
+  "Package and Delivered",
+];
+
+function hasStageProgressEvidence(stageValues, keys = PRODUCTION_STAGE_EVIDENCE_KEYS) {
+  return keys.some((key) => {
+    const value = stageValues?.[key];
+    return value != null && value !== "" && value !== "N/A" && value !== "Não";
+  });
+}
+
+function stageEvidenceValue(stageValues, keys) {
+  for (const key of keys) {
+    const value = stageValues?.[key];
+    if (value != null && value !== "" && value !== "N/A" && value !== "Não") {
+      return { hasEvidence: true, percent: pct(stageValues, key) };
+    }
+  }
+  return { hasEvidence: false, percent: 0 };
+}
+
+function fabricationProgressFromStageValues(stageValues) {
+  const painting = Math.max(pct(stageValues, "Surface preparation and/or coating"), pct(stageValues, "HDG / FBE.  (PAINT)"));
+  if (painting >= 99.9) return 100;
+  const stages = [
+    { keys: ["Welding Preparation", "Spool Assemble and tack weld"], weight: 10 },
+    { keys: ["Initial Dimensional Inspection/3D"], weight: 8 },
+    { keys: ["Full welding execution"], weight: 25 },
+    { keys: ["Non Destructive Examination (QC)"], weight: 12 },
+    { keys: ["Final Dimensional Inpection/3D (QC)"], weight: 8 },
+    { keys: ["Hydro Test Pressure (QC)"], weight: 7 },
+    { keys: ["Surface preparation and/or coating", "HDG / FBE.  (PAINT)"], weight: 15 },
+  ];
+  const totalWeight = stages.reduce((sum, item) => sum + item.weight, 0) || 100;
+  return Math.max(0, Math.min(100, stages.reduce((sum, item) => {
+    const value = item.keys.reduce((max, key) => Math.max(max, pct(stageValues, key)), 0);
+    return sum + value * item.weight;
+  }, 0) / totalWeight));
+}
+
+function productionStageSnapshotsFromValues(stageValues) {
+  const engineering = stageEvidenceValue(stageValues, ["Drawing Execution Advance%", "Drawing"]);
+  const procurementCandidates = [
+    stageEvidenceValue(stageValues, ["Procuremnt Status %", "Procurement Status %", "Procurement"]),
+    stageEvidenceValue(stageValues, ["Material Separation"]),
+    stageEvidenceValue(stageValues, ["Material Release to Fabrication"]),
+  ];
+  const procurement = procurementCandidates.reduce((best, item) => {
+    if (!item.hasEvidence) return best;
+    if (!best.hasEvidence || item.percent > best.percent) return item;
+    return best;
+  }, { hasEvidence: false, percent: 0 });
+  const fabrication = {
+    hasEvidence: hasStageProgressEvidence(stageValues, [
+      "Welding Preparation",
+      "Spool Assemble and tack weld",
+      "Initial Dimensional Inspection/3D",
+      "Full welding execution",
+      "Non Destructive Examination (QC)",
+      "Final Dimensional Inpection/3D (QC)",
+      "Hydro Test Pressure (QC)",
+      "Surface preparation and/or coating",
+      "HDG / FBE.  (PAINT)",
+    ]),
+    percent: fabricationProgressFromStageValues(stageValues),
+  };
+  const packageDelivery = stageEvidenceValue(stageValues, ["Package and Delivered", "Final Inspection"]);
+  return [
+    { key: "engineering", percent: engineering.percent, weight: 15, hasEvidence: engineering.hasEvidence },
+    { key: "procurement", percent: procurement.percent, weight: 15, hasEvidence: procurement.hasEvidence },
+    { key: "fabrication", percent: fabrication.percent, weight: 65, hasEvidence: fabrication.hasEvidence },
+    { key: "package", percent: packageDelivery.percent, weight: 5, hasEvidence: packageDelivery.hasEvidence },
+  ];
+}
+
+function weightedOverallFromStageValues(stageValues) {
+  const stages = productionStageSnapshotsFromValues(stageValues);
+  const totalWeight = stages.reduce((sum, stage) => sum + stage.weight, 0) || 100;
+  return Math.max(0, Math.min(100, stages.reduce((sum, stage) => sum + stage.percent * stage.weight, 0) / totalWeight));
+}
+
+function hasIncompleteProductionEvidence(stageValues) {
+  return productionStageSnapshotsFromValues(stageValues).some((stage) => stage.hasEvidence && Number(stage.percent || 0) < 99.9);
+}
+
+function isSpoolFinishedByState(spool) {
+  if (!spool || hasIncompleteProductionEvidence(spool.stageValues)) return false;
+  return Boolean(
+    spool.finished
+    || spool.projectFinishedFlag
+    || spool.uiState === "completed"
+    || spool.operationalState === "completed"
+    || spool.flow?.state === "completed"
+    || spool.flow?.status === "Finalizado"
+    || Number(spool.overallProgress || 0) >= 99.9
+  );
+}
+
 function paintingStatusFromPercent(value) {
   const percent = Number(value || 0);
   if (percent >= 100) return "Concluído";
@@ -876,7 +991,8 @@ function buildSpoolRow(row, parentSummary) {
   const projectFinishedFlag = isTruthyValue(getCellValue(row, "Project Finished?").raw);
   const fabricationStartDate = textValue(row, "Fabrication Start Date");
   const stageValues = buildStageValues(row);
-  const finished = projectFinishedFlag || overallProgress >= 100 || hasStageValue(stageValues, "Project Finish Date");
+  const hasIncompleteStageEvidence = hasIncompleteProductionEvidence(stageValues);
+  const finished = !hasIncompleteStageEvidence && (projectFinishedFlag || overallProgress >= 100 || hasStageValue(stageValues, "Project Finish Date"));
   const flow = getOperationalFlow(stageValues, fabricationStartDate, parsePercent(row, "Surface preparation and/or coating") ?? 0, finished, textValue(row, "PROJECT STATUS"));
   const awaitingShipment = flow.state === "awaiting_shipment";
   const uiState = uiStateFromFlow(flow, finished);
@@ -989,6 +1105,8 @@ function applyProjectSpoolRollup(project) {
   const fallbackFlow = project.flow || makeFlow(project.currentStage || "AG. Emissão de detalhamento", project.operationalSector || "Engenharia", project.currentStagePercent || 0, project.currentStageStatus || "waiting", project.operationalState || project.uiState || "not_started");
   const summary = summarizeFlowItems(spools, fallbackFlow, project.quantitySpools || 1);
   const explicitFinished = Boolean(project.finished || project.projectFinishedFlag || hasProjectFinishDateMarker(project) || isProjectStatusFinished(project.projectStatus));
+  const hasIncompleteStageEvidence = hasIncompleteProductionEvidence(project.stageValues) || spools.some((spool) => hasIncompleteProductionEvidence(spool.stageValues));
+  const allSpoolsFinishedByEvidence = spools.length > 0 && spools.every(isSpoolFinishedByState);
   
   // v32.2: Cálculo de progresso baseado estritamente nas ISOs (spools)
   // Se houver spools, o progresso do projeto pai deve ser a média ponderada ou simples dos spools.
@@ -1003,6 +1121,15 @@ function applyProjectSpoolRollup(project) {
     project.individualProgress = weightedIndividual;
     project.coatingPercent = weightedCoating;
     project.weldedWeightKg = totalWeldedWeight;
+
+    const spoolsWithStageEvidence = spools.filter((s) => hasStageProgressEvidence(s.stageValues));
+    if (spoolsWithStageEvidence.length) {
+      const stageTotalKilos = spoolsWithStageEvidence.reduce((sum, s) => sum + (s.kilos || 0), 0) || spoolsWithStageEvidence.length || 1;
+      project.overallProgress = spoolsWithStageEvidence.reduce((sum, s) => {
+        const weight = s.kilos || (stageTotalKilos / spoolsWithStageEvidence.length);
+        return sum + weightedOverallFromStageValues(s.stageValues) * weight;
+      }, 0) / stageTotalKilos;
+    }
     
     // Atualiza estatísticas de spools baseadas no estado real de cada um
     project.spoolStats = spools.reduce((acc, s) => {
@@ -1014,7 +1141,11 @@ function applyProjectSpoolRollup(project) {
     }, { total: 0, completed: 0, inProgress: 0, notStarted: 0 });
   }
 
-  const finalFinished = explicitFinished || summary.allFinished;
+  if (hasStageProgressEvidence(project.stageValues)) {
+    project.overallProgress = weightedOverallFromStageValues(project.stageValues);
+  }
+
+  const finalFinished = summary.allFinished || (explicitFinished && !hasIncompleteStageEvidence && (spools.length === 0 || allSpoolsFinishedByEvidence));
   const finalFlow = finalFinished ? makeFlow("Finalizado", "Enviado", 100, "completed", "completed") : summary.flow;
   
   project.demandSummary = summary;
@@ -1097,7 +1228,8 @@ function buildProject(summaryRow, childRows) {
   const coatingPercent = parsePercent(summaryRow, "Surface preparation and/or coating") ?? 0;
   const fabricationStartDate = textValue(summaryRow, "Fabrication Start Date");
   const stageValues = buildStageValues(summaryRow);
-  const summaryFinished = projectFinishedFlag || overallProgress >= 100 || hasStageValue(stageValues, "Project Finish Date");
+  const summaryHasIncompleteStageEvidence = hasIncompleteProductionEvidence(stageValues);
+  const summaryFinished = !summaryHasIncompleteStageEvidence && (projectFinishedFlag || overallProgress >= 100 || hasStageValue(stageValues, "Project Finish Date"));
   const flow = getOperationalFlow(stageValues, fabricationStartDate, coatingPercent, summaryFinished, projectStatus);
   const awaitingShipment = flow.state === "awaiting_shipment";
   const uiState = uiStateFromFlow(flow, summaryFinished) || projectUiState(projectStatus, overallProgress, summaryFinished, fabricationStartDate, awaitingShipment);
@@ -1390,7 +1522,7 @@ function hasProjectFinishedBooleanMarker(project) {
 
 function areAllProjectSpoolsFinished(project) {
   const spools = Array.isArray(project?.spools) ? project.spools : [];
-  return spools.length > 0 && spools.every((spool) => Boolean(
+  return spools.length > 0 && spools.every((spool) => !hasIncompleteProductionEvidence(spool?.stageValues) && Boolean(
     spool?.finished
     || spool?.projectFinishedFlag
     || spool?.uiState === "completed"
@@ -1406,6 +1538,7 @@ function areAllProjectSpoolsFinished(project) {
 
 function hasProjectFinishedMarker(project) {
   if (!project) return false;
+  if (hasIncompleteProductionEvidence(project.stageValues) || (Array.isArray(project.spools) && project.spools.some((spool) => hasIncompleteProductionEvidence(spool.stageValues)))) return false;
   return Boolean(
     hasProjectFinishedBooleanMarker(project)
     || hasProjectFinishDateMarker(project)
