@@ -16,7 +16,7 @@ const state = {
   filteredProjects: [],
   projectView: 'all',
   projectDrill: { open: false, mode: 'total', selectedClientKey: '', selectedVesselKey: '' },
-  clientPortal: { selectedVesselKey: '', selectedProjectId: null, rowClickTimer: null },
+  clientPortal: { selectedVesselKey: '', selectedProjectId: null, rowClickTimer: null, vesselClickTimer: null },
   sectorScopedView: false,
   stats: null,
   meta: null,
@@ -3720,6 +3720,19 @@ function getClientSelectedVesselProjects() {
   return getClientProjectsByVesselKey(state.clientPortal.selectedVesselKey);
 }
 
+function openClientUnitExecutiveByKey(unitKey) {
+  if (!isClientUser()) return false;
+  window.clearTimeout(state.clientPortal.vesselClickTimer);
+  state.clientPortal.vesselClickTimer = null;
+  const group = getClientVesselGroupByKey(unitKey, getClientPortalSourceProjects());
+  if (!group) return false;
+  state.clientPortal.selectedVesselKey = group.key;
+  state.clientPortal.selectedProjectId = null;
+  openClientMacroExecutive(group.projects, { scope: 'unit', unitKey: group.key, unitLabel: group.label });
+  renderClientDashboard();
+  return true;
+}
+
 function renderClientBspPanel() {
   const panel = document.getElementById('client-bsp-panel');
   const table = document.getElementById('client-bsp-table');
@@ -5332,13 +5345,28 @@ function handleClientDashboardClick(event) {
   }
   const vesselButton = event.target.closest('[data-client-vessel]');
   if (vesselButton) {
-    state.clientPortal.selectedVesselKey = vesselButton.dataset.clientVessel || '';
-    state.clientPortal.selectedProjectId = null;
-    renderClientDashboard();
+    // O clique simples é atrasado para não cancelar o evento nativo de duplo clique.
+    // Antes, o primeiro clique renderizava novamente os cards da unidade e o segundo clique
+    // caía em outro elemento, impedindo a abertura dos gráficos por unidade.
+    const unitKey = vesselButton.dataset.clientVessel || '';
+    if (Number(event.detail || 0) >= 2) {
+      event.preventDefault();
+      openClientUnitExecutiveByKey(unitKey);
+      return;
+    }
+    window.clearTimeout(state.clientPortal.vesselClickTimer);
+    state.clientPortal.vesselClickTimer = window.setTimeout(() => {
+      state.clientPortal.selectedVesselKey = unitKey;
+      state.clientPortal.selectedProjectId = null;
+      renderClientDashboard();
+      state.clientPortal.vesselClickTimer = null;
+    }, 260);
     return;
   }
   const clearButton = event.target.closest('#client-clear-vessel');
   if (clearButton) {
+    window.clearTimeout(state.clientPortal.vesselClickTimer);
+    state.clientPortal.vesselClickTimer = null;
     state.clientPortal.selectedVesselKey = '';
     state.clientPortal.selectedProjectId = null;
     renderClientDashboard();
@@ -5367,13 +5395,7 @@ function handleClientDashboardDblClick(event) {
   if (vesselButton && isClientUser()) {
     event.preventDefault();
     event.stopPropagation();
-    const unitKey = vesselButton.dataset.clientVessel || '';
-    const group = getClientVesselGroupByKey(unitKey, getClientPortalSourceProjects());
-    if (!group) return;
-    state.clientPortal.selectedVesselKey = group.key;
-    state.clientPortal.selectedProjectId = null;
-    renderClientDashboard();
-    openClientMacroExecutive(group.projects, { scope: 'unit', unitKey: group.key, unitLabel: group.label });
+    openClientUnitExecutiveByKey(vesselButton.dataset.clientVessel || '');
     return;
   }
 

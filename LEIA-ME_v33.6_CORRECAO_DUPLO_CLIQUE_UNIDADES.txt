@@ -1,0 +1,29 @@
+Versão v33.6 - Correção do duplo clique nas unidades do Portal do Cliente
+
+Correção aplicada:
+- Corrigido o comportamento dos cards de Vessels / Unidades no Portal do Cliente.
+- O clique simples continua selecionando/listando as BSPs da unidade.
+- O duplo clique agora abre a visão executiva/gráficos da unidade.
+- O PDF da unidade continua disponível dentro da visão executiva filtrada.
+
+Causa do problema:
+- O primeiro clique no card da unidade renderizava novamente o painel imediatamente.
+- Com isso, o segundo clique não caía mais no mesmo elemento e o evento de duplo clique não era executado corretamente.
+
+Correção técnica:
+- O clique simples da unidade agora tem um pequeno atraso controlado.
+- Se houver duplo clique, o clique simples é cancelado e o sistema abre direto a visão executiva da unidade.
+- Foi adicionada uma proteção extra usando event.detail >= 2 para abrir a visão da unidade mesmo em navegadores que tratem o duplo clique de forma diferente.
+
+Arquivos alterados:
+- site/app.js
+
+Não houve alteração em:
+- Supabase
+- Smartsheet
+- API de projetos
+- login
+- cache
+- cálculos de status
+- PDF
+- filtros gerais
