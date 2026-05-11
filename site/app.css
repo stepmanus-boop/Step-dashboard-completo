@@ -6019,3 +6019,80 @@ body.client-mode .client-logo-box img,
 /* Quando a logo vier muito horizontal, o cover elimina o branco.
    Caso alguma marca fique cortada, usar uma imagem já centralizada no Paint. */
 
+
+/* ===== v34.4 - Editor de enquadramento da logo do cliente ===== */
+.client-logo-editor {
+  margin-top: 12px;
+  border: 1px solid rgba(126, 204, 255, .22);
+  background: rgba(3, 25, 44, .62);
+  border-radius: 16px;
+  padding: 12px;
+}
+.client-logo-editor.hidden { display: none !important; }
+.client-logo-editor-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+.client-logo-editor-head strong {
+  color: #eaf7ff;
+  font-size: .88rem;
+}
+.client-logo-editor-head span {
+  color: #9fc2d8;
+  font-size: .78rem;
+}
+.client-logo-editor-preview {
+  width: min(100%, 360px);
+  aspect-ratio: 720 / 390;
+  border-radius: 18px;
+  border: 10px solid #ffffff;
+  background: #ffffff;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  box-shadow: inset 0 0 0 1px rgba(6, 37, 66, .18), 0 8px 24px rgba(0, 0, 0, .18);
+}
+.client-logo-editor-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center center;
+  transform-origin: center center;
+  transition: transform .16s ease;
+  user-select: none;
+  pointer-events: none;
+}
+.client-logo-editor-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 8px;
+}
+.primary-button--compact {
+  min-height: 34px;
+  padding: 8px 12px;
+  font-size: .78rem;
+}
+
+/* Portal Cliente: usa a imagem final gerada pelo editor preenchendo o quadro */
+body.client-mode .client-logo-box,
+.client-logo-box {
+  overflow: hidden !important;
+  padding: 6px !important;
+  border-radius: 18px !important;
+}
+body.client-mode .client-logo-box img,
+.client-logo-box img,
+#client-dashboard-logo {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  object-position: center center !important;
+  border-radius: 12px !important;
+  display: block !important;
+  background: #ffffff !important;
+}
+
