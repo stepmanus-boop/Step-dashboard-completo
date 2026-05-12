@@ -6619,3 +6619,141 @@ body.client-mode .client-logo-box img,
   }
 }
 
+
+/* ===== v35.2 - Detalhamento operacional final: ISOs mais próximos e área útil maior ===== */
+
+/* Compacta a área superior para a tabela subir */
+.modal-content,
+#modal-content {
+  gap: 6px !important;
+}
+
+/* Sinalizações mais discretas e sem grande vazio interno */
+.project-signals-section {
+  max-height: 76px !important;
+  min-height: 0 !important;
+  height: auto !important;
+  margin: 4px 0 4px !important;
+  padding: 7px 10px !important;
+  overflow: hidden !important;
+}
+
+.project-signals-head {
+  margin-bottom: 3px !important;
+  min-height: 0 !important;
+}
+
+.project-signals-head strong {
+  font-size: .78rem !important;
+}
+
+.project-signals-list {
+  max-height: 30px !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.project-signals-list .empty-inline {
+  font-size: .76rem !important;
+  line-height: 1.1 !important;
+  padding: 0 !important;
+}
+
+/* Cola o Organizar ISOs logo acima da tabela */
+.modal-iso-toolbar {
+  margin: 0 0 4px !important;
+  padding: 0 2px !important;
+  min-height: 24px !important;
+  height: 24px !important;
+  border: 0 !important;
+  background: transparent !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+}
+
+.modal-iso-toolbar > div:first-child {
+  display: flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+}
+
+.modal-iso-toolbar span {
+  font-size: .64rem !important;
+}
+
+.modal-iso-toolbar strong {
+  font-size: .7rem !important;
+}
+
+.modal-iso-toolbar__actions {
+  display: flex !important;
+  gap: 5px !important;
+}
+
+.modal-sort-button {
+  height: 22px !important;
+  min-height: 22px !important;
+  padding: 2px 8px !important;
+  font-size: .66rem !important;
+  line-height: 1 !important;
+}
+
+/* A tabela começa logo após o filtro e ganha mais altura */
+.modal-table-wrap {
+  margin-top: 0 !important;
+  max-height: calc(100vh - 315px) !important;
+  min-height: 360px !important;
+  overflow: auto !important;
+}
+
+/* Garante que a tabela fique visualmente colada no filtro */
+.modal-iso-toolbar + .modal-table-wrap {
+  margin-top: 0 !important;
+}
+
+/* Cabeçalho e linhas um pouco mais compactos para caber mais ISO sem cortar */
+.modal-table th {
+  padding-top: 8px !important;
+  padding-bottom: 8px !important;
+}
+
+.modal-table td {
+  padding-top: 7px !important;
+  padding-bottom: 7px !important;
+}
+
+/* Em telas altas, aproveita ainda mais área para os ISOs */
+@media (min-height: 850px) {
+  .modal-table-wrap {
+    max-height: calc(100vh - 300px) !important;
+    min-height: 420px !important;
+  }
+}
+
+/* Em zoom/telas menores, continua subindo os ISOs */
+@media (max-height: 760px) {
+  .project-signals-section {
+    max-height: 64px !important;
+    padding: 6px 9px !important;
+  }
+
+  .modal-iso-toolbar {
+    height: 22px !important;
+    min-height: 22px !important;
+    margin-bottom: 3px !important;
+  }
+
+  .modal-table-wrap {
+    max-height: calc(100vh - 275px) !important;
+    min-height: 260px !important;
+  }
+
+  .modal-table th,
+  .modal-table td {
+    padding-top: 5px !important;
+    padding-bottom: 5px !important;
+  }
+}
+
