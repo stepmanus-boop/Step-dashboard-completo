@@ -1007,6 +1007,8 @@ function buildSpoolRow(row, parentSummary) {
     return 0;
   })();
   const weldingWeek = weldingPercent >= 100 && weldingFinishDate ? getProductionWeekLabel(weldingFinishDate) : "";
+  const observations = textValue(row, "OBSERVATIONS");
+  const tratativaObservationMatches = getObservationTratativaMatches([{ source: parsedDrawing.iso || drawingText || `Linha ${row.rowNumber || row.id}`, text: observations }]);
 
   return {
     rowId: row.id,
@@ -1014,7 +1016,9 @@ function buildSpoolRow(row, parentSummary) {
     iso: parsedDrawing.iso,
     description: parsedDrawing.description,
     drawing: drawingText,
-    observations: textValue(row, "OBSERVATIONS"),
+    observations,
+    tratativaObservationMatches,
+    hasTratativaObservation: tratativaObservationMatches.length > 0,
     pm: textValue(row, "PM") || textValue(parentSummary, "PM"),
     operationalSector: flow.sector,
     operationalState: flow.state,
@@ -1225,6 +1229,7 @@ function buildProject(summaryRow, childRows) {
   const individualProgress = parsePercent(summaryRow, "% Individual Progress") ?? overallProgress;
   const projectFinishedFlag = isTruthyValue(getCellValue(summaryRow, "Project Finished?").raw);
   const projectStatus = textValue(summaryRow, "Project Status") || textValue(summaryRow, "PROJECT STATUS") || textValue(summaryRow, "Overall Project Status") || textValue(summaryRow, "Status");
+  const observations = textValue(summaryRow, "OBSERVATIONS");
   const coatingPercent = parsePercent(summaryRow, "Surface preparation and/or coating") ?? 0;
   const fabricationStartDate = textValue(summaryRow, "Fabrication Start Date");
   const stageValues = buildStageValues(summaryRow);
@@ -1287,7 +1292,7 @@ function buildProject(summaryRow, childRows) {
     individualProgress: spools.length > 0 ? 0 : individualProgress, // Será calculado no rollup se houver spools
     overallProgress: spools.length > 0 ? 0 : overallProgress,       // Será calculado no rollup se houver spools
     projectStatus,
-    observations: textValue(summaryRow, "OBSERVATIONS"),
+    observations,
     jobProcessStatus: textValue(summaryRow, "Job Process Status") || progress.currentStage.label,
     summaryDrawing: textValue(summaryRow, "Drawing"),
     projectType: textValue(summaryRow, "Project Type"),
@@ -1314,7 +1319,7 @@ function buildProject(summaryRow, childRows) {
     spools,
     spoolStats,
   };
-  return applyProjectSpoolRollup(project);
+  return decorateProjectTratativaObservation(applyProjectSpoolRollup(project));
 }
 
 function mapApiRows(sheet) {
@@ -1486,6 +1491,77 @@ function normalizeStatusText(value) {
 
 function compactStatusText(value) {
   return normalizeStatusText(value).replace(/[^A-Z0-9]+/g, "");
+}
+
+
+const TRATATIVA_OBSERVATION_RULES = [
+  {
+    label: "Revisão de P.O",
+    aliases: ["Revisão de P.O", "Revisao de P.O", "Revisão de PO", "Revisao de PO", "Revisão PO", "Revisao PO"],
+  },
+  {
+    label: "Aguardando liberação para envio",
+    aliases: ["Aguardando liberação para envio", "Aguardando liberacao para envio", "Aguardando liberação p/ envio", "Aguardando liberacao p envio", "Aguardando liberação envio", "Aguardando liberacao envio"],
+  },
+  {
+    label: "Entrega parcial",
+    aliases: ["Entrega parcial"],
+  },
+];
+
+function observationTextMatchesRule(text, aliases = []) {
+  const normalized = normalizeStatusText(text || "");
+  const compact = compactStatusText(text || "");
+  if (!normalized && !compact) return false;
+  return aliases.some((alias) => {
+    const normalizedAlias = normalizeStatusText(alias || "");
+    const compactAlias = compactStatusText(alias || "");
+    return Boolean(
+      (normalizedAlias && normalized.includes(normalizedAlias))
+      || (compactAlias && compact.includes(compactAlias))
+    );
+  });
+}
+
+function getObservationTratativaMatches(contexts = []) {
+  const matches = [];
+  const seen = new Set();
+  for (const context of contexts) {
+    const text = String(context?.text || "").trim();
+    if (!text) continue;
+    for (const rule of TRATATIVA_OBSERVATION_RULES) {
+      if (!observationTextMatchesRule(text, rule.aliases)) continue;
+      const source = String(context?.source || "BSP").trim() || "BSP";
+      const key = `${rule.label}|${source}|${text}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      matches.push({ label: rule.label, source, text });
+    }
+  }
+  return matches;
+}
+
+function getProjectObservationTratativaMatches(project) {
+  if (!project) return [];
+  const contexts = [{ source: "BSP", text: project.observations }];
+  if (Array.isArray(project.spools)) {
+    project.spools.forEach((spool, index) => {
+      const source = spool?.iso || spool?.drawing || spool?.description || `Tag ${index + 1}`;
+      contexts.push({ source: `Tag ${source}`, text: spool?.observations });
+    });
+  }
+  return getObservationTratativaMatches(contexts);
+}
+
+function decorateProjectTratativaObservation(project) {
+  const matches = getProjectObservationTratativaMatches(project);
+  project.tratativaObservationMatches = matches;
+  project.tratativaObservationReason = matches.map((item) => `${item.label} • ${item.source}: ${item.text}`).join(" | ");
+  project.hasTratativaObservation = matches.length > 0;
+  if (matches.length) {
+    project.statusPresentationOverride = { text: "Em tratativa", state: "in_progress", reason: project.tratativaObservationReason };
+  }
+  return project;
 }
 
 function isMeaningfulFinishValue(value) {

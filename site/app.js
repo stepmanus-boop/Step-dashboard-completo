@@ -803,6 +803,113 @@ function normalizeCompactText(value) {
   return normalizeText(value).replace(/[_ -]+/g, "");
 }
 
+
+const CLIENT_TRATATIVA_OBSERVATION_RULES = [
+  {
+    label: "Revisão de P.O",
+    aliases: ["Revisão de P.O", "Revisao de P.O", "Revisão de PO", "Revisao de PO", "Revisão PO", "Revisao PO"],
+  },
+  {
+    label: "Aguardando liberação para envio",
+    aliases: ["Aguardando liberação para envio", "Aguardando liberacao para envio", "Aguardando liberação p/ envio", "Aguardando liberacao p envio", "Aguardando liberação envio", "Aguardando liberacao envio"],
+  },
+  {
+    label: "Entrega parcial",
+    aliases: ["Entrega parcial"],
+  },
+];
+
+function textMatchesAliasRule(text, aliases = []) {
+  const normalized = normalizeText(text || "");
+  const compact = normalizeCompactText(text || "");
+  if (!normalized && !compact) return false;
+  return aliases.some((alias) => {
+    const normalizedAlias = normalizeText(alias || "");
+    const compactAlias = normalizeCompactText(alias || "");
+    return Boolean(
+      (normalizedAlias && normalized.includes(normalizedAlias))
+      || (compactAlias && compact.includes(compactAlias))
+    );
+  });
+}
+
+function getProjectObservationContexts(project) {
+  if (!project) return [];
+  const contexts = [];
+  const add = (source, text) => {
+    const value = String(text || "").trim();
+    if (value) contexts.push({ source, text: value });
+  };
+
+  add("BSP", project.observations);
+  add("BSP", project.note);
+  add("BSP", project.notes);
+
+  if (Array.isArray(project.spools)) {
+    project.spools.forEach((spool, index) => {
+      const tag = spool?.iso || spool?.drawing || spool?.description || `Tag ${index + 1}`;
+      add(`Tag ${tag}`, spool?.observations);
+    });
+  }
+
+  return contexts;
+}
+
+function getProjectTratativaObservationMatches(project) {
+  const matches = [];
+  const seen = new Set();
+  for (const context of getProjectObservationContexts(project)) {
+    for (const rule of CLIENT_TRATATIVA_OBSERVATION_RULES) {
+      if (!textMatchesAliasRule(context.text, rule.aliases)) continue;
+      const key = `${rule.label}|${context.source}|${context.text}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      matches.push({ label: rule.label, source: context.source, text: context.text });
+    }
+  }
+  return matches;
+}
+
+function projectHasTratativaObservation(project) {
+  return getProjectTratativaObservationMatches(project).length > 0;
+}
+
+function getProjectTratativaReason(project) {
+  const matches = getProjectTratativaObservationMatches(project);
+  if (!matches.length) return "";
+  return matches.map((match) => `${match.label} • ${match.source}: ${match.text}`).join(" | ");
+}
+
+function renderClientTratativaNotice(project) {
+  const matches = getProjectTratativaObservationMatches(project);
+  if (!matches.length) return "";
+  return `
+    <section class="client-observation-notice client-observation-notice--tratativa">
+      <div>
+        <span>Em tratativa</span>
+        <strong>Observação crítica ativa</strong>
+      </div>
+      <ul>
+        ${matches.map((match) => `<li><strong>${escapeHtml(match.label)}</strong> — ${escapeHtml(match.source)}: ${escapeHtml(match.text)}</li>`).join("")}
+      </ul>
+    </section>
+  `;
+}
+
+function renderClientOnHoldNotice(project) {
+  if (!isProjectOnHold(project)) return "";
+  const reason = getProjectHoldReason(project);
+  return `
+    <section class="client-observation-notice client-observation-notice--hold">
+      <div>
+        <span>ON HOLD</span>
+        <strong>BSP em espera operacional</strong>
+      </div>
+      <p>${escapeHtml(reason || "On Hold identificado")}</p>
+    </section>
+  `;
+}
+
 function buildSearchIndex(parts) {
   const values = (parts || []).filter(Boolean).map((item) => String(item));
   const expanded = [];
@@ -2297,6 +2404,10 @@ function getAwaitingShipmentTags(project) {
 }
 
 function getProjectStatusPresentation(project) {
+  if (projectHasTratativaObservation(project)) {
+    return { text: 'Em tratativa', state: 'in_progress', reason: getProjectTratativaReason(project) };
+  }
+
   if (hasClientIncompleteProductionEvidence(project)) {
     const openStage = getClientFirstIncompleteProductionStage(project);
     if (openStage?.key === 'package') return { text: 'Aguardando envio', state: 'awaiting_shipment' };
@@ -2643,6 +2754,7 @@ function toggleStatusFilterMenu() {
 }
 
 function getProjectStatusFilterLabel(project) {
+  if (projectHasTratativaObservation(project)) return 'Em tratativa';
   const presentationText = normalizeText(getProjectStatusPresentation(project)?.text || '');
   const projectStatusText = normalizeText(project?.projectStatus || '');
   const currentStageText = normalizeText(project?.currentStage || '');
@@ -3908,11 +4020,12 @@ function compareClientSpoolsByPriority(a, b) {
 
 function renderClientSpoolRows(spools, limit = 120) {
   const items = (Array.isArray(spools) ? [...spools] : []).sort(compareClientSpoolsByPriority).slice(0, limit);
-  if (!items.length) return '<tr><td colspan="6" class="loading-cell">Nenhuma tag detalhada encontrada para esta BSP.</td></tr>';
+  if (!items.length) return '<tr><td colspan="7" class="loading-cell">Nenhuma tag detalhada encontrada para esta BSP.</td></tr>';
   return items.map((spool) => {
     const state = getClientSpoolVisualState(spool);
     const statusText = spool?.currentStatus || spool?.stage || uiStateLabel(spool?.uiState);
-    return `<tr class="client-spool-row client-spool-row--${state}"><td><strong>${escapeHtml(spool.iso || '—')}</strong></td><td>${escapeHtml(spool.description || '—')}</td><td><span class="client-spool-chip client-spool-chip--${state}">${escapeHtml(statusText)}</span></td><td>${escapeHtml(spool.currentSector || spool.operationalSector || '—')}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(spool.overallProgress)}</span></td><td>${formatNumber(spool.kilos, 2)} kg</td></tr>`;
+    const observationText = spool?.observations ? String(spool.observations).trim() : '—';
+    return `<tr class="client-spool-row client-spool-row--${state}"><td><strong>${escapeHtml(spool.iso || '—')}</strong></td><td>${escapeHtml(spool.description || '—')}</td><td>${escapeHtml(observationText)}</td><td><span class="client-spool-chip client-spool-chip--${state}">${escapeHtml(statusText)}</span></td><td>${escapeHtml(spool.currentSector || spool.operationalSector || '—')}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(spool.overallProgress)}</span></td><td>${formatNumber(spool.kilos, 2)} kg</td></tr>`;
   }).join('');
 }
 
@@ -3941,6 +4054,9 @@ function renderClientProjectDetail(project) {
       <article><span>Status</span><strong>${escapeHtml(status.text)}</strong></article>
       <article><span>Progresso geral</span><strong>${formatPercent(project.overallProgress)}</strong></article>
     </div>
+    ${renderClientTratativaNotice(project)}
+    ${renderClientOnHoldNotice(project)}
+
     <div class="client-stage-strip">
       ${['Drawing Execution Advance%', 'Procuremnt Status %', 'Material Separation', 'Full welding execution', 'Non Destructive Examination (QC)', 'Hydro Test Pressure (QC)', 'Surface preparation and/or coating', 'Final Inspection', 'Package and Delivered'].map((key) => {
         const label = (state.meta?.stageOrder || []).find((stage) => stage.key === key)?.label || key;
@@ -3949,7 +4065,7 @@ function renderClientProjectDetail(project) {
       }).join('')}
     </div>
     <div class="client-table-wrap client-table-wrap--compact">
-      <table class="client-bsp-table"><thead><tr><th>Tag/ISO</th><th>Descrição</th><th>Status</th><th>Etapa</th><th>%</th><th>Peso</th></tr></thead><tbody>
+      <table class="client-bsp-table"><thead><tr><th>Tag/ISO</th><th>Descrição</th><th>Observação</th><th>Status</th><th>Etapa</th><th>%</th><th>Peso</th></tr></thead><tbody>
         ${renderClientSpoolRows(spools, 80)}
       </tbody></table>
     </div>
@@ -5320,6 +5436,9 @@ function openClientBspExecutive(project) {
       </div>
     </header>
 
+    ${renderClientOnHoldNotice(project)}
+    ${renderClientTratativaNotice(project)}
+
     <div class="client-exec-kpis">
       <article><span>Progresso geral</span><strong>${formatPercent(overall)}</strong></article>
       <article><span>Peso programado</span><strong>${formatNumber(weight, 0)} kg</strong></article>
@@ -5400,7 +5519,7 @@ function openClientBspExecutive(project) {
         }).join('')}
       </div>
       <div class="client-table-wrap client-table-wrap--compact client-exec-process-table">
-        <table class="client-bsp-table"><thead><tr><th>Tag/ISO</th><th>Descrição</th><th>Status</th><th>Etapa</th><th>%</th><th>Peso</th></tr></thead><tbody>
+        <table class="client-bsp-table"><thead><tr><th>Tag/ISO</th><th>Descrição</th><th>Observação</th><th>Status</th><th>Etapa</th><th>%</th><th>Peso</th></tr></thead><tbody>
           ${renderClientSpoolRows(spools, 120)}
         </tbody></table>
       </div>
@@ -6807,6 +6926,8 @@ function renderModal(project) {
     </section>
 
     ${renderProjectSignals(project)}
+    ${renderClientTratativaNotice(project)}
+    ${renderClientOnHoldNotice(project)}
 
     <section class="modal-iso-toolbar" aria-label="Ordenação dos ISOs">
       <div>

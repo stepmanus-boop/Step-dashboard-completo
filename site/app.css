@@ -7094,3 +7094,120 @@ body.client-mode .client-logo-box img,
   }
 }
 
+
+
+/* ===== v36.3 - Scroll painel ADM corrigido ===== */
+
+.admin-modal,
+.admin-shell-modal,
+#admin-modal {
+  overflow: hidden !important;
+}
+
+.admin-modal .modal-card,
+.admin-shell-modal .modal-card,
+#admin-modal .modal-card {
+  display: flex !important;
+  flex-direction: column !important;
+  max-height: calc(100vh - 24px) !important;
+  overflow: hidden !important;
+}
+
+.admin-modal .modal-content,
+.admin-shell-modal .modal-content,
+#admin-modal .modal-content,
+.admin-panel-content {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  max-height: calc(100vh - 120px) !important;
+  padding-bottom: 40px !important;
+}
+
+.admin-users-grid,
+.admin-panel-grid,
+.admin-section-wrap {
+  overflow: visible !important;
+  min-height: 0 !important;
+}
+
+.admin-panel-content::-webkit-scrollbar,
+.modal-content::-webkit-scrollbar {
+  width: 10px;
+}
+
+.admin-panel-content::-webkit-scrollbar-thumb,
+.modal-content::-webkit-scrollbar-thumb {
+  background: rgba(88,160,255,.45);
+  border-radius: 999px;
+}
+
+
+/* v36.4 - Avisos do painel do cliente: On Hold e Em Tratativa por observação */
+.client-observation-notice {
+  margin: 12px 0 16px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, .14);
+  background: rgba(255, 255, 255, .045);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .18);
+}
+
+.client-observation-notice > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.client-observation-notice span {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.client-observation-notice strong {
+  color: #fff;
+  font-size: .95rem;
+}
+
+.client-observation-notice p,
+.client-observation-notice li {
+  color: #d9e9f7;
+  line-height: 1.45;
+  font-size: .88rem;
+}
+
+.client-observation-notice ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.client-observation-notice--hold {
+  border-color: rgba(255, 195, 87, .42);
+  background: linear-gradient(135deg, rgba(255, 195, 87, .13), rgba(255, 255, 255, .035));
+}
+
+.client-observation-notice--hold span {
+  color: #ffe2a1;
+  background: rgba(255, 195, 87, .16);
+  border: 1px solid rgba(255, 195, 87, .32);
+}
+
+.client-observation-notice--tratativa {
+  border-color: rgba(111, 240, 255, .34);
+  background: linear-gradient(135deg, rgba(111, 240, 255, .12), rgba(255, 255, 255, .035));
+}
+
+.client-observation-notice--tratativa span {
+  color: #b8f8ff;
+  background: rgba(111, 240, 255, .14);
+  border: 1px solid rgba(111, 240, 255, .28);
+}
