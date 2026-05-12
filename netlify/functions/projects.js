@@ -1946,6 +1946,34 @@ function getWipCustomerPo(row) {
   );
 }
 
+function getWipClientFocalPoint(row) {
+  return findTextValueByNormalizedColumn(
+    row,
+    [
+      'Client Focal Point*',
+      'Client Focal Point',
+      'Client Focal Point *',
+      'Focal Point Cliente',
+      'Ponto Focal Cliente',
+    ],
+    [
+      'Client Focal Point',
+      'Focal Point',
+      'Ponto Focal',
+    ]
+  );
+}
+
+function collectWipNameValues(value) {
+  const raw = String(value || '').trim();
+  if (!raw || raw === 'N/A') return [];
+  return raw
+    .split(/[\n;,|]+/)
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .filter((item, index, arr) => arr.findIndex((other) => other.toLowerCase() === item.toLowerCase()) === index);
+}
+
 function buildWipPoMap(rows) {
   const poMap = new Map();
   for (const row of Array.isArray(rows) ? rows : []) {
@@ -1962,6 +1990,24 @@ function buildWipPoMap(rows) {
     poMap.set(key, current);
   }
   return poMap;
+}
+
+function buildWipClientFocalMap(rows) {
+  const focalMap = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const projectRef = getWipProjectRef(row);
+    const focalValue = getWipClientFocalPoint(row);
+    const key = normalizeBspLookupKey(projectRef);
+    if (!key) continue;
+    const values = collectWipNameValues(focalValue);
+    if (!values.length) continue;
+    const current = focalMap.get(key) || [];
+    for (const value of values) {
+      if (!current.some((item) => String(item).toLowerCase() === String(value).toLowerCase())) current.push(value);
+    }
+    focalMap.set(key, current);
+  }
+  return focalMap;
 }
 
 function getPoListForProject(project, poMap) {
@@ -1984,6 +2030,25 @@ function getPoListForProject(project, poMap) {
   return [];
 }
 
+function getFocalPointListForProject(project, focalMap) {
+  const keys = getProjectBspLookupKeys(project);
+  for (const key of keys) {
+    const direct = focalMap.get(key);
+    if (direct?.length) return direct;
+  }
+
+  for (const key of keys) {
+    for (const [mapKey, values] of focalMap.entries()) {
+      if (!values?.length) continue;
+      if (mapKey === key || (mapKey.length >= 6 && key.length >= 6 && (mapKey.endsWith(key) || key.endsWith(mapKey)))) {
+        return values;
+      }
+    }
+  }
+
+  return [];
+}
+
 async function fetchWipStepPoMap() {
   try {
     const sheetId = await resolveWipStepSheetId();
@@ -1991,22 +2056,28 @@ async function fetchWipStepPoMap() {
     const version = await fetchSheetVersion(sheetId);
     const sheet = await fetchFullSheet(sheetId);
     const rows = mapApiRows(sheet);
-    return { poMap: buildWipPoMap(rows), version, sheetName: sheet.name || cache.wipStepSheetName || WIP_STEP_SHEET_NAME, available: true };
+    return { poMap: buildWipPoMap(rows), focalMap: buildWipClientFocalMap(rows), version, sheetName: sheet.name || cache.wipStepSheetName || WIP_STEP_SHEET_NAME, available: true };
   } catch (error) {
     console.warn('Não foi possível carregar Work in Progress - STEP para vínculo de PO:', error.message);
-    return { poMap: new Map(), version: null, sheetName: WIP_STEP_SHEET_NAME, available: false, error: error.message };
+    return { poMap: new Map(), focalMap: new Map(), version: null, sheetName: WIP_STEP_SHEET_NAME, available: false, error: error.message };
   }
 }
 
-function enrichProjectsWithCustomerPo(projects, poMap) {
+function enrichProjectsWithCustomerPo(projects, poMap, focalMap = new Map()) {
   const map = poMap instanceof Map ? poMap : new Map();
+  const focalPointMap = focalMap instanceof Map ? focalMap : new Map();
   return (Array.isArray(projects) ? projects : []).map((project) => {
     const list = getPoListForProject(project, map).filter(Boolean);
     const uniqueList = Array.from(new Set(list));
+    const focalList = getFocalPointListForProject(project, focalPointMap).filter(Boolean);
+    const uniqueFocalList = Array.from(new Set(focalList));
     project.customerPoList = uniqueList;
     project.customerPo = uniqueList[0] || '';
     project.customerPoDisplay = uniqueList.length ? getProjectPoDisplay(project) : 'Aguardando PO';
     project.customerPoStatus = uniqueList.length ? 'found' : 'waiting';
+    project.clientFocalPointList = uniqueFocalList;
+    project.clientFocalPoint = uniqueFocalList[0] || '';
+    project.clientFocalPointDisplay = uniqueFocalList.join(', ');
     project.clientDisplayCode = buildClientDisplayCode(project);
     return project;
   });
@@ -2095,6 +2166,7 @@ async function buildPayload(options = {}) {
 
   const wipPoPromise = fetchWipStepPoMap().catch((error) => ({
     poMap: new Map(),
+    focalMap: new Map(),
     version: cache.wipStepVersion || null,
     sheetName: cache.wipStepSheetName || WIP_STEP_SHEET_NAME,
     available: false,
@@ -2111,7 +2183,7 @@ async function buildPayload(options = {}) {
     throw error;
   }
   const rows = mapApiRows(sheet);
-  const projects = enrichProjectsWithCustomerPo(buildProjects(rows), wipPoData.poMap);
+  const projects = enrichProjectsWithCustomerPo(buildProjects(rows), wipPoData.poMap, wipPoData.focalMap);
   const stats = buildStats(projects);
   const alertData = buildAlerts(projects);
 

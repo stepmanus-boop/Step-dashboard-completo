@@ -2503,7 +2503,10 @@ function enrichProjects(projects) {
       project.vessel,
       project.observations,
       project.customerPo,
+      project.clientFocalPoint,
+      project.clientFocalPointDisplay,
       ...(project.customerPoList || []),
+      ...(project.clientFocalPointList || []),
       ...(project.spools || []).flatMap((spool) => [spool.iso, spool.description, spool.drawing, spool.observations]),
     ];
 
@@ -3550,8 +3553,8 @@ function ensureClientDashboardEl() {
     </div>
     <div class="client-search-row">
       <div class="search-box">
-        <span class="search-label">Localizar BSP ou PO</span>
-        <input id="client-project-search" type="text" placeholder="Digite o número da BSP ou PO..." autocomplete="off" />
+        <span class="search-label">Localizar BSP, PO ou Focal Point</span>
+        <input id="client-project-search" type="text" placeholder="Digite BSP, PO ou nome do focal point. Ex.: Sergio Ramos" autocomplete="off" />
       </div>
       <button id="client-clear-search" class="ghost-button" type="button">Limpar busca</button>
     </div>

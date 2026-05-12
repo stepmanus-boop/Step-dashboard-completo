@@ -177,8 +177,23 @@ function ensureQualityCompetenceAllowed(project, spool, sector, session) {
 
 function getSpoolCompetenceSector(project, spool) {
   const stageValues = spool?.stageValues || project?.stageValues || {};
+  const text = normalizeStageWorkspaceText([
+    spool?.currentStatus,
+    spool?.stage,
+    spool?.flow?.status,
+    spool?.currentSector,
+    spool?.operationalSector,
+    spool?.flow?.sector,
+    project?.currentStage,
+    project?.currentStatus,
+    project?.currentSector,
+    project?.operationalSector,
+    project?.sectorSummary,
+    project?.statusSummary,
+  ].filter(Boolean).join(' '));
+
   const finished = Boolean(spool?.finished || spool?.projectFinishedFlag)
-    || normalizeStageWorkspaceText(spool?.flow?.status || spool?.currentStatus || spool?.stage).includes('finalizado');
+    || text.includes('finalizado');
   if (finished) return '';
 
   const coating = Math.max(
@@ -206,6 +221,13 @@ function getSpoolCompetenceSector(project, spool) {
   const projectFinishDate = hasStageValue(stageValues, 'Project Finish Date');
 
   if (projectFinishDate || packageDelivered >= 100) return '';
+
+  // Prioridade para o setor explicitamente exibido na demanda.
+  // Isso evita bloquear apontamento quando o painel já classificou a demanda como Pintura,
+  // mas alguns campos técnicos intermediários ainda carregam percentuais de Qualidade/TH/END.
+  if (text.includes('pintura') || text.includes('paint') || text.includes('coating') || text.includes('surface preparation') || text.includes('acabamento') || text.includes('intermediaria') || text === 'j f') return 'pintura';
+  if (text.includes('package and delivered') || text.includes('unitizacao') || text.includes('preparado para envio') || text.includes('logistica') || text.includes('aguardando envio')) return 'pendente_envio';
+
   if (coating >= 100) return 'pendente_envio';
   if (coating > 0 || th >= 100) return 'pintura';
   if (fullWelding > 0 && fullWelding < 100) return 'solda';
@@ -218,21 +240,7 @@ function getSpoolCompetenceSector(project, spool) {
   if (fabricationStarted || materialSeparation >= 100) return 'producao';
   if (materialSeparation > 0 || procurement > 0 || procurement >= 100 || drawing >= 100) return 'suprimento';
 
-  const text = normalizeStageWorkspaceText([
-    spool?.currentStatus,
-    spool?.stage,
-    spool?.flow?.status,
-    spool?.currentSector,
-    spool?.operationalSector,
-    spool?.flow?.sector,
-    project?.currentStage,
-    project?.sectorSummary,
-  ].filter(Boolean).join(' '));
-
-  if (text.includes('finalizado')) return '';
-  if (text.includes('package and delivered') || text.includes('final inspection') || text.includes('unitizacao') || text.includes('preparado para envio') || text.includes('logistica')) return 'pendente_envio';
-  if (text.includes('pintura') || text.includes('paint') || text.includes('coating') || text.includes('surface preparation') || text.includes('acabamento') || text.includes('intermediaria') || text === 'j f') return 'pintura';
-  if (text.includes('hydro') || /\bth\b/.test(text) || text.includes('dimensional') || text.includes('inspection') || text.includes('inspecao') || text.includes('qualidade') || text.includes('nde') || text.includes('end')) return 'inspecao';
+  if (text.includes('final inspection') || text.includes('hydro') || /\bth\b/.test(text) || text.includes('dimensional') || text.includes('inspection') || text.includes('inspecao') || text.includes('qualidade') || text.includes('nde') || text.includes('end')) return 'inspecao';
   if (text.includes('full welding') || text.includes('solda') || text === 'solda') return 'solda';
   if (text.includes('pre montagem') || text.includes('spool assemble') || text.includes('tack weld') || text.includes('welding preparation') || text.includes('boilermaker') || text.includes('calderaria')) return 'calderaria';
   if (text.includes('corte') || text.includes('limpeza') || text.includes('fabrication start') || text.includes('producao')) return 'producao';
@@ -387,7 +395,16 @@ function getRequestedStageSector(payload, session) {
 }
 
 async function listUpdates() {
-  if (isSupabaseConfigured()) return listStageUpdates();
+  if (isSupabaseConfigured()) {
+    try {
+      return await listStageUpdates();
+    } catch (error) {
+      // Proteção operacional: se o Supabase falhar temporariamente ou a tabela
+      // stage_updates estiver com schema/cache instável, não derruba a tela de apontamentos.
+      // O sistema carrega o fallback JSON para manter PCP/setores funcionando.
+      console.warn('Falha ao listar stage_updates no Supabase; usando fallback JSON:', error.message);
+    }
+  }
   const rows = await readJson(DATA_PATH, []);
   return Array.isArray(rows) ? rows : [];
 }
@@ -693,11 +710,20 @@ exports.handler = async (event) => {
         const pendencies = await listHistoryDatePendencies(updates);
         return jsonResponse(200, { ok: true, pendencies });
       }
-      const enriched = await enrichUpdatesWithTracking(updates);
-      const autoResolved = await autoResolveTrackingMatchedUpdates(enriched, updates, session);
+      let enriched = updates;
+      let autoResolved = { changed: false, updates };
+      let warning = '';
+      try {
+        enriched = await enrichUpdatesWithTracking(updates);
+        autoResolved = await autoResolveTrackingMatchedUpdates(enriched, updates, session);
+      } catch (error) {
+        warning = error.message || 'Não foi possível cruzar apontamentos com o Tracking agora.';
+        console.warn('Falha ao enriquecer apontamentos com Tracking:', warning);
+      }
       return jsonResponse(200, {
         ok: true,
         updates: autoResolved.updates,
+        warning,
         autoResolvedCount: autoResolved.changed
           ? autoResolved.updates.filter((item) => isResolvedStatus(item?.status) && String(item?.resolutionNote || '').includes('Tracking já estava OK')).length
           : 0,
