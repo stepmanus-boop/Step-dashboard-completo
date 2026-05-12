@@ -2459,17 +2459,39 @@ const CLIENT_SCOPE_GENERIC_WORDS = new Set([
   'sa', 's', 'ltda', 'ltd', 'llc', 'inc', 'corp', 'company', 'companhia',
   'brasil', 'brazil', 'global', 'international', 'internacional', 'energy',
   'energia', 'offshore', 'oil', 'gas', 'petroleo', 'petroleum', 'services',
-  'service', 'servicos', 'solucoes', 'solutions', 'industrial', 'industria'
+  'service', 'servicos', 'solucoes', 'solutions', 'industrial', 'industria',
+  'cliente', 'client', 'portal', 'usuario', 'user', 'acesso'
 ]);
 
 function getClientScopeValues(session = {}) {
-  return [
+  const values = [
     session.clientKey,
     session.clientName,
     ...(Array.isArray(session.allowedClients) ? session.allowedClients : []),
-  ]
+  ];
+
+  // Compatibilidade com usuários cliente antigos: alguns logins foram criados antes dos campos
+  // client_key/client_name existirem. Nesses casos o cabeçalho mostra o nome do usuário (ex.: PRIO),
+  // mas o backend filtrava com escopo vazio e o Portal do Cliente ficava sem BSPs.
+  if (!values.some((value) => String(value || '').trim())) {
+    values.push(session.name, session.username);
+  }
+
+  return Array.from(new Set(values
     .map((value) => normalizeClientScopeValue(value))
-    .filter(Boolean);
+    .filter(Boolean)));
+}
+
+function getClientScopeTokens(value) {
+  const normalized = normalizeClientScopeValue(value);
+  if (!normalized) return [];
+  const tokens = normalized
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter((word) => word.length >= 2 && !CLIENT_SCOPE_GENERIC_WORDS.has(word));
+  const compact = normalized.replace(/\s+/g, '');
+  if (compact && compact.length >= 2 && !CLIENT_SCOPE_GENERIC_WORDS.has(compact)) tokens.push(compact);
+  return Array.from(new Set(tokens));
 }
 
 function getClientPrimaryToken(value) {
@@ -2485,13 +2507,15 @@ function projectBelongsToClientScope(project, session = {}) {
   const scopeValues = getClientScopeValues(session);
   if (!scopeValues.length) return false;
 
-  const client = normalizeClientScopeValue(project.client);
+  const client = normalizeClientScopeValue(project.client || project.clientName || project.customerClient || '');
   if (!client) return false;
   const clientPrimary = getClientPrimaryToken(client);
+  const clientTokens = getClientScopeTokens(client);
 
   for (const scopeValue of scopeValues) {
     if (!scopeValue) continue;
     const scopePrimary = getClientPrimaryToken(scopeValue);
+    const scopeTokens = getClientScopeTokens(scopeValue);
 
     // Mantém igualdade exata para cadastros que usam o nome completo do cliente.
     if (client === scopeValue) return true;
@@ -2499,6 +2523,10 @@ function projectBelongsToClientScope(project, session = {}) {
     // Portal do Cliente: prioriza a primeira palavra/nome principal.
     // Ex.: TRIDENT ENERGY deve bater com TRIDENT, mas não com BW ENERGY apenas por conter ENERGY.
     if (clientPrimary && scopePrimary && clientPrimary === scopePrimary) return true;
+
+    // Compatibilidade segura para nomes como "Cliente PRIO", "PRIO Brasil" ou usuário "prio".
+    // Só cruza tokens não genéricos para evitar bater apenas por palavras como ENERGY/OIL/GAS/CLIENTE.
+    if (clientTokens.length && scopeTokens.length && clientTokens.some((token) => scopeTokens.includes(token))) return true;
   }
 
   return false;

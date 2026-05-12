@@ -5,7 +5,7 @@ const PRESENCE_HEARTBEAT_MS = 90000;
 const AUTH_REFRESH_MS = 300000;
 const ADMIN_REFRESH_MS = 60000;
 const ALERT_NOTIFICATION_COOLDOWN_MS = 4 * 60 * 60 * 1000;
-const PROJECTS_CACHE_KEY = 'step_dashboard_projects_cache_v4_client_scope';
+const PROJECTS_CACHE_KEY = 'step_dashboard_projects_cache_v5_client_scope';
 
 let adminResponsesPollTimer = null;
 let projectsWarmupPromise = null;
@@ -3823,6 +3823,27 @@ function setClientDashboardMode() {
   if (openStageUpdatesEl && enabled) openStageUpdatesEl.classList.add('hidden');
 }
 
+function setClientDashboardTransientState(message = 'Carregando dados operacionais...', kind = 'loading') {
+  if (!isClientUser()) return;
+  ensureClientDashboardEl();
+  const syncEl = document.getElementById('client-dashboard-sync');
+  if (syncEl) syncEl.textContent = message;
+  const metaEl = document.getElementById('client-dashboard-meta');
+  if (metaEl && !state.projects.length) metaEl.textContent = kind === 'error' ? 'Não foi possível carregar as BSPs do cliente.' : 'Carregando demandas filtradas por empresa...';
+  if (!state.projects.length) {
+    const placeholder = kind === 'error' ? '—' : '...';
+    ['client-stat-bsps', 'client-stat-tags', 'client-stat-weight', 'client-stat-welded', 'client-stat-m2', 'client-stat-progress'].forEach((id) => {
+      const node = document.getElementById(id);
+      if (node) node.textContent = placeholder;
+    });
+    const grid = document.getElementById('client-vessel-grid');
+    if (grid) grid.innerHTML = `<div class="client-empty">${escapeHtml(message)}</div>`;
+    const panel = document.getElementById('client-bsp-panel');
+    if (panel) panel.classList.add('hidden');
+    renderClientProjectDetail(null);
+  }
+}
+
 function getClientVesselGroups(projects = state.projects) {
   const groups = new Map();
   for (const project of Array.isArray(projects) ? projects : []) {
@@ -7260,6 +7281,7 @@ function setProjectsLoadingState(message = 'Carregando dados operacionais...') {
   }
   if (searchCountEl && !state.projects.length) searchCountEl.textContent = 'Carregando...';
   if (lastSyncEl) lastSyncEl.textContent = message;
+  setClientDashboardTransientState(message, 'loading');
 }
 
 function revalidateProjectsInBackground(force = false) {
@@ -7546,6 +7568,7 @@ async function loadProjects(options = {}) {
 
       bodyEl.innerHTML = `<tr><td colspan="21" class="loading-cell">${escapeHtml(fallbackMessage)}</td></tr>`;
       detailCardEl.innerHTML = `<div class="detail-placeholder">${escapeHtml(fallbackMessage)}</div>`;
+      setClientDashboardTransientState(fallbackMessage, 'error');
     } finally {
       state.loadingProjectsRequest = null;
       if (refreshProjectsButtonEl) {
