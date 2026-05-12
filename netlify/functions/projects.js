@@ -88,46 +88,6 @@ function textValue(row, key) {
   return value == null ? "" : String(value).trim();
 }
 
-const OBSERVATION_COLUMN_KEYS = [
-  "OBSERVATIONS",
-  "OBSERVATION",
-  "Observation",
-  "Observations",
-  "OBS",
-  "Obs",
-  "Observação",
-  "Observações",
-  "Observacao",
-  "Observacoes",
-  "NOTES",
-  "Notes",
-  "NOTE",
-  "Note",
-  "COMMENTS",
-  "Comments",
-  "COMMENT",
-  "Comment",
-];
-
-function mergeUniqueTextParts(parts = []) {
-  const values = [];
-  const seen = new Set();
-  for (const part of parts) {
-    const value = String(part || "").trim();
-    if (!value) continue;
-    const key = normalizeColumnTitle(value);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    values.push(value);
-  }
-  return values.join(" | ");
-}
-
-function readObservationText(row) {
-  if (!row?.values) return "";
-  return mergeUniqueTextParts(OBSERVATION_COLUMN_KEYS.map((key) => textValue(row, key)));
-}
-
 function parseNumberValue(input) {
   if (input == null || input === "") return null;
   if (typeof input === "number") return Number.isFinite(input) ? input : null;
@@ -1047,7 +1007,7 @@ function buildSpoolRow(row, parentSummary) {
     return 0;
   })();
   const weldingWeek = weldingPercent >= 100 && weldingFinishDate ? getProductionWeekLabel(weldingFinishDate) : "";
-  const observations = readObservationText(row);
+  const observations = textValue(row, "OBSERVATIONS");
   const tratativaObservationMatches = getObservationTratativaMatches([{ source: parsedDrawing.iso || drawingText || `Linha ${row.rowNumber || row.id}`, text: observations }]);
 
   return {
@@ -1123,10 +1083,24 @@ function getSpoolCompletenessScore(spool) {
   return score;
 }
 
+function mergeUniqueObservationText(parts = []) {
+  const values = [];
+  const seen = new Set();
+  for (const part of parts) {
+    const value = String(part || "").trim();
+    if (!value) continue;
+    const key = normalizeStatusText(value);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    values.push(value);
+  }
+  return values.join(" | ");
+}
+
 function mergeSpoolObservationEvidence(primarySpool, secondarySpool) {
   if (!primarySpool || !secondarySpool) return primarySpool || secondarySpool;
 
-  primarySpool.observations = mergeUniqueTextParts([primarySpool.observations, secondarySpool.observations]);
+  primarySpool.observations = mergeUniqueObservationText([primarySpool.observations, secondarySpool.observations]);
 
   const mergedMatches = [];
   const seenMatches = new Set();
@@ -1134,20 +1108,23 @@ function mergeSpoolObservationEvidence(primarySpool, secondarySpool) {
     ...(Array.isArray(primarySpool.tratativaObservationMatches) ? primarySpool.tratativaObservationMatches : []),
     ...(Array.isArray(secondarySpool.tratativaObservationMatches) ? secondarySpool.tratativaObservationMatches : []),
   ]) {
-    const key = `${match?.label || ""}|${match?.source || ""}|${match?.text || ""}`;
-    if (!key.trim() || seenMatches.has(key)) continue;
+    const label = String(match?.label || "").trim();
+    const source = String(match?.source || "").trim();
+    const text = String(match?.text || "").trim();
+    if (!label || !text) continue;
+    const key = `${label}|${source}|${normalizeStatusText(text)}`;
+    if (seenMatches.has(key)) continue;
     seenMatches.add(key);
-    mergedMatches.push(match);
+    mergedMatches.push({ label, source: source || "Tag", text });
   }
 
-  if (mergedMatches.length) {
-    primarySpool.tratativaObservationMatches = mergedMatches;
-    primarySpool.hasTratativaObservation = true;
-  } else if (primarySpool.observations) {
-    const source = primarySpool.iso || primarySpool.drawing || primarySpool.description || `Linha ${primarySpool.rowNumber || primarySpool.rowId || ""}`.trim();
-    primarySpool.tratativaObservationMatches = getObservationTratativaMatches([{ source: source || "Tag", text: primarySpool.observations }]);
-    primarySpool.hasTratativaObservation = primarySpool.tratativaObservationMatches.length > 0;
+  if (!mergedMatches.length && primarySpool.observations) {
+    const source = primarySpool.iso || primarySpool.drawing || primarySpool.description || `Linha ${primarySpool.rowNumber || primarySpool.rowId || ""}`.trim() || "Tag";
+    mergedMatches.push(...getObservationTratativaMatches([{ source, text: primarySpool.observations }]));
   }
+
+  primarySpool.tratativaObservationMatches = mergedMatches;
+  primarySpool.hasTratativaObservation = mergedMatches.length > 0;
 
   return primarySpool;
 }
@@ -1156,6 +1133,7 @@ function chooseBestSpoolRow(currentSpool, nextSpool) {
   if (!currentSpool) return nextSpool;
   const currentScore = getSpoolCompletenessScore(currentSpool);
   const nextScore = getSpoolCompletenessScore(nextSpool);
+
   let selected = currentSpool;
   let discarded = nextSpool;
 
@@ -1307,7 +1285,7 @@ function buildProject(summaryRow, childRows) {
   const individualProgress = parsePercent(summaryRow, "% Individual Progress") ?? overallProgress;
   const projectFinishedFlag = isTruthyValue(getCellValue(summaryRow, "Project Finished?").raw);
   const projectStatus = textValue(summaryRow, "Project Status") || textValue(summaryRow, "PROJECT STATUS") || textValue(summaryRow, "Overall Project Status") || textValue(summaryRow, "Status");
-  const observations = readObservationText(summaryRow);
+  const observations = textValue(summaryRow, "OBSERVATIONS");
   const coatingPercent = parsePercent(summaryRow, "Surface preparation and/or coating") ?? 0;
   const fabricationStartDate = textValue(summaryRow, "Fabrication Start Date");
   const stageValues = buildStageValues(summaryRow);
@@ -1486,7 +1464,7 @@ function buildProjects(rows) {
       else acc.notStarted += 1;
       return acc;
     }, { total: 0, completed: 0, inProgress: 0, notStarted: 0 });
-    decorateProjectTratativaObservation(applyProjectSpoolRollup(project));
+    applyProjectSpoolRollup(project);
   }
 
   return projects;
@@ -1621,36 +1599,14 @@ function getObservationTratativaMatches(contexts = []) {
 
 function getProjectObservationTratativaMatches(project) {
   if (!project) return [];
-  const contexts = [
-    { source: "BSP", text: project.observations },
-    { source: "BSP", text: project.note },
-    { source: "BSP", text: project.notes },
-  ];
+  const contexts = [{ source: "BSP", text: project.observations }];
   if (Array.isArray(project.spools)) {
     project.spools.forEach((spool, index) => {
       const source = spool?.iso || spool?.drawing || spool?.description || `Tag ${index + 1}`;
       contexts.push({ source: `Tag ${source}`, text: spool?.observations });
     });
   }
-
-  const matches = getObservationTratativaMatches(contexts);
-  const seen = new Set(matches.map((item) => `${item.label}|${item.source}|${item.text}`));
-  const seenLabelText = new Set(matches.map((item) => `${item.label}|${normalizeStatusText(item.text)}`));
-  const existingMatches = [
-    ...(Array.isArray(project.tratativaObservationMatches) ? project.tratativaObservationMatches : []),
-    ...((Array.isArray(project.spools) ? project.spools : []).flatMap((spool) => Array.isArray(spool?.tratativaObservationMatches) ? spool.tratativaObservationMatches : [])),
-  ];
-
-  for (const match of existingMatches) {
-    const key = `${match?.label || ""}|${match?.source || ""}|${match?.text || ""}`;
-    const labelTextKey = `${match?.label || ""}|${normalizeStatusText(match?.text)}`;
-    if (!key.trim() || seen.has(key) || seenLabelText.has(labelTextKey)) continue;
-    seen.add(key);
-    seenLabelText.add(labelTextKey);
-    matches.push(match);
-  }
-
-  return matches;
+  return getObservationTratativaMatches(contexts);
 }
 
 function decorateProjectTratativaObservation(project) {
@@ -2459,39 +2415,17 @@ const CLIENT_SCOPE_GENERIC_WORDS = new Set([
   'sa', 's', 'ltda', 'ltd', 'llc', 'inc', 'corp', 'company', 'companhia',
   'brasil', 'brazil', 'global', 'international', 'internacional', 'energy',
   'energia', 'offshore', 'oil', 'gas', 'petroleo', 'petroleum', 'services',
-  'service', 'servicos', 'solucoes', 'solutions', 'industrial', 'industria',
-  'cliente', 'client', 'portal', 'usuario', 'user', 'acesso'
+  'service', 'servicos', 'solucoes', 'solutions', 'industrial', 'industria'
 ]);
 
 function getClientScopeValues(session = {}) {
-  const values = [
+  return [
     session.clientKey,
     session.clientName,
     ...(Array.isArray(session.allowedClients) ? session.allowedClients : []),
-  ];
-
-  // Compatibilidade com usuários cliente antigos: alguns logins foram criados antes dos campos
-  // client_key/client_name existirem. Nesses casos o cabeçalho mostra o nome do usuário (ex.: PRIO),
-  // mas o backend filtrava com escopo vazio e o Portal do Cliente ficava sem BSPs.
-  if (!values.some((value) => String(value || '').trim())) {
-    values.push(session.name, session.username);
-  }
-
-  return Array.from(new Set(values
+  ]
     .map((value) => normalizeClientScopeValue(value))
-    .filter(Boolean)));
-}
-
-function getClientScopeTokens(value) {
-  const normalized = normalizeClientScopeValue(value);
-  if (!normalized) return [];
-  const tokens = normalized
-    .split(/\s+/)
-    .map((word) => word.trim())
-    .filter((word) => word.length >= 2 && !CLIENT_SCOPE_GENERIC_WORDS.has(word));
-  const compact = normalized.replace(/\s+/g, '');
-  if (compact && compact.length >= 2 && !CLIENT_SCOPE_GENERIC_WORDS.has(compact)) tokens.push(compact);
-  return Array.from(new Set(tokens));
+    .filter(Boolean);
 }
 
 function getClientPrimaryToken(value) {
@@ -2507,15 +2441,13 @@ function projectBelongsToClientScope(project, session = {}) {
   const scopeValues = getClientScopeValues(session);
   if (!scopeValues.length) return false;
 
-  const client = normalizeClientScopeValue(project.client || project.clientName || project.customerClient || '');
+  const client = normalizeClientScopeValue(project.client);
   if (!client) return false;
   const clientPrimary = getClientPrimaryToken(client);
-  const clientTokens = getClientScopeTokens(client);
 
   for (const scopeValue of scopeValues) {
     if (!scopeValue) continue;
     const scopePrimary = getClientPrimaryToken(scopeValue);
-    const scopeTokens = getClientScopeTokens(scopeValue);
 
     // Mantém igualdade exata para cadastros que usam o nome completo do cliente.
     if (client === scopeValue) return true;
@@ -2523,10 +2455,6 @@ function projectBelongsToClientScope(project, session = {}) {
     // Portal do Cliente: prioriza a primeira palavra/nome principal.
     // Ex.: TRIDENT ENERGY deve bater com TRIDENT, mas não com BW ENERGY apenas por conter ENERGY.
     if (clientPrimary && scopePrimary && clientPrimary === scopePrimary) return true;
-
-    // Compatibilidade segura para nomes como "Cliente PRIO", "PRIO Brasil" ou usuário "prio".
-    // Só cruza tokens não genéricos para evitar bater apenas por palavras como ENERGY/OIL/GAS/CLIENTE.
-    if (clientTokens.length && scopeTokens.length && clientTokens.some((token) => scopeTokens.includes(token))) return true;
   }
 
   return false;
