@@ -1784,8 +1784,24 @@ function isQualityCompetenceAllowedForUser(project, spool, user = state.user) {
 
 function getSpoolCompetenceSector(project, spool) {
   const stageValues = spool?.stageValues || project?.stageValues || {};
+  const spoolOwnText = normalizeStageWorkspaceText([
+    spool?.currentStatus,
+    spool?.stage,
+    spool?.flow?.status,
+    spool?.currentSector,
+    spool?.operationalSector,
+    spool?.flow?.sector,
+  ].filter(Boolean).join(' '));
+  const spoolSaysPintura = spoolOwnText.includes('pintura')
+    || spoolOwnText.includes('paint')
+    || spoolOwnText.includes('coating')
+    || spoolOwnText.includes('surface preparation')
+    || spoolOwnText.includes('intermediaria');
+  // v35.9: finalizado nunca entra em apontamento, mesmo que tenha texto antigo de setor.
   const finished = Boolean(spool?.finished || spool?.projectFinishedFlag)
-    || normalizeStageWorkspaceText(spool?.flow?.status || spool?.currentStatus || spool?.stage).includes('finalizado');
+    || spoolOwnText.includes('finalizado')
+    || spoolOwnText.includes('concluido')
+    || spoolOwnText.includes('concluído');
   if (finished) return '';
 
   const coating = Math.max(
@@ -1856,6 +1872,35 @@ function getSpoolCompetenceSector(project, spool) {
 
 function isSpoolReleasedForStageSector(project, spool, sector = getStageWorkspaceSector()) {
   const currentSector = normalizeSectorValue(sector);
+
+  // v35.8: para Pintura, prioriza o nível do spool/ISO.
+  // Se a linha está como Intermediária/Pintura no detalhamento, libera o apontamento
+  // mesmo que o resumo da BSP esteja Finalizado/Aguardando Envio.
+  if (currentSector === 'pintura') {
+    const stageValues = spool?.stageValues || project?.stageValues || {};
+    const directText = normalizeStageWorkspaceText([
+      spool?.currentStatus,
+      spool?.stage,
+      spool?.currentSector,
+      spool?.operationalSector,
+      spool?.flow?.status,
+      spool?.flow?.sector,
+    ].filter(Boolean).join(' '));
+    const coating = getStageWorkspacePercent(stageValues, 'Surface preparation and/or coating');
+    const hdgFbe = getStageWorkspacePercent(stageValues, 'HDG / FBE.  (PAINT)');
+    const isFinishedText = directText.includes('finalizado') || directText.includes('concluido') || directText.includes('concluído');
+    if (!isFinishedText && (
+      directText.includes('pintura') ||
+      directText.includes('intermediaria') ||
+      directText.includes('coating') ||
+      directText.includes('paint') ||
+      (coating > 0 && coating < 100) ||
+      (hdgFbe > 0 && hdgFbe < 100)
+    )) {
+      return true;
+    }
+  }
+
   const competenceSector = getSpoolCompetenceSector(project, spool);
   if (!currentSector || !competenceSector || currentSector !== competenceSector) return false;
   if (currentSector === 'inspecao') return isQualityCompetenceAllowedForUser(project, spool);
@@ -8045,10 +8090,8 @@ if (openStageUpdatesEl) {
           renderStageUpdatesModal();
         }
       })
-      .catch((error) => {
-        if (stageUpdatesContentEl && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
-          stageUpdatesContentEl.innerHTML = `<div class="empty-state">${escapeHtml(error?.message || 'Falha ao carregar apontamentos setoriais.')}</div>`;
-        }
+      .catch(() => {
+        // loadStageUpdates já renderiza fallback seguro.
       });
   });
 }
@@ -10164,11 +10207,18 @@ async function loadStageUpdates(options = {}) {
       syncIncomingAlerts('stageUpdates', pendingForPcp);
     }
   } catch (error) {
+    // v35.7: não bloquear o apontamento do setor quando a consulta do histórico/validação falhar.
+    // O setor ainda precisa conseguir abrir a tela, buscar a BSP e enviar o apontamento.
     state.stageUpdates = [];
+    state.lastStageUpdatesFetchAt = Date.now();
     if (stageUpdatesContentEl && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
-      stageUpdatesContentEl.innerHTML = `<div class="empty-state">${escapeHtml(error.message || 'Falha ao carregar apontamentos setoriais.')}</div>`;
+      renderStageUpdatesModal();
+      const warning = document.createElement('div');
+      warning.className = 'stage-inline-warning';
+      warning.textContent = error.message || 'Histórico de apontamentos indisponível no momento; você ainda pode lançar novos apontamentos.';
+      stageUpdatesContentEl.prepend(warning);
     }
-    throw error;
+    return;
   }
 }
 

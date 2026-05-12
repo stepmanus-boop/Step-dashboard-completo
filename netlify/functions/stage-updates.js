@@ -251,6 +251,31 @@ function getSpoolCompetenceSector(project, spool) {
 }
 
 function ensureSpoolReleasedForSector(project, spool, sector, session = null) {
+  // v35.7 pintura direct release: se o spool/projeto já está na demanda de pintura,
+  // libera o apontamento mesmo que o texto de status venha com variação do Tracking.
+  if (sector === 'pintura') {
+    const stageValues = spool?.stageValues || {};
+    const coating = getStagePercent(stageValues, 'Surface preparation and/or coating');
+    const hdgFbe = getStagePercent(stageValues, 'HDG / FBE.  (PAINT)');
+    const stageText = normalizeStageWorkspaceText([
+      spool?.currentStatus,
+      spool?.currentSector,
+      spool?.operationalSector,
+      spool?.flow?.status,
+      spool?.flow?.sector,
+      project?.currentStatus,
+      project?.currentSector,
+      project?.operationalSector,
+      project?.flow?.status,
+      project?.flow?.sector,
+      project?.currentStage,
+      project?.statusSummary,
+      project?.sectorSummary,
+    ].filter(Boolean).join(' '));
+    const isFinishedText = stageText.includes('finalizado') || stageText.includes('concluido') || stageText.includes('concluído');
+    if (!isFinishedText && (coating > 0 || hdgFbe > 0 || stageText.includes('pintura') || stageText.includes('intermediaria') || stageText.includes('coating') || stageText.includes('paint'))) return;
+  }
+
   const actorSector = normalizeCompetenceSector(sector);
   const competenceSector = getSpoolCompetenceSector(project, spool);
   if (!competenceSector || competenceSector !== actorSector) {
@@ -704,7 +729,15 @@ exports.handler = async (event) => {
   try {
     if (event.httpMethod === 'GET') {
       const mode = String(event.queryStringParameters?.mode || '').trim();
-      const updates = await listUpdates();
+      let updates = [];
+      let listWarning = '';
+      try {
+        updates = await listUpdates();
+      } catch (error) {
+        listWarning = error.message || 'Não foi possível carregar o histórico de apontamentos.';
+        console.warn('Falha ao listar apontamentos; seguindo com lista vazia:', listWarning);
+        updates = [];
+      }
       if (mode === 'history-date-pending') {
         if (!canValidate(session)) return jsonResponse(403, { ok: false, error: 'Apenas PCP ou administrador pode consultar pendências.' });
         const pendencies = await listHistoryDatePendencies(updates);
@@ -723,7 +756,7 @@ exports.handler = async (event) => {
       return jsonResponse(200, {
         ok: true,
         updates: autoResolved.updates,
-        warning,
+        warning: [listWarning, warning].filter(Boolean).join(' | '),
         autoResolvedCount: autoResolved.changed
           ? autoResolved.updates.filter((item) => isResolvedStatus(item?.status) && String(item?.resolutionNote || '').includes('Tracking já estava OK')).length
           : 0,
@@ -744,7 +777,12 @@ exports.handler = async (event) => {
       const body = JSON.parse(event.body || '{}');
       const items = Array.isArray(body.items) ? body.items : null;
       if (items && items.length) {
-        const baseUpdates = isSupabaseConfigured() ? [] : await listUpdates();
+        let baseUpdates = [];
+        try {
+          baseUpdates = isSupabaseConfigured() ? [] : await listUpdates();
+        } catch (_) {
+          baseUpdates = [];
+        }
         const created = [];
         const errors = [];
         for (const item of items) {
@@ -768,7 +806,12 @@ exports.handler = async (event) => {
         });
       }
       try {
-        const updates = isSupabaseConfigured() ? null : await listUpdates();
+        let updates = null;
+        try {
+          updates = isSupabaseConfigured() ? null : await listUpdates();
+        } catch (_) {
+          updates = [];
+        }
         const saved = await createSingleUpdate(body, session, updates);
         if (!isSupabaseConfigured()) await saveUpdates(updates);
         return jsonResponse(200, { ok: true, update: saved, storage: isSupabaseConfigured() ? 'supabase' : 'json' });
