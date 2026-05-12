@@ -7011,3 +7011,86 @@ body.client-mode .client-logo-box img,
   font-weight: 700;
 }
 
+
+/* ===== v36.0 - Scroll corrigido na tela de apontamentos por etapa ===== */
+
+/* Modal de apontamentos precisa permitir rolagem interna completa */
+#stage-updates-modal,
+.stage-updates-modal {
+  overflow: hidden !important;
+}
+
+#stage-updates-modal .modal-card,
+#stage-updates-modal .stage-updates-card,
+.stage-updates-modal .modal-card,
+.stage-updates-modal .stage-updates-card {
+  max-height: calc(100vh - 24px) !important;
+  height: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+/* Cabeçalho fixo no topo do modal */
+#stage-updates-modal .modal-head,
+#stage-updates-modal .stage-updates-head,
+.stage-updates-modal .modal-head,
+.stage-updates-modal .stage-updates-head {
+  flex: 0 0 auto !important;
+}
+
+/* Conteúdo rola verticalmente */
+#stage-updates-content,
+.stage-updates-content {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  max-height: calc(100vh - 150px) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding-bottom: 28px !important;
+  scrollbar-gutter: stable !important;
+}
+
+/* A área interna também não pode travar o scroll */
+.stage-workspace-shell {
+  min-height: 0 !important;
+  overflow: visible !important;
+  padding-bottom: 28px !important;
+}
+
+.stage-two-column,
+.stage-two-columns,
+.stage-workspace-grid {
+  min-height: 0 !important;
+  overflow: visible !important;
+}
+
+/* Cards de lançamento e histórico podem crescer, mas o scroll fica no conteúdo geral */
+.stage-workspace-shell .admin-card,
+.stage-workspace-shell .admin-card--wide {
+  overflow: visible !important;
+}
+
+/* Tabela/lista de spools dentro da etapa: permite ver todos os itens */
+.stage-table-wrap,
+.stage-spool-table-wrap,
+.stage-workspace-table-wrap {
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+/* Em telas menores/zoom 100%, aumenta a área útil de rolagem */
+@media (max-height: 820px) {
+  #stage-updates-content,
+  .stage-updates-content {
+    max-height: calc(100vh - 128px) !important;
+  }
+}
+
+@media (max-height: 680px) {
+  #stage-updates-content,
+  .stage-updates-content {
+    max-height: calc(100vh - 110px) !important;
+  }
+}
+
