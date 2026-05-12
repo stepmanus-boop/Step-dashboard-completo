@@ -1709,6 +1709,22 @@ function normalizeStageWorkspaceText(value) {
     .trim();
 }
 
+function inferStageSectorFromOwnText(value) {
+  const text = normalizeStageWorkspaceText(value);
+  if (!text || text.includes('finalizado') || text.includes('concluido') || text.includes('enviado')) return '';
+  if (text.includes('package and delivered') || text.includes('unitizacao') || text.includes('preparado para envio') || text.includes('logistica')) return 'pendente_envio';
+  if (text.includes('pintura') || text.includes('inicio de pintura') || text.includes('intermediaria') || text.includes('coating') || text.includes('paint') || text.includes('surface preparation')) return 'pintura';
+  if (text.includes('inspecao') || text.includes('inspection') || text.includes('dimensional') || text.includes('qualidade') || text.includes('nde') || text.includes('end') || /\bth\b/.test(text) || text.includes('hydro')) return 'inspecao';
+  if (text.includes('solda') || text.includes('full welding')) return 'solda';
+  if (text.includes('pre montagem') || text.includes('spool assemble') || text.includes('tack weld') || text.includes('welding preparation') || text.includes('boilermaker') || text.includes('calderaria')) return 'calderaria';
+  if (text.includes('corte') || text.includes('limpeza') || text.includes('fabrication start') || text.includes('producao')) return 'producao';
+  if (text.includes('separacao de material') || text.includes('material separation') || text.includes('estoque') || text.includes('procure') || text.includes('suprimento')) return 'suprimento';
+  if (text.includes('detalhamento') || text.includes('drawing') || text.includes('engenharia')) return 'engenharia';
+  return '';
+}
+
+
+
 function parseStageWorkspacePercent(value) {
   if (value == null || value === '' || value === 'N/A') return null;
   if (typeof value === 'number') {
@@ -1804,6 +1820,10 @@ function getSpoolCompetenceSector(project, spool) {
     || spoolOwnText.includes('concluído');
   if (finished) return '';
 
+  // v36.2: a demanda do setor vem primeiro da etapa/status do próprio ISO.
+  const ownTextSector = inferStageSectorFromOwnText(spoolOwnText);
+  if (ownTextSector) return ownTextSector;
+
   const coating = Math.max(
     getStageWorkspacePercent(stageValues, 'Surface preparation and/or coating'),
     getStageWorkspacePercent(stageValues, 'HDG / FBE.  (PAINT)'),
@@ -1872,47 +1892,29 @@ function getSpoolCompetenceSector(project, spool) {
 
 function isSpoolReleasedForStageSector(project, spool, sector = getStageWorkspaceSector()) {
   const currentSector = normalizeSectorValue(sector);
+  if (!currentSector) return false;
 
-  // v35.8: para Pintura, prioriza o nível do spool/ISO.
-  // Se a linha está como Intermediária/Pintura no detalhamento, libera o apontamento
-  // mesmo que o resumo da BSP esteja Finalizado/Aguardando Envio.
-  if (currentSector === 'pintura') {
-    const stageValues = spool?.stageValues || project?.stageValues || {};
-    const directText = normalizeStageWorkspaceText([
-      spool?.currentStatus,
-      spool?.stage,
-      spool?.currentSector,
-      spool?.operationalSector,
-      spool?.flow?.status,
-      spool?.flow?.sector,
-      spool?.etapaAtual,
-      project?.currentStage,
-      project?.currentStatus,
-    ].filter(Boolean).join(' '));
+  const directText = normalizeStageWorkspaceText([
+    spool?.currentStatus,
+    spool?.stage,
+    spool?.currentSector,
+    spool?.operationalSector,
+    spool?.flow?.status,
+    spool?.flow?.sector,
+    spool?.etapaAtual,
+  ].filter(Boolean).join(' '));
+  const directSector = inferStageSectorFromOwnText(directText);
 
-    const coating = getStageWorkspacePercent(stageValues, 'Surface preparation and/or coating');
-    const hdgFbe = getStageWorkspacePercent(stageValues, 'HDG / FBE.  (PAINT)');
-    const isFinishedText = directText.includes('finalizado') || directText.includes('concluido') || directText.includes('concluído') || directText.includes('enviado');
-
-    // v36.1: tudo que estiver na demanda/etapa de Pintura deve permitir edição.
-    // Isso inclui "Aguardando início da pintura", "Pintura", "Intermediária", coating e painéis de demanda.
-    const isPaintingDemand =
-      directText.includes('pintura') ||
-      directText.includes('aguardando inicio da pintura') ||
-      directText.includes('aguardando início da pintura') ||
-      directText.includes('intermediaria') ||
-      directText.includes('coating') ||
-      directText.includes('paint') ||
-      (coating >= 0 && coating < 100) ||
-      (hdgFbe >= 0 && hdgFbe < 100);
-
-    if (!isFinishedText && isPaintingDemand) {
-      return true;
-    }
+  // v36.2: se o próprio ISO informa etapa, ela manda.
+  // Ex.: login Pintura só vê "Pintura/Aguardando início de pintura/Intermediária".
+  // Solda, Corte, Inspeção etc. ficam fora da Pintura.
+  if (directSector) {
+    if (currentSector === 'inspecao' && directSector === 'inspecao') return isQualityCompetenceAllowedForUser(project, spool);
+    return currentSector === directSector;
   }
 
   const competenceSector = getSpoolCompetenceSector(project, spool);
-  if (!currentSector || !competenceSector || currentSector !== competenceSector) return false;
+  if (!competenceSector || currentSector !== competenceSector) return false;
   if (currentSector === 'inspecao') return isQualityCompetenceAllowedForUser(project, spool);
   return true;
 }

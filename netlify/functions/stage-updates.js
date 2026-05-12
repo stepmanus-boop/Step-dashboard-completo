@@ -64,6 +64,22 @@ function normalizeStageWorkspaceText(value) {
     .trim();
 }
 
+function inferStageSectorFromOwnText(value) {
+  const text = normalizeStageWorkspaceText(value);
+  if (!text || text.includes('finalizado') || text.includes('concluido') || text.includes('enviado')) return '';
+  if (text.includes('package and delivered') || text.includes('unitizacao') || text.includes('preparado para envio') || text.includes('logistica')) return 'pendente_envio';
+  if (text.includes('pintura') || text.includes('inicio de pintura') || text.includes('intermediaria') || text.includes('coating') || text.includes('paint') || text.includes('surface preparation')) return 'pintura';
+  if (text.includes('inspecao') || text.includes('inspection') || text.includes('dimensional') || text.includes('qualidade') || text.includes('nde') || text.includes('end') || /\bth\b/.test(text) || text.includes('hydro')) return 'inspecao';
+  if (text.includes('solda') || text.includes('full welding')) return 'solda';
+  if (text.includes('pre montagem') || text.includes('spool assemble') || text.includes('tack weld') || text.includes('welding preparation') || text.includes('boilermaker') || text.includes('calderaria')) return 'calderaria';
+  if (text.includes('corte') || text.includes('limpeza') || text.includes('fabrication start') || text.includes('producao')) return 'producao';
+  if (text.includes('separacao de material') || text.includes('material separation') || text.includes('estoque') || text.includes('procure') || text.includes('suprimento')) return 'suprimento';
+  if (text.includes('detalhamento') || text.includes('drawing') || text.includes('engenharia')) return 'engenharia';
+  return '';
+}
+
+
+
 function normalizeCompetenceSector(value) {
   const normalized = normalizeSectorValue(value);
   if (['qualidade', 'quality', 'qc'].includes(normalized)) return 'inspecao';
@@ -196,6 +212,9 @@ function getSpoolCompetenceSector(project, spool) {
     || text.includes('finalizado');
   if (finished) return '';
 
+  const ownTextSector = inferStageSectorFromOwnText(spoolOwnText);
+  if (ownTextSector) return ownTextSector;
+
   const coating = Math.max(
     getStagePercent(stageValues, 'Surface preparation and/or coating'),
     getStagePercent(stageValues, 'HDG / FBE.  (PAINT)'),
@@ -251,41 +270,28 @@ function getSpoolCompetenceSector(project, spool) {
 }
 
 function ensureSpoolReleasedForSector(project, spool, sector, session = null) {
-  // v35.7 pintura direct release: se o spool/projeto já está na demanda de pintura,
-  // libera o apontamento mesmo que o texto de status venha com variação do Tracking.
-  if (sector === 'pintura') {
-    const stageValues = spool?.stageValues || {};
-    const coating = getStagePercent(stageValues, 'Surface preparation and/or coating');
-    const hdgFbe = getStagePercent(stageValues, 'HDG / FBE.  (PAINT)');
-    const stageText = normalizeStageWorkspaceText([
-      spool?.currentStatus,
-      spool?.currentSector,
-      spool?.operationalSector,
-      spool?.flow?.status,
-      spool?.flow?.sector,
-      project?.currentStatus,
-      project?.currentSector,
-      project?.operationalSector,
-      project?.flow?.status,
-      project?.flow?.sector,
-      project?.currentStage,
-      project?.statusSummary,
-      project?.sectorSummary,
-    ].filter(Boolean).join(' '));
-    const isFinishedText = stageText.includes('finalizado') || stageText.includes('concluido') || stageText.includes('concluído') || stageText.includes('enviado');
-    const isPaintingDemand =
-      stageText.includes('pintura') ||
-      stageText.includes('aguardando inicio da pintura') ||
-      stageText.includes('aguardando início da pintura') ||
-      stageText.includes('intermediaria') ||
-      stageText.includes('coating') ||
-      stageText.includes('paint') ||
-      coating >= 0 ||
-      hdgFbe >= 0;
-    if (!isFinishedText && isPaintingDemand) return;
+  const actorSector = normalizeCompetenceSector(sector);
+
+  const directText = normalizeStageWorkspaceText([
+    spool?.currentStatus,
+    spool?.stage,
+    spool?.currentSector,
+    spool?.operationalSector,
+    spool?.flow?.status,
+    spool?.flow?.sector,
+  ].filter(Boolean).join(' '));
+  const directSector = inferStageSectorFromOwnText(directText);
+
+  if (directSector) {
+    if (directSector !== actorSector) {
+      const err = new Error(`Este spool pertence ao setor ${sectorLabel(directSector)}, não ao setor ${sectorLabel(actorSector)}.`);
+      err.statusCode = 403;
+      throw err;
+    }
+    ensureQualityCompetenceAllowed(project, spool, actorSector, session);
+    return;
   }
 
-  const actorSector = normalizeCompetenceSector(sector);
   const competenceSector = getSpoolCompetenceSector(project, spool);
   if (!competenceSector || competenceSector !== actorSector) {
     const err = new Error(`Este spool ainda não está liberado para apontamento do setor ${sectorLabel(actorSector)}. Etapa atual: ${getSpoolStageLabel(project, spool)}. Setor responsável: ${sectorLabel(competenceSector) || 'não identificado'}.`);
