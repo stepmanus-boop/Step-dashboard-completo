@@ -272,8 +272,17 @@ function ensureSpoolReleasedForSector(project, spool, sector, session = null) {
       project?.statusSummary,
       project?.sectorSummary,
     ].filter(Boolean).join(' '));
-    const isFinishedText = stageText.includes('finalizado') || stageText.includes('concluido') || stageText.includes('concluído');
-    if (!isFinishedText && (coating > 0 || hdgFbe > 0 || stageText.includes('pintura') || stageText.includes('intermediaria') || stageText.includes('coating') || stageText.includes('paint'))) return;
+    const isFinishedText = stageText.includes('finalizado') || stageText.includes('concluido') || stageText.includes('concluído') || stageText.includes('enviado');
+    const isPaintingDemand =
+      stageText.includes('pintura') ||
+      stageText.includes('aguardando inicio da pintura') ||
+      stageText.includes('aguardando início da pintura') ||
+      stageText.includes('intermediaria') ||
+      stageText.includes('coating') ||
+      stageText.includes('paint') ||
+      coating >= 0 ||
+      hdgFbe >= 0;
+    if (!isFinishedText && isPaintingDemand) return;
   }
 
   const actorSector = normalizeCompetenceSector(sector);

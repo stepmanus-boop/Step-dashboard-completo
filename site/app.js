@@ -1885,18 +1885,28 @@ function isSpoolReleasedForStageSector(project, spool, sector = getStageWorkspac
       spool?.operationalSector,
       spool?.flow?.status,
       spool?.flow?.sector,
+      spool?.etapaAtual,
+      project?.currentStage,
+      project?.currentStatus,
     ].filter(Boolean).join(' '));
+
     const coating = getStageWorkspacePercent(stageValues, 'Surface preparation and/or coating');
     const hdgFbe = getStageWorkspacePercent(stageValues, 'HDG / FBE.  (PAINT)');
-    const isFinishedText = directText.includes('finalizado') || directText.includes('concluido') || directText.includes('concluído');
-    if (!isFinishedText && (
+    const isFinishedText = directText.includes('finalizado') || directText.includes('concluido') || directText.includes('concluído') || directText.includes('enviado');
+
+    // v36.1: tudo que estiver na demanda/etapa de Pintura deve permitir edição.
+    // Isso inclui "Aguardando início da pintura", "Pintura", "Intermediária", coating e painéis de demanda.
+    const isPaintingDemand =
       directText.includes('pintura') ||
+      directText.includes('aguardando inicio da pintura') ||
+      directText.includes('aguardando início da pintura') ||
       directText.includes('intermediaria') ||
       directText.includes('coating') ||
       directText.includes('paint') ||
-      (coating > 0 && coating < 100) ||
-      (hdgFbe > 0 && hdgFbe < 100)
-    )) {
+      (coating >= 0 && coating < 100) ||
+      (hdgFbe >= 0 && hdgFbe < 100);
+
+    if (!isFinishedText && isPaintingDemand) {
       return true;
     }
   }
