@@ -934,7 +934,7 @@ function renderClientOnHoldNotice(project) {
     <section class="client-observation-notice client-observation-notice--hold">
       <div>
         <span>ON HOLD</span>
-        <strong>BSP em espera operacional</strong>
+        <strong>BSP EM ON HOLD — em espera operacional</strong>
       </div>
       <p>${escapeHtml(reason || "On Hold identificado")}</p>
     </section>

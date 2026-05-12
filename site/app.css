@@ -7144,10 +7144,10 @@ body.client-mode .client-logo-box img,
 }
 
 
-/* v36.4 - Avisos do painel do cliente: On Hold e Em Tratativa por observação */
+/* v36.8 - Avisos do painel do cliente: On Hold e Em Tratativa por observação */
 .client-observation-notice {
-  margin: 12px 0 16px;
-  padding: 14px 16px;
+  margin: 14px 0 18px;
+  padding: 16px 18px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, .14);
   background: rgba(255, 255, 255, .045);
@@ -7166,10 +7166,10 @@ body.client-mode .client-logo-box img,
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  padding: 5px 10px;
-  font-size: .72rem;
-  font-weight: 800;
-  letter-spacing: .08em;
+  padding: 6px 12px;
+  font-size: .74rem;
+  font-weight: 900;
+  letter-spacing: .1em;
   text-transform: uppercase;
 }
 
@@ -7182,7 +7182,7 @@ body.client-mode .client-logo-box img,
 .client-observation-notice li {
   color: #d9e9f7;
   line-height: 1.45;
-  font-size: .88rem;
+  font-size: .9rem;
 }
 
 .client-observation-notice ul {
@@ -7190,15 +7190,62 @@ body.client-mode .client-logo-box img,
   padding-left: 18px;
 }
 
+/* ON HOLD precisa aparecer dentro da janela clara da visão executiva.
+   Por isso usamos alto contraste, sem texto branco sobre fundo claro. */
 .client-observation-notice--hold {
-  border-color: rgba(255, 195, 87, .42);
-  background: linear-gradient(135deg, rgba(255, 195, 87, .13), rgba(255, 255, 255, .035));
+  position: relative;
+  overflow: hidden;
+  border: 2px solid #f59e0b;
+  background: linear-gradient(135deg, #fff7cc 0%, #ffd766 55%, #ffbf3f 100%);
+  color: #2f2100;
+  box-shadow: 0 18px 40px rgba(180, 111, 0, .28);
+}
+
+.client-observation-notice--hold::before {
+  content: "!";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  top: 16px;
+  left: 18px;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: #7c2d12;
+  color: #fff7ed;
+  font-size: 1.25rem;
+  font-weight: 1000;
+  box-shadow: 0 8px 18px rgba(124, 45, 18, .28);
+}
+
+.client-observation-notice--hold > div,
+.client-observation-notice--hold p {
+  margin-left: 46px;
+}
+
+.client-observation-notice--hold > div {
+  justify-content: flex-start;
+  flex-wrap: wrap;
 }
 
 .client-observation-notice--hold span {
-  color: #ffe2a1;
-  background: rgba(255, 195, 87, .16);
-  border: 1px solid rgba(255, 195, 87, .32);
+  color: #ffffff;
+  background: #b45309;
+  border: 1px solid rgba(124, 45, 18, .35);
+  box-shadow: 0 6px 14px rgba(180, 83, 9, .22);
+}
+
+.client-observation-notice--hold strong {
+  color: #3f2d00;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.client-observation-notice--hold p,
+.client-observation-notice--hold li {
+  color: #3f2d00;
+  font-weight: 750;
 }
 
 .client-observation-notice--tratativa {
