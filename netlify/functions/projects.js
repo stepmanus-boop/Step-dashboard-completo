@@ -88,6 +88,46 @@ function textValue(row, key) {
   return value == null ? "" : String(value).trim();
 }
 
+const OBSERVATION_COLUMN_KEYS = [
+  "OBSERVATIONS",
+  "OBSERVATION",
+  "Observation",
+  "Observations",
+  "OBS",
+  "Obs",
+  "Observação",
+  "Observações",
+  "Observacao",
+  "Observacoes",
+  "NOTES",
+  "Notes",
+  "NOTE",
+  "Note",
+  "COMMENTS",
+  "Comments",
+  "COMMENT",
+  "Comment",
+];
+
+function mergeUniqueTextParts(parts = []) {
+  const values = [];
+  const seen = new Set();
+  for (const part of parts) {
+    const value = String(part || "").trim();
+    if (!value) continue;
+    const key = normalizeColumnTitle(value);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    values.push(value);
+  }
+  return values.join(" | ");
+}
+
+function readObservationText(row) {
+  if (!row?.values) return "";
+  return mergeUniqueTextParts(OBSERVATION_COLUMN_KEYS.map((key) => textValue(row, key)));
+}
+
 function parseNumberValue(input) {
   if (input == null || input === "") return null;
   if (typeof input === "number") return Number.isFinite(input) ? input : null;
@@ -1007,7 +1047,7 @@ function buildSpoolRow(row, parentSummary) {
     return 0;
   })();
   const weldingWeek = weldingPercent >= 100 && weldingFinishDate ? getProductionWeekLabel(weldingFinishDate) : "";
-  const observations = textValue(row, "OBSERVATIONS");
+  const observations = readObservationText(row);
   const tratativaObservationMatches = getObservationTratativaMatches([{ source: parsedDrawing.iso || drawingText || `Linha ${row.rowNumber || row.id}`, text: observations }]);
 
   return {
@@ -1083,17 +1123,55 @@ function getSpoolCompletenessScore(spool) {
   return score;
 }
 
+function mergeSpoolObservationEvidence(primarySpool, secondarySpool) {
+  if (!primarySpool || !secondarySpool) return primarySpool || secondarySpool;
+
+  primarySpool.observations = mergeUniqueTextParts([primarySpool.observations, secondarySpool.observations]);
+
+  const mergedMatches = [];
+  const seenMatches = new Set();
+  for (const match of [
+    ...(Array.isArray(primarySpool.tratativaObservationMatches) ? primarySpool.tratativaObservationMatches : []),
+    ...(Array.isArray(secondarySpool.tratativaObservationMatches) ? secondarySpool.tratativaObservationMatches : []),
+  ]) {
+    const key = `${match?.label || ""}|${match?.source || ""}|${match?.text || ""}`;
+    if (!key.trim() || seenMatches.has(key)) continue;
+    seenMatches.add(key);
+    mergedMatches.push(match);
+  }
+
+  if (mergedMatches.length) {
+    primarySpool.tratativaObservationMatches = mergedMatches;
+    primarySpool.hasTratativaObservation = true;
+  } else if (primarySpool.observations) {
+    const source = primarySpool.iso || primarySpool.drawing || primarySpool.description || `Linha ${primarySpool.rowNumber || primarySpool.rowId || ""}`.trim();
+    primarySpool.tratativaObservationMatches = getObservationTratativaMatches([{ source: source || "Tag", text: primarySpool.observations }]);
+    primarySpool.hasTratativaObservation = primarySpool.tratativaObservationMatches.length > 0;
+  }
+
+  return primarySpool;
+}
+
 function chooseBestSpoolRow(currentSpool, nextSpool) {
   if (!currentSpool) return nextSpool;
   const currentScore = getSpoolCompletenessScore(currentSpool);
   const nextScore = getSpoolCompletenessScore(nextSpool);
-  if (nextScore > currentScore) return nextSpool;
-  if (nextScore < currentScore) return currentSpool;
+  let selected = currentSpool;
+  let discarded = nextSpool;
 
-  const currentRowNumber = Number(currentSpool?.rowNumber || 0);
-  const nextRowNumber = Number(nextSpool?.rowNumber || 0);
-  if (nextRowNumber > currentRowNumber) return nextSpool;
-  return currentSpool;
+  if (nextScore > currentScore) {
+    selected = nextSpool;
+    discarded = currentSpool;
+  } else if (nextScore === currentScore) {
+    const currentRowNumber = Number(currentSpool?.rowNumber || 0);
+    const nextRowNumber = Number(nextSpool?.rowNumber || 0);
+    if (nextRowNumber > currentRowNumber) {
+      selected = nextSpool;
+      discarded = currentSpool;
+    }
+  }
+
+  return mergeSpoolObservationEvidence(selected, discarded);
 }
 
 
@@ -1229,7 +1307,7 @@ function buildProject(summaryRow, childRows) {
   const individualProgress = parsePercent(summaryRow, "% Individual Progress") ?? overallProgress;
   const projectFinishedFlag = isTruthyValue(getCellValue(summaryRow, "Project Finished?").raw);
   const projectStatus = textValue(summaryRow, "Project Status") || textValue(summaryRow, "PROJECT STATUS") || textValue(summaryRow, "Overall Project Status") || textValue(summaryRow, "Status");
-  const observations = textValue(summaryRow, "OBSERVATIONS");
+  const observations = readObservationText(summaryRow);
   const coatingPercent = parsePercent(summaryRow, "Surface preparation and/or coating") ?? 0;
   const fabricationStartDate = textValue(summaryRow, "Fabrication Start Date");
   const stageValues = buildStageValues(summaryRow);
@@ -1408,7 +1486,7 @@ function buildProjects(rows) {
       else acc.notStarted += 1;
       return acc;
     }, { total: 0, completed: 0, inProgress: 0, notStarted: 0 });
-    applyProjectSpoolRollup(project);
+    decorateProjectTratativaObservation(applyProjectSpoolRollup(project));
   }
 
   return projects;
@@ -1543,14 +1621,36 @@ function getObservationTratativaMatches(contexts = []) {
 
 function getProjectObservationTratativaMatches(project) {
   if (!project) return [];
-  const contexts = [{ source: "BSP", text: project.observations }];
+  const contexts = [
+    { source: "BSP", text: project.observations },
+    { source: "BSP", text: project.note },
+    { source: "BSP", text: project.notes },
+  ];
   if (Array.isArray(project.spools)) {
     project.spools.forEach((spool, index) => {
       const source = spool?.iso || spool?.drawing || spool?.description || `Tag ${index + 1}`;
       contexts.push({ source: `Tag ${source}`, text: spool?.observations });
     });
   }
-  return getObservationTratativaMatches(contexts);
+
+  const matches = getObservationTratativaMatches(contexts);
+  const seen = new Set(matches.map((item) => `${item.label}|${item.source}|${item.text}`));
+  const seenLabelText = new Set(matches.map((item) => `${item.label}|${normalizeStatusText(item.text)}`));
+  const existingMatches = [
+    ...(Array.isArray(project.tratativaObservationMatches) ? project.tratativaObservationMatches : []),
+    ...((Array.isArray(project.spools) ? project.spools : []).flatMap((spool) => Array.isArray(spool?.tratativaObservationMatches) ? spool.tratativaObservationMatches : [])),
+  ];
+
+  for (const match of existingMatches) {
+    const key = `${match?.label || ""}|${match?.source || ""}|${match?.text || ""}`;
+    const labelTextKey = `${match?.label || ""}|${normalizeStatusText(match?.text)}`;
+    if (!key.trim() || seen.has(key) || seenLabelText.has(labelTextKey)) continue;
+    seen.add(key);
+    seenLabelText.add(labelTextKey);
+    matches.push(match);
+  }
+
+  return matches;
 }
 
 function decorateProjectTratativaObservation(project) {

@@ -842,13 +842,21 @@ function getProjectObservationContexts(project) {
   };
 
   add("BSP", project.observations);
+  add("BSP", project.OBSERVATIONS);
+  add("BSP", project.observation);
   add("BSP", project.note);
   add("BSP", project.notes);
+  add("BSP", project.comments);
 
   if (Array.isArray(project.spools)) {
     project.spools.forEach((spool, index) => {
       const tag = spool?.iso || spool?.drawing || spool?.description || `Tag ${index + 1}`;
       add(`Tag ${tag}`, spool?.observations);
+      add(`Tag ${tag}`, spool?.OBSERVATIONS);
+      add(`Tag ${tag}`, spool?.observation);
+      add(`Tag ${tag}`, spool?.note);
+      add(`Tag ${tag}`, spool?.notes);
+      add(`Tag ${tag}`, spool?.comments);
     });
   }
 
@@ -858,13 +866,36 @@ function getProjectObservationContexts(project) {
 function getProjectTratativaObservationMatches(project) {
   const matches = [];
   const seen = new Set();
+  const seenLabelText = new Set();
+  const addMatch = (match) => {
+    const label = String(match?.label || "").trim();
+    const source = String(match?.source || "BSP").trim() || "BSP";
+    const text = String(match?.text || "").trim();
+    if (!label || !text) return;
+    const key = `${label}|${source}|${text}`;
+    const labelTextKey = `${label}|${normalizeText(text)}`;
+    if (seen.has(key) || seenLabelText.has(labelTextKey)) return;
+    seen.add(key);
+    seenLabelText.add(labelTextKey);
+    matches.push({ label, source, text });
+  };
+
+  if (Array.isArray(project?.tratativaObservationMatches)) {
+    project.tratativaObservationMatches.forEach(addMatch);
+  }
+
+  if (Array.isArray(project?.spools)) {
+    project.spools.forEach((spool) => {
+      if (Array.isArray(spool?.tratativaObservationMatches)) {
+        spool.tratativaObservationMatches.forEach(addMatch);
+      }
+    });
+  }
+
   for (const context of getProjectObservationContexts(project)) {
     for (const rule of CLIENT_TRATATIVA_OBSERVATION_RULES) {
       if (!textMatchesAliasRule(context.text, rule.aliases)) continue;
-      const key = `${rule.label}|${context.source}|${context.text}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      matches.push({ label: rule.label, source: context.source, text: context.text });
+      addMatch({ label: rule.label, source: context.source, text: context.text });
     }
   }
   return matches;
