@@ -1,4 +1,4 @@
-const CACHE_NAME = "step-gerencia-pwa-v36-11-scurve-tracking-milestones";
+const CACHE_NAME = "step-gerencia-pwa-v36-12-tracking-dates-scurve";
 // Versão v28: preserva cache local entre logouts e usa caminho rápido pós-login
 // - Mantém assets do app shell versionados para liberar app.js corrigido imediatamente
 // - API continua sem cache no Service Worker; dados operacionais usam cache local do app

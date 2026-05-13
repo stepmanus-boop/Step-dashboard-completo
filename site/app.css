@@ -7334,3 +7334,30 @@ body.client-mode .client-logo-box img,
   border-color: rgba(10, 152, 120, .28);
   background: rgba(232, 250, 245, .94);
 }
+
+/* v36.12 - Schedule Executivo com datas reais do Tracking */
+.client-schedule-row--tracking td {
+  background: rgba(10, 152, 120, .055);
+}
+
+.client-schedule-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 900;
+  color: #173d56;
+}
+
+.client-schedule-date--tracking {
+  color: #08775f;
+}
+
+.client-schedule-date-note {
+  display: block;
+  margin-top: 3px;
+  color: #5f7a8c;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.25;
+  white-space: normal;
+}

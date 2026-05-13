@@ -4579,6 +4579,124 @@ function getClientProjectMilestoneDate(project, key) {
   return key === 'Fabrication Start Date' ? dates[0] : dates[dates.length - 1];
 }
 
+
+function getClientScheduleTrackingMilestoneDate(project, key) {
+  return getClientProjectMilestoneDate(project, key);
+}
+
+function clientAddBusinessDaysSafe(dateValue, amount) {
+  const base = parseDateObject(dateValue);
+  if (!base) return null;
+  return addBusinessDaysUtc(base, amount);
+}
+
+function clientLatestDate(values) {
+  const dates = values.map((value) => parseDateObject(value)).filter(Boolean).sort((a, b) => a - b);
+  return dates.length ? dates[dates.length - 1] : null;
+}
+
+function clientEarliestDate(values) {
+  const dates = values.map((value) => parseDateObject(value)).filter(Boolean).sort((a, b) => a - b);
+  return dates.length ? dates[0] : null;
+}
+
+function getClientPlannedMilestoneDate(project, milestoneKey) {
+  const rows = buildClientExecutiveSchedule(project, { applyTrackingDates: false });
+  const findRow = (key) => rows.find((row) => row.key === key);
+  if (milestoneKey === 'Fabrication Start Date') return findRow('fitup')?.start || findRow('fabrication')?.start || getClientAnalyticStartDate(project);
+  if (milestoneKey === 'Boilermaker Finish Date') return findRow('fitup')?.finish || null;
+  if (milestoneKey === 'Welding Finish Date') return findRow('weld')?.finish || null;
+  if (milestoneKey === 'Inspection Finish Date (QC)') return findRow('final-dimensional')?.finish || findRow('nde')?.finish || null;
+  if (milestoneKey === 'TH Finish Date') return findRow('hydro')?.finish || null;
+  if (milestoneKey === 'Coating Finish Date') return findRow('painting')?.finish || null;
+  return null;
+}
+
+function getClientScheduleTrackingDates(project, row) {
+  const fabricationStart = getClientScheduleTrackingMilestoneDate(project, 'Fabrication Start Date');
+  const boilermakerFinish = getClientScheduleTrackingMilestoneDate(project, 'Boilermaker Finish Date');
+  const weldingFinish = getClientScheduleTrackingMilestoneDate(project, 'Welding Finish Date');
+  const inspectionFinish = getClientScheduleTrackingMilestoneDate(project, 'Inspection Finish Date (QC)');
+  const thFinish = isClientSpoolMaterial(project) ? getClientScheduleTrackingMilestoneDate(project, 'TH Finish Date') : null;
+  const coatingFinish = getClientScheduleTrackingMilestoneDate(project, 'Coating Finish Date');
+  const projectFinish = getClientScheduleTrackingMilestoneDate(project, 'Project Finish Date') || parseDateObject(getProjectShipmentDate(project));
+  const afterBoilermaker = clientAddBusinessDaysSafe(boilermakerFinish, 1);
+  const afterWelding = clientAddBusinessDaysSafe(weldingFinish, 1);
+  const afterInspection = clientAddBusinessDaysSafe(inspectionFinish, 1);
+  const afterThOrInspection = clientAddBusinessDaysSafe(thFinish || inspectionFinish, 1);
+
+  switch (row?.key) {
+    case 'fabrication':
+      return {
+        start: fabricationStart,
+        finish: clientLatestDate([coatingFinish, thFinish, inspectionFinish, weldingFinish, boilermakerFinish]),
+      };
+    case 'fitup':
+      return { start: fabricationStart, finish: boilermakerFinish };
+    case 'weld':
+      return { start: afterBoilermaker || fabricationStart, finish: weldingFinish };
+    case 'final-dimensional':
+      return { start: afterWelding || null, finish: inspectionFinish };
+    case 'hydro':
+      return { start: afterInspection || null, finish: thFinish };
+    case 'painting':
+      return { start: afterThOrInspection || null, finish: coatingFinish };
+    case 'delivery':
+      return { start: projectFinish ? row.start : null, finish: projectFinish };
+    default:
+      return { start: null, finish: null };
+  }
+}
+
+function applyClientTrackingDatesToScheduleRows(project, rows) {
+  return rows.map((row) => {
+    const plannedStart = parseDateObject(row.start);
+    const plannedFinish = parseDateObject(row.finish);
+    const tracking = getClientScheduleTrackingDates(project, row);
+    let start = parseDateObject(tracking.start) || plannedStart;
+    let finish = parseDateObject(tracking.finish) || plannedFinish;
+
+    if (start && finish && start > finish) {
+      if (tracking.finish && !tracking.start) start = finish;
+      else if (tracking.start && !tracking.finish) finish = start;
+    }
+
+    const startSource = tracking.start ? 'tracking' : 'planned';
+    const finishSource = tracking.finish ? 'tracking' : 'planned';
+    const duration = start && finish && (startSource === 'tracking' || finishSource === 'tracking')
+      ? Math.max(1, countBusinessDaysInclusive(start, finish) || row.duration || 1)
+      : row.duration;
+
+    return {
+      ...row,
+      plannedStart,
+      plannedFinish,
+      start,
+      finish,
+      duration,
+      startSource,
+      finishSource,
+      trackingApplied: startSource === 'tracking' || finishSource === 'tracking',
+      startDeviationDays: startSource === 'tracking' ? clientDateDiffDays(start, plannedStart) : 0,
+      finishDeviationDays: finishSource === 'tracking' ? clientDateDiffDays(finish, plannedFinish) : 0,
+    };
+  });
+}
+
+function formatClientScheduleDateCell(row, field) {
+  const value = field === 'start' ? row.start : row.finish;
+  const planned = field === 'start' ? row.plannedStart : row.plannedFinish;
+  const source = field === 'start' ? row.startSource : row.finishSource;
+  const deviation = field === 'start' ? row.startDeviationDays : row.finishDeviationDays;
+  const valueText = formatClientDateShort(value);
+  if (source !== 'tracking') return escapeHtml(valueText);
+  const plannedText = formatClientDateShort(planned);
+  const deviationText = deviation === 0
+    ? 'sem desvio'
+    : `${Math.abs(deviation)}d ${deviation > 0 ? 'após' : 'antes'}`;
+  return `<span class="client-schedule-date client-schedule-date--tracking">${escapeHtml(valueText)}</span><small class="client-schedule-date-note">Tracking • Plan.: ${escapeHtml(plannedText)} • ${escapeHtml(deviationText)}</small>`;
+}
+
 function getClientSCurveMilestones(project) {
   return getClientSCurveMilestoneDefinitions(project)
     .map((definition) => {
@@ -4612,7 +4730,7 @@ function getClientExpectedDateForPlannedPercent(project, percent) {
 
 function getClientSCurveMilestoneAnalysis(project) {
   return getClientSCurveMilestones(project).map((milestone) => {
-    const expectedDate = getClientExpectedDateForPlannedPercent(project, milestone.percent);
+    const expectedDate = getClientPlannedMilestoneDate(project, milestone.key) || getClientExpectedDateForPlannedPercent(project, milestone.percent);
     const daysDeviation = clientDateDiffDays(milestone.date, expectedDate);
     const percentDeviation = clampClientPercent(milestone.plannedAtDate) - clampClientPercent(milestone.percent);
     let state = 'on_time';
@@ -4634,19 +4752,18 @@ function getClientActualProgressAtDate(project, dateValue) {
   if (!date) return null;
   const today = getCurrentBrazilDate();
   if (date > today) return null;
-  const milestones = getClientSCurveMilestones(project).filter((milestone) => milestone.date <= date);
+  const milestones = getClientSCurveMilestones(project);
   if (milestones.length) {
-    const milestoneProgress = milestones.reduce((max, milestone) => Math.max(max, Number(milestone.percent || 0)), 0);
+    const completed = milestones.filter((milestone) => milestone.date <= date);
+    if (!completed.length) return 0;
+    const milestoneProgress = completed.reduce((max, milestone) => Math.max(max, Number(milestone.percent || 0)), 0);
     if (clientDateKey(date) === clientDateKey(today)) {
       return clampClientPercent(Math.max(milestoneProgress, getClientOverallProgress(project)));
     }
     return clampClientPercent(milestoneProgress);
   }
-  const actualNow = getClientOverallProgress(project);
-  const plannedToday = getClientPlannedToday(project);
-  const plannedAtDate = getClientPlannedAtDate(project, date);
-  if (plannedToday > 0) return clampClientPercent((plannedAtDate / plannedToday) * actualNow);
-  return actualNow > 0 ? actualNow : 0;
+  if (clientDateKey(date) === clientDateKey(today)) return getClientOverallProgress(project);
+  return null;
 }
 
 function buildClientSCurveDateSeries(start, finish, extraDates = []) {
@@ -4667,11 +4784,15 @@ function buildClientSCurveDateSeries(start, finish, extraDates = []) {
 }
 
 function buildClientSCurveData(project) {
-  const start = getClientAnalyticStartDate(project);
+  let start = getClientAnalyticStartDate(project);
   let finish = getClientAnalyticFinishDate(project);
   if (finish <= start) finish = addUtcDays(start, 30);
   const today = getCurrentBrazilDate();
   const milestoneDates = getClientSCurveMilestones(project).map((milestone) => milestone.date);
+  const earliestMilestone = clientEarliestDate(milestoneDates);
+  const latestMilestone = clientLatestDate(milestoneDates);
+  if (earliestMilestone && earliestMilestone < start) start = earliestMilestone;
+  if (latestMilestone && latestMilestone > finish) finish = latestMilestone;
   const dates = buildClientSCurveDateSeries(start, finish, [...milestoneDates, today]);
   return dates.map((date) => ({
     date,
@@ -4796,7 +4917,7 @@ function renderClientSCurveMilestoneSummary(project) {
           <div class="client-scurve-milestone client-scurve-milestone--${milestone.state}">
             <span>${escapeHtml(milestone.label)}</span>
             <strong>${escapeHtml(milestone.dateLabel)}</strong>
-            <small>${formatPercent(milestone.percent)} • ${escapeHtml(stateLabel)} • ${escapeHtml(deviationText)}</small>
+            <small>${formatPercent(milestone.percent)} • Real: ${escapeHtml(milestone.dateLabel)} • Plan.: ${escapeHtml(milestone.expectedDateLabel)} • ${escapeHtml(stateLabel)} • ${escapeHtml(deviationText)}</small>
           </div>
         `;
       }).join('')}
@@ -4888,7 +5009,8 @@ function scaleDurationVector(baseItems, targetTotal) {
   return baseItems.map((item) => rows.find((row) => row.key === item.key) || { ...item, duration: Math.max(1, Number(item.base || 1)) });
 }
 
-function buildClientExecutiveSchedule(project) {
+function buildClientExecutiveSchedule(project, options = {}) {
+  const applyTrackingDates = options?.applyTrackingDates !== false;
   const start = getClientAnalyticStartDate(project);
   const finish = getClientAnalyticFinishDate(project) || getProjectShipmentDate(project);
   const totalBusinessDays = Math.max(5, countBusinessDaysInclusive(start, finish) || 116);
@@ -4913,7 +5035,7 @@ function buildClientExecutiveSchedule(project) {
   const logisticsTemplate = [
     { key: 'packing', label: 'Packing', base: 1, percent: getClientStageValue(project, ['Package and Delivered']) },
     { key: 'final-inspection', label: 'Final Inspection', base: 1, percent: getClientStageValue(project, ['Final Inspection']) },
-    { key: 'delivery', label: 'Delivery', base: 1, percent: getClientPackageProgress(project) },
+    { key: 'delivery-step', label: 'Delivery', base: 1, percent: getClientPackageProgress(project) },
   ];
   const fabricationGroup = groupDurations.find((item) => item.key === 'fabrication');
   const deliveryGroup = groupDurations.find((item) => item.key === 'delivery');
@@ -4925,29 +5047,29 @@ function buildClientExecutiveSchedule(project) {
   for (const group of groupDurations) {
     const groupStart = new Date(cursor.getTime());
     const groupFinish = addBusinessDaysUtc(groupStart, Math.max(0, (group.duration || 1) - 1)) || groupStart;
-    rows.push({ type: 'group', label: group.label, progress: group.percent, duration: group.duration, start: groupStart, finish: groupFinish });
+    rows.push({ key: group.key, type: 'group', label: group.label, progress: group.percent, duration: group.duration, start: groupStart, finish: groupFinish, plannedStart: groupStart, plannedFinish: groupFinish, startSource: 'planned', finishSource: 'planned' });
     let children = [];
     if (group.key === 'engineering') {
-      children = [{ label: 'Drawings', progress: group.percent, duration: group.duration }];
+      children = [{ key: 'drawings', label: 'Drawings', progress: group.percent, duration: group.duration }];
     } else if (group.key === 'procurement') {
-      children = [{ label: 'Materials for Application Acquisition', progress: group.percent, duration: group.duration }];
+      children = [{ key: 'materials-acquisition', label: 'Materials for Application Acquisition', progress: group.percent, duration: group.duration }];
     } else if (group.key === 'fabrication') {
-      children = fabricationDurations.map((item) => ({ label: item.label, progress: item.percent, duration: item.duration }));
+      children = fabricationDurations.map((item) => ({ key: item.key, label: item.label, progress: item.percent, duration: item.duration }));
     } else if (group.key === 'delivery') {
-      children = logisticsDurations.map((item) => ({ label: item.label, progress: item.percent, duration: item.duration }));
+      children = logisticsDurations.map((item) => ({ key: item.key, label: item.label, progress: item.percent, duration: item.duration }));
     }
 
     let childCursor = new Date(groupStart.getTime());
     for (const child of children) {
       const childStart = new Date(childCursor.getTime());
       const childFinish = addBusinessDaysUtc(childStart, Math.max(0, (child.duration || 1) - 1)) || childStart;
-      rows.push({ type: 'child', label: child.label, progress: child.progress, duration: child.duration, start: childStart, finish: childFinish });
+      rows.push({ key: child.key, type: 'child', label: child.label, progress: child.progress, duration: child.duration, start: childStart, finish: childFinish, plannedStart: childStart, plannedFinish: childFinish, startSource: 'planned', finishSource: 'planned' });
       childCursor = addBusinessDaysUtc(childFinish, 1) || childFinish;
     }
 
     cursor = addBusinessDaysUtc(groupFinish, 1) || groupFinish;
   }
-  return rows;
+  return applyTrackingDates ? applyClientTrackingDatesToScheduleRows(project, rows) : rows;
 }
 
 function getClientScheduleVisualState(progress) {
@@ -4968,7 +5090,7 @@ function renderClientExecutiveSchedule(project) {
           ${rows.map((row) => {
             const state = getClientScheduleVisualState(row.progress);
             const label = row.type === 'group' ? `<strong>${escapeHtml(row.label)}</strong>` : `<span class="client-schedule-child">${escapeHtml(row.label)}</span>`;
-            return `<tr class="client-schedule-row client-schedule-row--${state} client-schedule-row--${row.type}"><td>${label}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(row.progress)}</span></td><td>${formatNumber(row.duration, 0)}d</td><td>${formatClientDateShort(row.start)}</td><td>${formatClientDateShort(row.finish)}</td><td><span class="client-spool-chip client-spool-chip--${state}">${state === 'completed' ? 'Concluído' : state === 'in-progress' ? 'Em andamento' : 'Não iniciado'}</span></td></tr>`;
+            return `<tr class="client-schedule-row client-schedule-row--${state} client-schedule-row--${row.type} ${row.trackingApplied ? 'client-schedule-row--tracking' : ''}"><td>${label}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(row.progress)}</span></td><td>${formatNumber(row.duration, 0)}d</td><td>${formatClientScheduleDateCell(row, 'start')}</td><td>${formatClientScheduleDateCell(row, 'finish')}</td><td><span class="client-spool-chip client-spool-chip--${state}">${row.trackingApplied ? 'Tracking' : state === 'completed' ? 'Concluído' : state === 'in-progress' ? 'Em andamento' : 'Não iniciado'}</span></td></tr>`;
           }).join('')}
         </tbody>
       </table>
@@ -5859,7 +5981,7 @@ function openClientBspExecutive(project) {
     </section>
 
     <section class="client-exec-card client-exec-schedule-card">
-      <div class="client-exec-card-head"><h3>Schedule Executivo da BSP</h3><span>Prazos médios por etapa com base na data inicial e final</span></div>
+      <div class="client-exec-card-head"><h3>Schedule Executivo da BSP</h3><span>Planejado pela janela da BSP e atualizado pelos marcos reais do Tracking</span></div>
       ${renderClientExecutiveSchedule(project)}
     </section>
 
