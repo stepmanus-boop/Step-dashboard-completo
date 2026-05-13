@@ -2387,23 +2387,13 @@ async function buildPayload(options = {}) {
     }
   }
 
-  let sheetId;
-  try {
-    sheetId = await resolveSheetId();
-  } catch (error) {
-    const stalePayload = cloneCachedPayloadWithMeta({ stale: true, staleReason: 'sheet-id-resolve-failed' })
-      || recoverPayloadFromDiskFallback('sheet-id-resolve-failed', error);
-    if (stalePayload) return stalePayload;
-    throw error;
-  }
-
+  const sheetId = await resolveSheetId();
   let version;
   try {
     version = await fetchSheetVersion(sheetId);
     cache.lastVersionCheck = Date.now();
   } catch (error) {
-    const stalePayload = cloneCachedPayloadWithMeta({ stale: true, staleReason: 'version-check-failed' })
-      || recoverPayloadFromDiskFallback('version-check-failed', error);
+    const stalePayload = !force ? cloneCachedPayloadWithMeta({ stale: true, staleReason: 'version-check-failed' }) : null;
     if (stalePayload) return stalePayload;
     throw error;
   }
@@ -2428,8 +2418,7 @@ async function buildPayload(options = {}) {
   try {
     [wipPoData, sheet] = await Promise.all([wipPoPromise, fetchFullSheet(sheetId)]);
   } catch (error) {
-    const stalePayload = cloneCachedPayloadWithMeta({ stale: true, staleReason: 'sheet-fetch-failed' })
-      || recoverPayloadFromDiskFallback('sheet-fetch-failed', error);
+    const stalePayload = !force ? cloneCachedPayloadWithMeta({ stale: true, staleReason: 'sheet-fetch-failed' }) : null;
     if (stalePayload) return stalePayload;
     throw error;
   }
@@ -2492,34 +2481,6 @@ function readBundledFallbackPayloadSync() {
     console.error('[v32] Erro ao ler fallback em disco (sync):', err.message);
   }
   return null;
-}
-
-function recoverPayloadFromDiskFallback(reason = 'unknown-error', error = null) {
-  const diskPayload = readBundledFallbackPayloadSync();
-  if (!diskPayload || !Array.isArray(diskPayload.projects) || !diskPayload.projects.length) return null;
-
-  const recoveredPayload = {
-    ...diskPayload,
-    ok: true,
-    meta: {
-      ...(diskPayload.meta || {}),
-      source: 'disk-fallback',
-      stale: true,
-      recoveredFromError: true,
-      recoveryReason: reason,
-      recoveryError: error?.message || String(error || ''),
-      recoveredAt: new Date().toISOString(),
-    },
-  };
-
-  cache.payload = recoveredPayload;
-  cache.sheetId = recoveredPayload.meta?.sheetId || cache.sheetId || 'snapshot';
-  cache.sheetName = recoveredPayload.meta?.sheetName || cache.sheetName || SHEET_NAME;
-  cache.version = recoveredPayload.meta?.version || cache.version || 'snapshot-fallback';
-  cache.lastSync = recoveredPayload.meta?.lastSync || recoveredPayload.meta?.persistedAt || new Date().toISOString();
-  cache.lastVersionCheck = Date.now();
-
-  return recoveredPayload;
 }
 
 async function savePayloadToDisk(payload) {
@@ -2737,16 +2698,6 @@ exports.handler = async (event) => {
       },
     });
   } catch (error) {
-    const fallback = recoverPayloadFromDiskFallback('handler-buildPayload-failed', error);
-    if (fallback) {
-      const safeSession = await hydrateClientSession(auth.session).catch(() => auth.session);
-      const payload = scopePayloadForSession(fallback, safeSession);
-      return jsonResponse(200, payload, {
-        headers: {
-          'cache-control': 'private, max-age=30, stale-while-revalidate=120',
-        },
-      });
-    }
     return jsonResponse(500, { ok: false, error: error.message });
   }
 };

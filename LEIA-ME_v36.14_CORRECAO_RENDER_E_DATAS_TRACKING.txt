@@ -1,7 +1,0 @@
-v36.14 - Correção de quebra no carregamento e datas reais do Tracking
-
-- Corrige o carregamento do painel para que uma falha visual isolada não impeça a exibição dos projetos.
-- A leitura das datas reais agora considera o formato real do payload: milestones[].
-- Fabrication Start Date, Boilermaker Finish Date, Welding Finish Date, Inspection Finish Date (QC), TH Finish Date, Coating Finish Date e Project Finish Date alimentam schedule/Curva S quando presentes.
-- Mantém Hydro Testing apenas para Spool e remove TH quando OBSERVATIONS indicar solda de campo/sem TH.
-- Atualiza o cache do PWA para forçar app.js novo.

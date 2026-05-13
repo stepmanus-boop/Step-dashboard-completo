@@ -7259,105 +7259,76 @@ body.client-mode .client-logo-box img,
   border: 1px solid rgba(111, 240, 255, .28);
 }
 
-.client-exec-legend .milestone {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: #efc14f;
-  box-shadow: 0 0 0 3px rgba(239, 193, 79, .22);
+/* v36.15 - Schedule/Curva S alimentados por datas reais do Tracking sem alterar carregamento do painel */
+.client-schedule-row--tracking {
+  background: rgba(26, 181, 255, .045);
 }
 
+.client-schedule-date {
+  display: block;
+  font-weight: 900;
+  color: #e9fbff;
+}
+
+.client-schedule-date--tracking {
+  color: #7fe8ff;
+}
+
+.client-schedule-date-note {
+  display: block;
+  margin-top: .18rem;
+  font-size: .66rem;
+  line-height: 1.2;
+  color: rgba(198, 233, 255, .78);
+  letter-spacing: .02em;
+}
+
+.client-exec-legend .milestone,
 .client-chart-milestone {
-  stroke: white;
-  stroke-width: 2.5;
-  filter: drop-shadow(0 4px 8px rgba(15, 58, 83, .18));
-}
-
-.client-chart-milestone--late {
-  fill: #e05252;
-}
-
-.client-chart-milestone--ahead {
-  fill: #0a9878;
-}
-
-.client-chart-milestone--on-time {
-  fill: #efc14f;
+  background: #f4c542;
 }
 
 .client-scurve-milestones {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 8px;
-  margin-top: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: .55rem;
+  margin-top: .75rem;
 }
 
 .client-scurve-milestones--empty {
-  display: block;
-  padding: 11px 13px;
+  color: rgba(207, 233, 255, .72);
+  border: 1px dashed rgba(117, 202, 255, .24);
   border-radius: 14px;
-  background: rgba(239, 244, 248, .78);
-  color: #567085;
-  font-size: 12px;
-  font-weight: 800;
+  padding: .7rem .85rem;
+  background: rgba(255, 255, 255, .035);
 }
 
 .client-scurve-milestone {
-  padding: 10px 12px;
+  border: 1px solid rgba(117, 202, 255, .22);
   border-radius: 14px;
-  border: 1px solid rgba(31, 92, 132, .12);
-  background: rgba(255, 255, 255, .88);
-  box-shadow: 0 8px 20px rgba(15, 58, 83, .07);
+  padding: .62rem .72rem;
+  background: rgba(255, 255, 255, .045);
 }
 
 .client-scurve-milestone span,
 .client-scurve-milestone small {
   display: block;
-  color: #60798d;
-  font-size: 11px;
-  font-weight: 800;
+  color: rgba(207, 233, 255, .76);
 }
 
 .client-scurve-milestone strong {
   display: block;
-  margin: 4px 0;
-  color: #123246;
-  font-size: 14px;
+  margin: .16rem 0;
+  color: #ffffff;
+  font-size: 1rem;
 }
 
 .client-scurve-milestone--late {
-  border-color: rgba(224, 82, 82, .32);
-  background: rgba(255, 242, 242, .94);
+  border-color: rgba(255, 176, 68, .44);
+  background: rgba(255, 176, 68, .09);
 }
 
 .client-scurve-milestone--ahead {
-  border-color: rgba(10, 152, 120, .28);
-  background: rgba(232, 250, 245, .94);
-}
-
-/* v36.12 - Schedule Executivo com datas reais do Tracking */
-.client-schedule-row--tracking td {
-  background: rgba(10, 152, 120, .055);
-}
-
-.client-schedule-date {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-weight: 900;
-  color: #173d56;
-}
-
-.client-schedule-date--tracking {
-  color: #08775f;
-}
-
-.client-schedule-date-note {
-  display: block;
-  margin-top: 3px;
-  color: #5f7a8c;
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 1.25;
-  white-space: normal;
+  border-color: rgba(74, 232, 167, .38);
+  background: rgba(74, 232, 167, .08);
 }

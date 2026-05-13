@@ -4491,19 +4491,6 @@ function clientSchedulePlannedPercent(progressRatio) {
   return 100;
 }
 
-function clientDateKey(date) {
-  const parsed = parseDateObject(date);
-  if (!parsed) return '';
-  return parsed.toISOString().slice(0, 10);
-}
-
-function clientDateDiffDays(left, right) {
-  const a = parseDateObject(left);
-  const b = parseDateObject(right);
-  if (!a || !b) return 0;
-  return Math.round((a - b) / 86400000);
-}
-
 function getClientPlannedAtDate(project, dateValue) {
   const start = getClientAnalyticStartDate(project);
   let finish = getClientAnalyticFinishDate(project);
@@ -4519,112 +4506,17 @@ function getClientPlannedToday(project) {
   return getClientPlannedAtDate(project, getCurrentBrazilDate());
 }
 
-function getClientFabricationMilestonePercent(project, milestoneKey) {
-  if (milestoneKey === 'Fabrication Start Date') return 30;
-  const items = getClientFabricationStageItems(project);
-  const totalWeight = items.reduce((sum, item) => sum + Number(item.weight || 0), 0) || 1;
-  const isMatch = (item, key) => (item.keys || []).includes(key);
-  let cumulative = 0;
-  let percent = 30;
-  for (const item of items) {
-    cumulative += Number(item.weight || 0);
-    if (
-      (milestoneKey === 'Boilermaker Finish Date' && (isMatch(item, 'Welding Preparation') || isMatch(item, 'Spool Assemble and tack weld'))) ||
-      (milestoneKey === 'Welding Finish Date' && isMatch(item, 'Full welding execution')) ||
-      (milestoneKey === 'Inspection Finish Date (QC)' && isMatch(item, 'Final Dimensional Inpection/3D (QC)')) ||
-      (milestoneKey === 'TH Finish Date' && isMatch(item, 'Hydro Test Pressure (QC)'))
-    ) {
-      percent = 30 + (cumulative / totalWeight) * 65;
-      break;
-    }
-  }
-  return clampClientPercent(percent);
+function clientDateKey(date) {
+  const parsed = parseDateObject(date);
+  if (!parsed) return '';
+  return parsed.toISOString().slice(0, 10);
 }
 
-function getClientSCurveMilestoneDefinitions(project) {
-  const definitions = [
-    { key: 'Fabrication Start Date', label: 'Início da fabricação' },
-    { key: 'Boilermaker Finish Date', label: 'Caldeiraria concluída' },
-    { key: 'Welding Finish Date', label: 'Solda concluída' },
-    { key: 'Inspection Finish Date (QC)', label: 'Inspeção QC concluída' },
-  ];
-  if (isClientSpoolMaterial(project)) {
-    definitions.push({ key: 'TH Finish Date', label: 'TH concluído' });
-  }
-  return definitions.map((item) => ({ ...item, percent: getClientFabricationMilestonePercent(project, item.key) }));
-}
-
-function getClientMilestoneRawValues(source, key) {
-  if (!source || !key) return [];
-  const values = [];
-  const normalizedKey = normalizeText(key);
-  const compactKey = normalizeCompactText(key);
-
-  const push = (value) => {
-    if (value == null || value === '') return;
-    values.push(value);
-  };
-
-  // Formato antigo/possível payload enriquecido: stageValues[Nome da coluna]
-  push(source?.stageValues?.[key]);
-
-  // Formato real do payload atual: milestones: [{ key, label, value }]
-  const milestones = Array.isArray(source?.milestones) ? source.milestones : [];
-  for (const milestone of milestones) {
-    const milestoneKey = normalizeText(milestone?.key || milestone?.label || '');
-    const milestoneCompact = normalizeCompactText(milestone?.key || milestone?.label || '');
-    if (milestoneKey === normalizedKey || milestoneCompact === compactKey) {
-      push(milestone?.value ?? milestone?.displayValue ?? milestone?.display ?? milestone?.raw);
-    }
-  }
-
-  // Campos diretos usados em algumas versões do backend
-  if (key === 'Fabrication Start Date') push(source?.fabricationStartDate);
-  if (key === 'Boilermaker Finish Date') push(source?.boilermakerFinishDate);
-  if (key === 'Welding Finish Date') push(source?.weldingFinishDate);
-  if (key === 'Inspection Finish Date (QC)') push(source?.inspectionFinishDate || source?.qcInspectionFinishDate);
-  if (key === 'TH Finish Date') push(source?.thFinishDate || source?.hydroFinishDate);
-  if (key === 'Coating Finish Date') push(source?.coatingFinishDate || source?.paintingFinishDate);
-  if (key === 'Project Finish Date') push(source?.projectFinishDate || source?.shipmentDate || source?.plannedFinishDate);
-
-  return values;
-}
-
-function getClientStageDateCandidates(project, key) {
-  const values = [];
-  const pushValue = (value) => {
-    const parsed = parseDateObject(value);
-    if (parsed) values.push(parsed);
-  };
-
-  getClientMilestoneRawValues(project, key).forEach(pushValue);
-
-  if (Array.isArray(project?.spools)) {
-    for (const spool of project.spools) {
-      getClientMilestoneRawValues(spool, key).forEach(pushValue);
-    }
-  }
-
-  const unique = new Map();
-  values.forEach((date) => unique.set(clientDateKey(date), date));
-  return Array.from(unique.values()).sort((a, b) => a - b);
-}
-
-function getClientProjectMilestoneDate(project, key) {
-  const dates = getClientStageDateCandidates(project, key);
-  if (!dates.length) return null;
-  return key === 'Fabrication Start Date' ? dates[0] : dates[dates.length - 1];
-}
-
-
-function getClientScheduleTrackingMilestoneDate(project, key) {
-  return getClientProjectMilestoneDate(project, key);
-}
-
-function clientAddBusinessDaysSafe(dateValue, amount) {
-  const base = parseDateObject(dateValue);
-  if (!base) return null;
-  return addBusinessDaysUtc(base, amount);
+function clientDateDiffDays(left, right) {
+  const a = parseDateObject(left);
+  const b = parseDateObject(right);
+  if (!a || !b) return 0;
+  return Math.round((a - b) / 86400000);
 }
 
 function clientLatestDate(values) {
@@ -4632,192 +4524,135 @@ function clientLatestDate(values) {
   return dates.length ? dates[dates.length - 1] : null;
 }
 
-function clientEarliestDate(values) {
-  const dates = values.map((value) => parseDateObject(value)).filter(Boolean).sort((a, b) => a - b);
-  return dates.length ? dates[0] : null;
+function getClientTrackingDateAliases(key) {
+  const map = {
+    'Fabrication Start Date': ['Fabrication Start Date', 'Fabrication Start', 'Fab Start', 'Fab. Start', 'Data inicio fabricacao', 'Data início fabricação'],
+    'Boilermaker Finish Date': ['Boilermaker Finish Date', 'Boilermaker Finish', 'Caldeiraria Finish Date', 'Caldeiraria Finish', 'Caldeiraria termino', 'Caldeiraria término'],
+    'Welding Finish Date': ['Welding Finish Date', 'Welding Finish', 'Weld Finish Date', 'Weld Finish', 'Solda Finish Date', 'Solda termino', 'Solda término'],
+    'Inspection Finish Date (QC)': ['Inspection Finish Date (QC)', 'Inspection Finish Date', 'QC Inspection Finish Date', 'Final Dimensional Inspection Finish Date', 'Final Dimensional Inpection/3D (QC) Finish Date', 'Inspecao Finish Date', 'Inspeção Finish Date'],
+    'TH Finish Date': ['TH Finish Date', 'Hydro Finish Date', 'Hydro Testing Finish Date', 'Hydro Test Pressure Finish Date', 'Teste Hidrostatico Finish Date', 'Teste Hidrostático Finish Date'],
+    'Coating Finish Date': ['Coating Finish Date', 'Painting Finish Date', 'Paint Finish Date', 'Pintura Finish Date', 'Surface preparation and/or coating Finish Date'],
+    'Project Finish Date': ['Project Finish Date', 'Data de Envio', 'Shipment Date', 'Delivery Date', 'Package and Delivered Finish Date'],
+  };
+  return map[key] || [key];
 }
 
-function getClientPlannedMilestoneDate(project, milestoneKey) {
-  const rows = buildClientExecutiveSchedule(project, { applyTrackingDates: false });
-  const findRow = (key) => rows.find((row) => row.key === key);
-  if (milestoneKey === 'Fabrication Start Date') return findRow('fitup')?.start || findRow('fabrication')?.start || getClientAnalyticStartDate(project);
-  if (milestoneKey === 'Boilermaker Finish Date') return findRow('fitup')?.finish || null;
-  if (milestoneKey === 'Welding Finish Date') return findRow('weld')?.finish || null;
-  if (milestoneKey === 'Inspection Finish Date (QC)') return findRow('final-dimensional')?.finish || findRow('nde')?.finish || null;
-  if (milestoneKey === 'TH Finish Date') return findRow('hydro')?.finish || null;
-  if (milestoneKey === 'Coating Finish Date') return findRow('painting')?.finish || null;
-  return null;
-}
+function getClientTrackingRawDateValues(source, key) {
+  if (!source || !key) return [];
+  const aliases = getClientTrackingDateAliases(key);
+  const normalizedAliases = new Set(aliases.map((item) => normalizeText(item)));
+  const compactAliases = new Set(aliases.map((item) => normalizeCompactText(item)));
+  const values = [];
+  const push = (value) => {
+    if (value == null || value === '' || value === 'N/A') return;
+    values.push(value);
+  };
 
-function getClientScheduleTrackingDates(project, row) {
-  const fabricationStart = getClientScheduleTrackingMilestoneDate(project, 'Fabrication Start Date');
-  const boilermakerFinish = getClientScheduleTrackingMilestoneDate(project, 'Boilermaker Finish Date');
-  const weldingFinish = getClientScheduleTrackingMilestoneDate(project, 'Welding Finish Date');
-  const inspectionFinish = getClientScheduleTrackingMilestoneDate(project, 'Inspection Finish Date (QC)');
-  const thFinish = isClientSpoolMaterial(project) ? getClientScheduleTrackingMilestoneDate(project, 'TH Finish Date') : null;
-  const coatingFinish = getClientScheduleTrackingMilestoneDate(project, 'Coating Finish Date');
-  const projectFinish = getClientScheduleTrackingMilestoneDate(project, 'Project Finish Date') || parseDateObject(getProjectShipmentDate(project));
-  const afterBoilermaker = clientAddBusinessDaysSafe(boilermakerFinish, 1);
-  const afterWelding = clientAddBusinessDaysSafe(weldingFinish, 1);
-  const afterInspection = clientAddBusinessDaysSafe(inspectionFinish, 1);
-  const afterThOrInspection = clientAddBusinessDaysSafe(thFinish || inspectionFinish, 1);
+  const candidateObjects = [
+    source.stageValues,
+    source.stage_values,
+    source.milestoneValues,
+    source.milestone_values,
+    source.dates,
+    source,
+  ].filter(Boolean);
 
-  switch (row?.key) {
-    case 'fabrication':
-      return {
-        start: fabricationStart,
-        finish: clientLatestDate([coatingFinish, thFinish, inspectionFinish, weldingFinish, boilermakerFinish]),
-      };
-    case 'fitup':
-      return { start: fabricationStart, finish: boilermakerFinish };
-    case 'weld':
-      return { start: afterBoilermaker || fabricationStart, finish: weldingFinish };
-    case 'final-dimensional':
-      return { start: afterWelding || null, finish: inspectionFinish };
-    case 'hydro':
-      return { start: afterInspection || null, finish: thFinish };
-    case 'painting':
-      return { start: afterThOrInspection || null, finish: coatingFinish };
-    case 'delivery':
-      return { start: projectFinish ? row.start : null, finish: projectFinish };
-    default:
-      return { start: null, finish: null };
-  }
-}
-
-function applyClientTrackingDatesToScheduleRows(project, rows) {
-  return rows.map((row) => {
-    const plannedStart = parseDateObject(row.start);
-    const plannedFinish = parseDateObject(row.finish);
-    const tracking = getClientScheduleTrackingDates(project, row);
-    let start = parseDateObject(tracking.start) || plannedStart;
-    let finish = parseDateObject(tracking.finish) || plannedFinish;
-
-    if (start && finish && start > finish) {
-      if (tracking.finish && !tracking.start) start = finish;
-      else if (tracking.start && !tracking.finish) finish = start;
+  for (const obj of candidateObjects) {
+    for (const alias of aliases) push(obj?.[alias]);
+    for (const [objKey, objValue] of Object.entries(obj || {})) {
+      if (!objKey || typeof objValue === 'object') continue;
+      const nk = normalizeText(objKey);
+      const ck = normalizeCompactText(objKey);
+      if (normalizedAliases.has(nk) || compactAliases.has(ck)) push(objValue);
     }
-
-    const startSource = tracking.start ? 'tracking' : 'planned';
-    const finishSource = tracking.finish ? 'tracking' : 'planned';
-    const duration = start && finish && (startSource === 'tracking' || finishSource === 'tracking')
-      ? Math.max(1, countBusinessDaysInclusive(start, finish) || row.duration || 1)
-      : row.duration;
-
-    return {
-      ...row,
-      plannedStart,
-      plannedFinish,
-      start,
-      finish,
-      duration,
-      startSource,
-      finishSource,
-      trackingApplied: startSource === 'tracking' || finishSource === 'tracking',
-      startDeviationDays: startSource === 'tracking' ? clientDateDiffDays(start, plannedStart) : 0,
-      finishDeviationDays: finishSource === 'tracking' ? clientDateDiffDays(finish, plannedFinish) : 0,
-    };
-  });
-}
-
-function formatClientScheduleDateCell(row, field) {
-  const value = field === 'start' ? row.start : row.finish;
-  const planned = field === 'start' ? row.plannedStart : row.plannedFinish;
-  const source = field === 'start' ? row.startSource : row.finishSource;
-  const deviation = field === 'start' ? row.startDeviationDays : row.finishDeviationDays;
-  const valueText = formatClientDateShort(value);
-  if (source !== 'tracking') return escapeHtml(valueText);
-  const plannedText = formatClientDateShort(planned);
-  const deviationText = deviation === 0
-    ? 'sem desvio'
-    : `${Math.abs(deviation)}d ${deviation > 0 ? 'após' : 'antes'}`;
-  return `<span class="client-schedule-date client-schedule-date--tracking">${escapeHtml(valueText)}</span><small class="client-schedule-date-note">Tracking • Plan.: ${escapeHtml(plannedText)} • ${escapeHtml(deviationText)}</small>`;
-}
-
-function getClientSCurveMilestones(project) {
-  return getClientSCurveMilestoneDefinitions(project)
-    .map((definition) => {
-      const date = getClientProjectMilestoneDate(project, definition.key);
-      if (!date) return null;
-      return {
-        ...definition,
-        date,
-        dateLabel: clientFormatDateValue(date),
-        plannedAtDate: getClientPlannedAtDate(project, date),
-      };
-    })
-    .filter(Boolean)
-    .sort((a, b) => a.date - b.date || a.percent - b.percent);
-}
-
-function getClientExpectedDateForPlannedPercent(project, percent) {
-  const start = getClientAnalyticStartDate(project);
-  let finish = getClientAnalyticFinishDate(project);
-  if (finish <= start) finish = addUtcDays(start, 30);
-  const target = clampClientPercent(percent);
-  if (target <= 0) return start;
-  if (target >= 100) return finish;
-  const duration = clientDaysBetween(start, finish);
-  for (let day = 0; day <= duration; day += 1) {
-    const date = addUtcDays(start, day);
-    if (getClientPlannedAtDate(project, date) >= target) return date;
   }
-  return finish;
-}
 
-function getClientSCurveMilestoneAnalysis(project) {
-  return getClientSCurveMilestones(project).map((milestone) => {
-    const expectedDate = getClientPlannedMilestoneDate(project, milestone.key) || getClientExpectedDateForPlannedPercent(project, milestone.percent);
-    const daysDeviation = clientDateDiffDays(milestone.date, expectedDate);
-    const percentDeviation = clampClientPercent(milestone.plannedAtDate) - clampClientPercent(milestone.percent);
-    let state = 'on_time';
-    if (daysDeviation > 2 || percentDeviation >= 5) state = 'late';
-    else if (daysDeviation < -2 || percentDeviation <= -5) state = 'ahead';
-    return {
-      ...milestone,
-      expectedDate,
-      expectedDateLabel: clientFormatDateValue(expectedDate),
-      daysDeviation,
-      percentDeviation,
-      state,
-    };
-  });
-}
-
-function getClientActualProgressAtDate(project, dateValue) {
-  const date = parseDateObject(dateValue);
-  if (!date) return null;
-  const today = getCurrentBrazilDate();
-  if (date > today) return null;
-  const milestones = getClientSCurveMilestones(project);
-  if (milestones.length) {
-    const completed = milestones.filter((milestone) => milestone.date <= date);
-    if (!completed.length) return 0;
-    const milestoneProgress = completed.reduce((max, milestone) => Math.max(max, Number(milestone.percent || 0)), 0);
-    if (clientDateKey(date) === clientDateKey(today)) {
-      return clampClientPercent(Math.max(milestoneProgress, getClientOverallProgress(project)));
+  const textMatchesAlias = (text) => {
+    const nk = normalizeText(text);
+    const ck = normalizeCompactText(text);
+    if (!nk && !ck) return false;
+    if (normalizedAliases.has(nk) || compactAliases.has(ck)) return true;
+    for (const alias of normalizedAliases) {
+      if (alias && (nk.includes(alias) || alias.includes(nk))) return true;
     }
-    return clampClientPercent(milestoneProgress);
+    for (const alias of compactAliases) {
+      if (alias && (ck.includes(alias) || alias.includes(ck))) return true;
+    }
+    return false;
+  };
+
+  const milestones = Array.isArray(source.milestones) ? source.milestones : [];
+  for (const milestone of milestones) {
+    const fields = [milestone?.key, milestone?.label, milestone?.name, milestone?.title].filter(Boolean);
+    if (fields.some(textMatchesAlias)) {
+      push(milestone?.value ?? milestone?.displayValue ?? milestone?.display ?? milestone?.raw ?? milestone?.date);
+    }
   }
-  if (clientDateKey(date) === clientDateKey(today)) return getClientOverallProgress(project);
-  return null;
+
+  const directMap = {
+    'Fabrication Start Date': ['fabricationStartDate', 'fabrication_start_date'],
+    'Boilermaker Finish Date': ['boilermakerFinishDate', 'boilermaker_finish_date'],
+    'Welding Finish Date': ['weldingFinishDate', 'welding_finish_date'],
+    'Inspection Finish Date (QC)': ['inspectionFinishDate', 'qcInspectionFinishDate', 'inspection_finish_date', 'qc_inspection_finish_date'],
+    'TH Finish Date': ['thFinishDate', 'hydroFinishDate', 'th_finish_date', 'hydro_finish_date'],
+    'Coating Finish Date': ['coatingFinishDate', 'paintingFinishDate', 'coating_finish_date', 'painting_finish_date'],
+    'Project Finish Date': ['projectFinishDate', 'shipmentDate', 'deliveryDate', 'project_finish_date', 'shipment_date'],
+  };
+  (directMap[key] || []).forEach((field) => push(source?.[field]));
+  return values;
 }
 
-function buildClientSCurveDateSeries(start, finish, extraDates = []) {
-  const duration = clientDaysBetween(start, finish);
-  const step = Math.max(1, Math.ceil(duration / 14));
-  const dates = new Map();
-  for (let day = 0; day <= duration; day += step) {
-    const date = addUtcDays(start, day);
-    dates.set(clientDateKey(date), date);
+function getClientTrackingDateCandidates(project, key) {
+  const dates = [];
+  const pushParsed = (value) => {
+    const parsed = parseDateObject(value);
+    if (parsed) dates.push(parsed);
+  };
+  getClientTrackingRawDateValues(project, key).forEach(pushParsed);
+  if (Array.isArray(project?.spools)) {
+    for (const spool of project.spools) getClientTrackingRawDateValues(spool, key).forEach(pushParsed);
   }
-  dates.set(clientDateKey(start), start);
-  dates.set(clientDateKey(finish), finish);
-  extraDates.forEach((value) => {
-    const date = parseDateObject(value);
-    if (date && date >= start && date <= finish) dates.set(clientDateKey(date), date);
-  });
-  return Array.from(dates.values()).sort((a, b) => a - b);
+  const unique = new Map();
+  dates.forEach((date) => unique.set(clientDateKey(date), date));
+  return Array.from(unique.values()).sort((a, b) => a - b);
+}
+
+function getClientTrackingMilestoneDate(project, key) {
+  const dates = getClientTrackingDateCandidates(project, key);
+  if (!dates.length) return null;
+  return key === 'Fabrication Start Date' ? dates[0] : dates[dates.length - 1];
+}
+
+function getClientSCurveTrackingMilestonePercent(project, key) {
+  const values = {
+    'Fabrication Start Date': 30,
+    'Boilermaker Finish Date': 45,
+    'Welding Finish Date': 60,
+    'Inspection Finish Date (QC)': 75,
+    'TH Finish Date': 85,
+    'Coating Finish Date': 95,
+    'Project Finish Date': 100,
+  };
+  if (key === 'TH Finish Date' && !isClientSpoolMaterial(project)) return null;
+  return values[key] ?? null;
+}
+
+function getClientSCurveTrackingMilestones(project) {
+  const definitions = [
+    ['Fabrication Start Date', 'Início da fabricação'],
+    ['Boilermaker Finish Date', 'Caldeiraria concluída'],
+    ['Welding Finish Date', 'Solda concluída'],
+    ['Inspection Finish Date (QC)', 'Inspeção QC concluída'],
+    ['TH Finish Date', 'TH concluído'],
+    ['Coating Finish Date', 'Pintura concluída'],
+    ['Project Finish Date', 'Entrega concluída'],
+  ];
+  return definitions.map(([key, label]) => {
+    const percent = getClientSCurveTrackingMilestonePercent(project, key);
+    const date = percent == null ? null : getClientTrackingMilestoneDate(project, key);
+    if (!date) return null;
+    return { key, label, date, percent };
+  }).filter(Boolean).sort((a, b) => a.date - b.date || a.percent - b.percent);
 }
 
 function buildClientSCurveData(project) {
@@ -4825,40 +4660,72 @@ function buildClientSCurveData(project) {
   let finish = getClientAnalyticFinishDate(project);
   if (finish <= start) finish = addUtcDays(start, 30);
   const today = getCurrentBrazilDate();
-  const milestoneDates = getClientSCurveMilestones(project).map((milestone) => milestone.date);
-  const earliestMilestone = clientEarliestDate(milestoneDates);
-  const latestMilestone = clientLatestDate(milestoneDates);
-  if (earliestMilestone && earliestMilestone < start) start = earliestMilestone;
-  if (latestMilestone && latestMilestone > finish) finish = latestMilestone;
-  const dates = buildClientSCurveDateSeries(start, finish, [...milestoneDates, today]);
-  return dates.map((date) => ({
-    date,
-    planned: getClientPlannedAtDate(project, date),
-    actual: date <= today ? getClientActualProgressAtDate(project, date) : null,
-  }));
-}
+  const milestones = getClientSCurveTrackingMilestones(project);
 
-function clientPointX(point, index, points, pad, innerW) {
-  const first = parseDateObject(points[0]?.date);
-  const last = parseDateObject(points[points.length - 1]?.date);
-  const current = parseDateObject(point?.date);
-  if (first && last && current && last > first) {
-    const ratio = Math.max(0, Math.min(1, (current - first) / Math.max(1, last - first)));
-    return pad.left + ratio * innerW;
+  if (!milestones.length) {
+    const duration = clientDaysBetween(start, finish);
+    const step = Math.max(1, Math.ceil(duration / 14));
+    const actualNow = getClientOverallProgress(project);
+    const plannedToday = getClientPlannedToday(project);
+    const points = [];
+    for (let day = 0; day <= duration; day += step) {
+      const date = addUtcDays(start, day);
+      const ratio = day / duration;
+      const planned = clientSchedulePlannedPercent(ratio);
+      let actual = null;
+      if (date <= today) {
+        if (plannedToday > 0) {
+          actual = clampClientPercent((planned / plannedToday) * actualNow);
+        } else {
+          actual = actualNow > 0 ? actualNow : 0;
+        }
+      }
+      points.push({ date, planned, actual });
+    }
+    if (points[points.length - 1]?.date < finish) {
+      points.push({ date: finish, planned: 100, actual: finish <= today ? actualNow : null });
+    }
+    return points;
   }
-  return pad.left + (index / Math.max(1, points.length - 1)) * innerW;
+
+  const milestoneDates = milestones.map((item) => item.date);
+  const earliest = milestoneDates[0];
+  const latest = milestoneDates[milestoneDates.length - 1];
+  if (earliest && earliest < start) start = earliest;
+  if (latest && latest > finish) finish = latest;
+  const duration = clientDaysBetween(start, finish);
+  const step = Math.max(1, Math.ceil(duration / 14));
+  const dates = new Map();
+  for (let day = 0; day <= duration; day += step) {
+    const date = addUtcDays(start, day);
+    dates.set(clientDateKey(date), date);
+  }
+  [start, finish, today, ...milestoneDates].forEach((value) => {
+    const parsed = parseDateObject(value);
+    if (parsed) dates.set(clientDateKey(parsed), parsed);
+  });
+  return Array.from(dates.values()).sort((a, b) => a - b).map((date) => {
+    const completed = milestones.filter((item) => item.date <= date);
+    const milestoneActual = completed.length ? completed.reduce((max, item) => Math.max(max, item.percent), 0) : 0;
+    const todayExtra = clientDateKey(date) === clientDateKey(today) ? getClientOverallProgress(project) : 0;
+    return {
+      date,
+      planned: getClientPlannedAtDate(project, date),
+      actual: date <= today ? clampClientPercent(Math.max(milestoneActual, todayExtra)) : null,
+    };
+  });
 }
 
 function clientSvgPolyline(points, width, height, getValue) {
   const pad = { left: 42, right: 16, top: 18, bottom: 38 };
   const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
-  const usable = points.map((point, index) => ({ point, index })).filter((item) => getValue(item.point) != null);
+  const usable = points.filter((point) => getValue(point) != null);
   if (!usable.length) return '';
-  return usable.map(({ point, index }, pathIndex) => {
-    const x = clientPointX(point, index, points, pad, innerW);
+  return usable.map((point, index) => {
+    const x = pad.left + (points.indexOf(point) / Math.max(1, points.length - 1)) * innerW;
     const y = pad.top + (1 - clampClientPercent(getValue(point)) / 100) * innerH;
-    return `${pathIndex ? 'L' : 'M'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+    return `${index ? 'L' : 'M'} ${x.toFixed(1)} ${y.toFixed(1)}`;
   }).join(' ');
 }
 
@@ -4881,25 +4748,17 @@ function renderClientSCurveSvg(project) {
   const actualCircle = (() => {
     const lastActualIndex = points.map((point, index) => ({ point, index })).filter((item) => item.point.actual != null).pop();
     if (!lastActualIndex) return '';
-    const x = clientPointX(lastActualIndex.point, lastActualIndex.index, points, pad, innerW);
+    const x = pad.left + (lastActualIndex.index / Math.max(1, points.length - 1)) * innerW;
     const y = pad.top + (1 - clampClientPercent(lastActualIndex.point.actual) / 100) * innerH;
     return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="client-chart-dot" />`;
   })();
-  const milestoneDots = getClientSCurveMilestoneAnalysis(project).map((milestone) => {
-    const point = { date: milestone.date };
-    const index = points.findIndex((item) => clientDateKey(item.date) === clientDateKey(milestone.date));
-    const x = clientPointX(point, index >= 0 ? index : 0, points, pad, innerW);
-    const y = pad.top + (1 - clampClientPercent(milestone.percent) / 100) * innerH;
-    const state = milestone.state === 'late' ? 'late' : milestone.state === 'ahead' ? 'ahead' : 'on-time';
-    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.5" class="client-chart-milestone client-chart-milestone--${state}"><title>${escapeHtml(milestone.label)} • ${escapeHtml(milestone.dateLabel)} • ${formatPercent(milestone.percent)}</title></circle>`;
-  }).join('');
   return `
     <svg class="client-scurve-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Curva S planejado versus realizado">
       ${grid}
       <line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" class="client-chart-axis" />
       <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" class="client-chart-axis" />
       <path d="${plannedPath}" class="client-chart-planned" />
-      ${actualPath ? `<path d="${actualPath}" class="client-chart-actual" />${milestoneDots}${actualCircle}` : ''}
+      ${actualPath ? `<path d="${actualPath}" class="client-chart-actual" />${actualCircle}` : ''}
       <text x="${pad.left}" y="${height - 12}" class="client-chart-date">${escapeHtml(first)}</text>
       <text x="${pad.left + innerW / 2 - 38}" y="${height - 12}" class="client-chart-date">${escapeHtml(mid)}</text>
       <text x="${width - pad.right - 72}" y="${height - 12}" class="client-chart-date">${escapeHtml(last)}</text>
@@ -4938,30 +4797,6 @@ function getClientCompletedTags(project) {
   return spools.filter((spool) => !hasClientIncompleteProductionEvidence(spool) && (clientPercentValue(spool?.overallProgress) >= 100 || String(spool?.uiState || '').toLowerCase() === 'completed')).length;
 }
 
-function renderClientSCurveMilestoneSummary(project) {
-  const milestones = getClientSCurveMilestoneAnalysis(project);
-  if (!milestones.length) {
-    return '<div class="client-scurve-milestones client-scurve-milestones--empty">Nenhum marco real do Tracking informado ainda para alimentar a curva S.</div>';
-  }
-  return `
-    <div class="client-scurve-milestones">
-      ${milestones.map((milestone) => {
-        const stateLabel = milestone.state === 'late' ? 'Atraso' : milestone.state === 'ahead' ? 'Adiantado' : 'No prazo';
-        const deviationText = milestone.daysDeviation === 0
-          ? 'sem desvio em dias'
-          : `${Math.abs(milestone.daysDeviation)} dia(s) ${milestone.daysDeviation > 0 ? 'após' : 'antes'} do previsto`;
-        return `
-          <div class="client-scurve-milestone client-scurve-milestone--${milestone.state}">
-            <span>${escapeHtml(milestone.label)}</span>
-            <strong>${escapeHtml(milestone.dateLabel)}</strong>
-            <small>${formatPercent(milestone.percent)} • Real: ${escapeHtml(milestone.dateLabel)} • Plan.: ${escapeHtml(milestone.expectedDateLabel)} • ${escapeHtml(stateLabel)} • ${escapeHtml(deviationText)}</small>
-          </div>
-        `;
-      }).join('')}
-    </div>
-  `;
-}
-
 function getClientAttentionPoints(project) {
   const actual = getClientOverallProgress(project);
   const planned = getClientPlannedToday(project);
@@ -4971,11 +4806,6 @@ function getClientAttentionPoints(project) {
   const daysToFinish = Math.round((finish - today) / 86400000);
   const points = [];
   if (planned - actual >= 10) points.push(`Realizado ${formatPercent(actual)} contra planejado ${formatPercent(planned)}: desvio de ${formatPercent(planned - actual)}.`);
-  const delayedMilestones = getClientSCurveMilestoneAnalysis(project).filter((milestone) => milestone.state === 'late');
-  delayedMilestones.slice(0, 3).forEach((milestone) => {
-    const days = milestone.daysDeviation > 0 ? `${milestone.daysDeviation} dia(s) após o previsto` : `desvio de ${formatPercent(Math.max(0, milestone.percentDeviation))}`;
-    points.push(`${milestone.label} informado em ${milestone.dateLabel}, previsto pela curva para ${milestone.expectedDateLabel}: ${days}.`);
-  });
   if (getClientFabricationProgress(project) < 25 && planned > 35) points.push('Fabricação abaixo do ritmo planejado para a data atual.');
   const painting = getClientStageValue(project, ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)']);
   if (getClientFabricationProgress(project) >= 60 && painting <= 0) points.push('Pintura ainda não iniciada após avanço relevante da fabricação.');
@@ -5046,8 +4876,103 @@ function scaleDurationVector(baseItems, targetTotal) {
   return baseItems.map((item) => rows.find((row) => row.key === item.key) || { ...item, duration: Math.max(1, Number(item.base || 1)) });
 }
 
-function buildClientExecutiveSchedule(project, options = {}) {
-  const applyTrackingDates = options?.applyTrackingDates !== false;
+function getClientScheduleTrackingDates(project, row) {
+  const fabricationStart = getClientTrackingMilestoneDate(project, 'Fabrication Start Date');
+  const boilermakerFinish = getClientTrackingMilestoneDate(project, 'Boilermaker Finish Date');
+  const weldingFinish = getClientTrackingMilestoneDate(project, 'Welding Finish Date');
+  const inspectionFinish = getClientTrackingMilestoneDate(project, 'Inspection Finish Date (QC)');
+  const thFinish = isClientSpoolMaterial(project) ? getClientTrackingMilestoneDate(project, 'TH Finish Date') : null;
+  const coatingFinish = getClientTrackingMilestoneDate(project, 'Coating Finish Date');
+  const projectFinish = getClientTrackingMilestoneDate(project, 'Project Finish Date') || parseDateObject(getProjectShipmentDate(project));
+  const nextBusinessDay = (value) => value ? addBusinessDaysUtc(value, 1) : null;
+
+  switch (row?.key) {
+    case 'fabrication':
+      return { start: fabricationStart, finish: clientLatestDate([coatingFinish, thFinish, inspectionFinish, weldingFinish, boilermakerFinish]) };
+    case 'fitup':
+      return { start: fabricationStart, finish: boilermakerFinish };
+    case 'weld':
+      return { start: nextBusinessDay(boilermakerFinish) || fabricationStart, finish: weldingFinish };
+    case 'final-dimensional':
+      return { start: nextBusinessDay(weldingFinish), finish: inspectionFinish };
+    case 'hydro':
+      return { start: nextBusinessDay(inspectionFinish), finish: thFinish };
+    case 'painting':
+      return { start: nextBusinessDay(thFinish || inspectionFinish), finish: coatingFinish };
+    case 'delivery':
+    case 'delivery-step':
+      return { start: null, finish: projectFinish };
+    default:
+      return { start: null, finish: null };
+  }
+}
+
+function applyClientTrackingDatesToScheduleRows(project, rows) {
+  return rows.map((row) => {
+    const plannedStart = parseDateObject(row.start);
+    const plannedFinish = parseDateObject(row.finish);
+    const tracking = getClientScheduleTrackingDates(project, row);
+    let start = parseDateObject(tracking.start) || plannedStart;
+    let finish = parseDateObject(tracking.finish) || plannedFinish;
+    const startSource = tracking.start ? 'tracking' : 'planned';
+    const finishSource = tracking.finish ? 'tracking' : 'planned';
+
+    if (start && finish && start > finish) {
+      if (finishSource === 'tracking' && startSource !== 'tracking') start = finish;
+      else if (startSource === 'tracking' && finishSource !== 'tracking') finish = start;
+    }
+
+    const duration = start && finish && (startSource === 'tracking' || finishSource === 'tracking')
+      ? Math.max(1, countBusinessDaysInclusive(start, finish) || row.duration || 1)
+      : row.duration;
+
+    return {
+      ...row,
+      plannedStart,
+      plannedFinish,
+      start,
+      finish,
+      duration,
+      startSource,
+      finishSource,
+      trackingApplied: startSource === 'tracking' || finishSource === 'tracking',
+      startDeviationDays: startSource === 'tracking' ? clientDateDiffDays(start, plannedStart) : 0,
+      finishDeviationDays: finishSource === 'tracking' ? clientDateDiffDays(finish, plannedFinish) : 0,
+    };
+  });
+}
+
+function formatClientScheduleDateCell(row, field) {
+  const value = field === 'start' ? row.start : row.finish;
+  const planned = field === 'start' ? row.plannedStart : row.plannedFinish;
+  const source = field === 'start' ? row.startSource : row.finishSource;
+  const deviation = field === 'start' ? row.startDeviationDays : row.finishDeviationDays;
+  const valueText = formatClientDateShort(value);
+  if (source !== 'tracking') return escapeHtml(valueText);
+  const plannedText = formatClientDateShort(planned);
+  const deviationText = deviation === 0 ? 'sem desvio' : `${Math.abs(deviation)}d ${deviation > 0 ? 'após' : 'antes'}`;
+  return `<span class="client-schedule-date client-schedule-date--tracking">${escapeHtml(valueText)}</span><small class="client-schedule-date-note">Tracking • Plan.: ${escapeHtml(plannedText)} • ${escapeHtml(deviationText)}</small>`;
+}
+
+function getClientSCurveTrackingMilestoneAnalysis(project) {
+  return getClientSCurveTrackingMilestones(project).map((milestone) => {
+    const plannedPercentAtRealDate = getClientPlannedAtDate(project, milestone.date);
+    const percentDeviation = plannedPercentAtRealDate - milestone.percent;
+    const state = percentDeviation >= 8 ? 'late' : percentDeviation <= -8 ? 'ahead' : 'on_time';
+    return { ...milestone, plannedPercentAtRealDate, percentDeviation, state };
+  });
+}
+
+function renderClientSCurveMilestoneSummary(project) {
+  const milestones = getClientSCurveTrackingMilestoneAnalysis(project);
+  if (!milestones.length) return '<div class="client-scurve-milestones client-scurve-milestones--empty">Nenhum marco real do Tracking informado ainda para alimentar a Curva S.</div>';
+  return `<div class="client-scurve-milestones">${milestones.map((milestone) => {
+    const stateLabel = milestone.state === 'late' ? 'Atenção' : milestone.state === 'ahead' ? 'Adiantado' : 'No prazo';
+    return `<div class="client-scurve-milestone client-scurve-milestone--${milestone.state}"><span>${escapeHtml(milestone.label)}</span><strong>${escapeHtml(clientFormatDateValue(milestone.date))}</strong><small>Real ${formatPercent(milestone.percent)} • Planejado na data ${formatPercent(milestone.plannedPercentAtRealDate)} • ${escapeHtml(stateLabel)}</small></div>`;
+  }).join('')}</div>`;
+}
+
+function buildClientExecutiveSchedule(project) {
   const start = getClientAnalyticStartDate(project);
   const finish = getClientAnalyticFinishDate(project) || getProjectShipmentDate(project);
   const totalBusinessDays = Math.max(5, countBusinessDaysInclusive(start, finish) || 116);
@@ -5084,7 +5009,7 @@ function buildClientExecutiveSchedule(project, options = {}) {
   for (const group of groupDurations) {
     const groupStart = new Date(cursor.getTime());
     const groupFinish = addBusinessDaysUtc(groupStart, Math.max(0, (group.duration || 1) - 1)) || groupStart;
-    rows.push({ key: group.key, type: 'group', label: group.label, progress: group.percent, duration: group.duration, start: groupStart, finish: groupFinish, plannedStart: groupStart, plannedFinish: groupFinish, startSource: 'planned', finishSource: 'planned' });
+    rows.push({ key: group.key, type: 'group', label: group.label, progress: group.percent, duration: group.duration, start: groupStart, finish: groupFinish });
     let children = [];
     if (group.key === 'engineering') {
       children = [{ key: 'drawings', label: 'Drawings', progress: group.percent, duration: group.duration }];
@@ -5100,13 +5025,13 @@ function buildClientExecutiveSchedule(project, options = {}) {
     for (const child of children) {
       const childStart = new Date(childCursor.getTime());
       const childFinish = addBusinessDaysUtc(childStart, Math.max(0, (child.duration || 1) - 1)) || childStart;
-      rows.push({ key: child.key, type: 'child', label: child.label, progress: child.progress, duration: child.duration, start: childStart, finish: childFinish, plannedStart: childStart, plannedFinish: childFinish, startSource: 'planned', finishSource: 'planned' });
+      rows.push({ key: child.key, type: 'child', label: child.label, progress: child.progress, duration: child.duration, start: childStart, finish: childFinish });
       childCursor = addBusinessDaysUtc(childFinish, 1) || childFinish;
     }
 
     cursor = addBusinessDaysUtc(groupFinish, 1) || groupFinish;
   }
-  return applyTrackingDates ? applyClientTrackingDatesToScheduleRows(project, rows) : rows;
+  return applyClientTrackingDatesToScheduleRows(project, rows);
 }
 
 function getClientScheduleVisualState(progress) {
@@ -5255,19 +5180,25 @@ function getClientMacroFabricationProgress(projects = state.projects) {
 }
 
 function buildClientMacroSCurveData(projects = state.projects) {
-  const list = getClientMacroProjects(projects);
-  const { start, finish } = getClientMacroDateRange(list);
+  const { start, finish } = getClientMacroDateRange(projects);
+  const duration = clientDaysBetween(start, finish);
+  const step = Math.max(1, Math.ceil(duration / 14));
   const today = getCurrentBrazilDate();
-  const dates = buildClientSCurveDateSeries(start, finish, [today]);
-  return dates.map((date) => {
-    const planned = list.length
-      ? clampClientPercent(list.reduce((sum, project) => sum + getClientPlannedAtDate(project, date), 0) / list.length)
-      : 0;
-    const actual = date <= today && list.length
-      ? clampClientPercent(list.reduce((sum, project) => sum + (getClientActualProgressAtDate(project, date) ?? 0), 0) / list.length)
-      : null;
-    return { date, planned, actual };
-  });
+  const actualNow = getClientMacroOverallProgress(projects);
+  const plannedToday = getClientMacroPlannedToday(projects);
+  const points = [];
+  for (let day = 0; day <= duration; day += step) {
+    const date = addUtcDays(start, day);
+    const ratio = day / duration;
+    const planned = clientSchedulePlannedPercent(ratio);
+    let actual = null;
+    if (date <= today) {
+      actual = plannedToday > 0 ? clampClientPercent((planned / plannedToday) * actualNow) : actualNow;
+    }
+    points.push({ date, planned, actual });
+  }
+  if (points[points.length - 1]?.date < finish) points.push({ date: finish, planned: 100, actual: finish <= today ? actualNow : null });
+  return points;
 }
 
 function renderClientMacroSCurveSvg(projects = state.projects) {
@@ -5289,7 +5220,7 @@ function renderClientMacroSCurveSvg(projects = state.projects) {
   const actualCircle = (() => {
     const lastActualIndex = points.map((point, index) => ({ point, index })).filter((item) => item.point.actual != null).pop();
     if (!lastActualIndex) return '';
-    const x = clientPointX(lastActualIndex.point, lastActualIndex.index, points, pad, innerW);
+    const x = pad.left + (lastActualIndex.index / Math.max(1, points.length - 1)) * innerW;
     const y = pad.top + (1 - clampClientPercent(lastActualIndex.point.actual) / 100) * innerH;
     return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="client-chart-dot" />`;
   })();
@@ -5859,7 +5790,7 @@ function openClientMacroExecutive(projects = state.projects, options = {}) {
 
     <div class="client-exec-grid client-exec-grid--main">
       <section class="client-exec-card client-exec-card--curve">
-        <div class="client-exec-card-head"><h3>${isUnitScope ? 'Curva S | Unidade' : 'Curva S | Carteira do Cliente'}</h3><span>Planejado x realizado consolidado das BSPs, usando marcos reais quando informados</span></div>
+        <div class="client-exec-card-head"><h3>${isUnitScope ? 'Curva S | Unidade' : 'Curva S | Carteira do Cliente'}</h3><span>Planejado x realizado consolidado das BSPs</span></div>
         <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span></div>
         ${renderClientMacroSCurveSvg(list)}
       </section>
@@ -5986,7 +5917,7 @@ function openClientBspExecutive(project) {
 
     <div class="client-exec-grid client-exec-grid--main">
       <section class="client-exec-card client-exec-card--curve">
-        <div class="client-exec-card-head"><h3>Curva S | Planejado x Realizado</h3><span>Planejado pela data inicial/final e realizado pelos marcos reais do Tracking</span></div>
+        <div class="client-exec-card-head"><h3>Curva S | Planejado x Realizado</h3><span>Planejado pela janela da BSP; realizado pelos marcos reais do Tracking quando existirem</span></div>
         <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span><span><i class="milestone"></i> Marcos reais</span></div>
         ${renderClientSCurveSvg(project)}
         ${renderClientSCurveMilestoneSummary(project)}
@@ -6018,7 +5949,7 @@ function openClientBspExecutive(project) {
     </section>
 
     <section class="client-exec-card client-exec-schedule-card">
-      <div class="client-exec-card-head"><h3>Schedule Executivo da BSP</h3><span>Planejado pela janela da BSP e atualizado pelos marcos reais do Tracking</span></div>
+      <div class="client-exec-card-head"><h3>Schedule Executivo da BSP</h3><span>Planejado pela janela da BSP e atualizado pelas datas reais do Tracking</span></div>
       ${renderClientExecutiveSchedule(project)}
     </section>
 
@@ -7830,43 +7761,32 @@ function shouldIgnoreCachedProjectsPayload(cacheEntry) {
   return false;
 }
 
-function runDashboardRenderStep(label, callback) {
-  try {
-    return callback();
-  } catch (error) {
-    console.error(`[Render] Falha em ${label}:`, error?.stack || error?.message || error);
-    return null;
-  }
-}
-
 function applyProjectsPayload(data, options = {}) {
-  // A atualização de dados não pode ser perdida por falha visual isolada.
-  // Primeiro gravamos o payload no estado; depois cada bloco visual é renderizado com proteção própria.
   state.projects = enrichProjects(data.projects || []);
+  renderAdminProjectPmAliasOptions();
+  renderProjectViewTabs();
   state.stats = data.stats || null;
   state.meta = data.meta || null;
   state.alerts = data.alerts || [];
   state.projectsLoadedFromCache = Boolean(options.fromCache);
+  buildDemandOptions();
+  buildProjectTypeOptions();
+  buildWeekOptions();
 
   if (!state.selectedProjectId && state.projects.length) {
     state.selectedProjectId = state.projects[0].rowId;
   }
 
-  runDashboardRenderStep('opções PM/admin', () => renderAdminProjectPmAliasOptions());
-  runDashboardRenderStep('abas de projetos', () => renderProjectViewTabs());
-  runDashboardRenderStep('filtros de demanda', () => buildDemandOptions());
-  runDashboardRenderStep('filtros de tipo', () => buildProjectTypeOptions());
-  runDashboardRenderStep('filtros de semana', () => buildWeekOptions());
-  runDashboardRenderStep('aplicar filtros', () => applyFilter());
-  runDashboardRenderStep('cards principais', () => renderStats());
-  runDashboardRenderStep('tabela principal', () => renderTable());
-  runDashboardRenderStep('card selecionado', () => renderSelectedProjectCard());
-  runDashboardRenderStep('contador de alertas', () => renderAlertBadge());
-  runDashboardRenderStep('metadados', () => updateMeta());
-  runDashboardRenderStep('modal de alertas', () => renderAlertModal());
-  runDashboardRenderStep('portal do cliente', () => renderClientDashboard());
+  applyFilter();
+  renderStats();
+  renderTable();
+  renderSelectedProjectCard();
+  renderAlertBadge();
+  updateMeta();
+  renderAlertModal();
+  renderClientDashboard();
   if (state.user && sectorAlertsModalEl && !sectorAlertsModalEl.classList.contains('hidden')) {
-    runDashboardRenderStep('alertas manuais', () => renderManualAlerts());
+    renderManualAlerts();
   }
 }
 
@@ -7987,17 +7907,13 @@ async function loadProjects(options = {}) {
       }
       const preferServerCache = Boolean(options.preferServerCache || (!background && !force));
       const requestUrl = force ? "/api/projects?force=1" : (preferServerCache ? "/api/projects?preferCache=1" : "/api/projects");
-      let response = await fetch(requestUrl, { cache: "no-store", credentials: "same-origin" });
+      const response = await fetch(requestUrl, { cache: "no-store", credentials: "same-origin" });
       let data = null;
 
       try {
         data = await response.json();
       } catch (parseError) {
-        if (requestUrl !== "/api/projects?preferCache=1") {
-          response = await fetch("/api/projects?preferCache=1", { cache: "no-store", credentials: "same-origin" });
-          data = await response.json().catch(() => null);
-        }
-        if (!data) throw new Error("Falha ao atualizar dados operacionais.");
+        throw new Error("Falha ao atualizar dados operacionais.");
       }
 
       if (response.status === 401) {
@@ -8010,18 +7926,7 @@ async function loadProjects(options = {}) {
       }
 
       if (!response.ok || !data.ok) {
-        if (requestUrl !== "/api/projects?preferCache=1") {
-          const fallbackResponse = await fetch("/api/projects?preferCache=1", { cache: "no-store", credentials: "same-origin" });
-          const fallbackData = await fallbackResponse.json().catch(() => null);
-          if (fallbackResponse.ok && fallbackData?.ok && Array.isArray(fallbackData.projects) && fallbackData.projects.length) {
-            response = fallbackResponse;
-            data = fallbackData;
-          } else {
-            throw new Error(data?.error || fallbackData?.error || "Falha ao carregar projetos.");
-          }
-        } else {
-          throw new Error(data?.error || "Falha ao carregar projetos.");
-        }
+        throw new Error(data?.error || "Falha ao carregar projetos.");
       }
       const projectsFromApi = Array.isArray(data.projects) ? data.projects : [];
       if (options.requireData && projectsFromApi.length === 0) {

@@ -1,0 +1,42 @@
+Versão v36.15 - Recovery do painel + leitura segura de datas do Tracking
+
+Base utilizada:
+- v36.10, que era a versão estável do painel após a regra do Hydro Testing por Spool/OBSERVATIONS.
+
+Objetivo:
+- Recuperar o carregamento do painel interno e do painel do cliente.
+- Remover as alterações agressivas das versões v36.11/v36.12/v36.14 que afetaram o render/carregamento.
+- Reaplicar a leitura das datas reais do Tracking de forma isolada e segura, sem alterar a API principal, sem mexer no fluxo de carregamento e sem mudar a forma como os projetos são filtrados.
+
+Datas lidas:
+- Fabrication Start Date
+- Boilermaker Finish Date
+- Welding Finish Date
+- Inspection Finish Date (QC)
+- TH Finish Date
+- Coating Finish Date
+- Project Finish Date
+
+Estratégia da correção:
+- O carregamento do painel voltou ao comportamento da v36.10.
+- A leitura das datas foi aplicada somente no Schedule Executivo e na Curva S.
+- As datas são buscadas em múltiplas fontes possíveis: milestones, stageValues, campos diretos do projeto e campos dos spools.
+- Para Fabrication Start Date, usa a primeira data encontrada.
+- Para finish dates, usa a última data encontrada, considerando BSP com múltiplos spools.
+- Hydro Testing continua aparecendo somente quando for Spool e quando OBSERVATIONS não indicar solda de campo/sem TH.
+
+Validação local:
+- node --check site/app.js
+- node --check site/sw.js
+- node --check netlify/functions/projects.js
+- Teste de render com fallback-projects.json carregando 163 projetos.
+- Teste específico BSP 25-1165-38:
+  - Fabrication Start Date: 23/02/2026
+  - Boilermaker Finish Date: 02/03/2026
+  - Welding Finish Date: 03/03/2026
+  - Inspection Finish Date (QC): 02/04/2026
+
+Arquivos alterados:
+- site/app.js
+- site/app.css
+- site/sw.js
