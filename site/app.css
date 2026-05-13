@@ -7258,3 +7258,16 @@ body.client-mode .client-logo-box img,
   background: rgba(111, 240, 255, .14);
   border: 1px solid rgba(111, 240, 255, .28);
 }
+
+.client-planned-date,
+.client-date-source {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  letter-spacing: .04em;
+  opacity: .72;
+  font-weight: 700;
+}
+.client-date-source {
+  color: #57d7ff;
+}

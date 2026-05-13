@@ -1,0 +1,58 @@
+Versão v36.17 - Datas reais do Tracking sem alterar carregamento
+
+Base usada: v36.9 funcional enviada pelo Douglas.
+
+Objetivo:
+- Manter o painel carregando como estava na v36.9.
+- Aplicar datas reais do Tracking somente no painel executivo/cliente, sem mexer na API principal.
+
+Arquivos alterados:
+- site/app.js
+- site/app.css
+- site/sw.js
+
+O que foi ajustado:
+1) Hydro Testing / TH
+- Continua aparecendo somente para material do tipo Spool.
+- Também é removido quando OBSERVATIONS indicar solda de campo, solda em campo, field weld, field welding, sem TH, não requer TH ou não aplica TH.
+
+2) Leitura de datas reais do Tracking
+O painel procura datas em:
+- milestones do projeto;
+- stageValues do projeto;
+- campos diretos do projeto;
+- milestones das tags/spools;
+- stageValues das tags/spools;
+- campos diretos das tags/spools.
+
+Campos lidos:
+- Fabrication Start Date
+- Boilermaker Finish Date
+- Welding Finish Date
+- Inspection Finish Date (QC)
+- TH Finish Date, apenas se TH for aplicável
+- Coating/Painting Finish Date, quando existir
+- Project Finish/Shipment/Delivery Date, quando existir
+
+3) Schedule Executivo
+- Fit up usa Fabrication Start Date como início real e Boilermaker Finish Date como término real.
+- Weld usa Welding Finish Date como término real.
+- Final Dimensional Inspection usa Inspection Finish Date (QC) como término real.
+- Hydro Testing só usa TH Finish Date se existir e se o TH for aplicável.
+- Painting só usa data real se houver Coating/Painting Finish Date.
+
+4) Curva S
+- A linha de realizado passa a usar os marcos reais quando existirem.
+- Quando não existirem datas reais, mantém a lógica anterior da v36.9.
+
+Importante:
+- Não foi alterado netlify/functions/projects.js.
+- Não foi alterado o fluxo de login.
+- Não foi alterado o carregamento principal dos projetos.
+- O cache do PWA foi versionado para forçar atualização do app.js.
+
+Validações locais:
+- node --check site/app.js
+- node --check site/sw.js
+- node --check netlify/functions/projects.js
+- Teste local com fallback-projects.json na BSP 25-1165-38.

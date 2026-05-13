@@ -314,44 +314,8 @@ function isSpoolMaterialType(projectType, fallbackText = '') {
   return false;
 }
 
-
-function hasHydroExclusionObservationText(value) {
-  const normalize = (text) => String(text || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-  const text = normalize(value);
-  if (!text) return false;
-  const compact = text.replace(/[^a-z0-9]+/g, '');
-  return Boolean(
-    text.includes('possui solda de campo')
-    || text.includes('solda de campo')
-    || text.includes('solda em campo')
-    || text.includes('soldagem de campo')
-    || text.includes('field weld')
-    || text.includes('field welding')
-    || text.includes('sem th')
-    || text.includes('nao requer th')
-    || text.includes('nao aplica th')
-    || text.includes('sem hydro')
-    || text.includes('sem teste hidrostatico')
-    || /\bf\s*\.?\s*w\.?\b/.test(text)
-    || compact.includes('fieldweld')
-    || compact.includes('fieldwelding')
-    || compact.includes('soldadecampo')
-    || compact.includes('soldaemcampo')
-    || compact.includes('semth')
-    || compact.includes('naorequerth')
-    || compact.includes('naoaplicath')
-  );
-}
-
-function isHydroApplicableForType(projectType, fallbackText = '') {
-  return isSpoolMaterialType(projectType, fallbackText) && !hasHydroExclusionObservationText(fallbackText);
-}
-
 function fabricationStageItemsForType(projectType, fallbackText = '') {
-  const includeHydro = isHydroApplicableForType(projectType, fallbackText);
+  const includeHydro = isSpoolMaterialType(projectType, fallbackText);
   return [
     { keys: ["Welding Preparation", "Spool Assemble and tack weld"], weight: 10 },
     { keys: ["Initial Dimensional Inspection/3D"], weight: 8 },
@@ -508,7 +472,7 @@ function deriveOperationalStage(stageValues, fabricationStartDate, coatingPercen
   const projectFinished = isStageBooleanDone(stageValues, "Project Finished?");
   const normalizedProjectStatus = String(projectStatus || "").trim().toUpperCase().replace(/\s+/g, " ");
   const isHold = ["ON HOLD", "HOLD", "PAUSED", "EM ESPERA"].includes(normalizedProjectStatus);
-  const includeHydro = isHydroApplicableForType(projectType, fallbackText);
+  const includeHydro = isSpoolMaterialType(projectType, fallbackText);
 
   if (finished || projectFinished || projectFinishDate) return makeFlow("Finalizado", "Enviado", 100, "completed", "completed");
 
@@ -1043,8 +1007,7 @@ function buildSpoolRow(row, parentSummary) {
   const fabricationStartDate = textValue(row, "Fabrication Start Date");
   const stageValues = buildStageValues(row);
   const projectType = textValue(row, "Project Type") || textValue(parentSummary, "Project Type");
-  const observations = textValue(row, "OBSERVATIONS");
-  const typeFallbackText = [drawingText, parsedDrawing.iso, parsedDrawing.description, observations].filter(Boolean).join(' ');
+  const typeFallbackText = [drawingText, parsedDrawing.iso, parsedDrawing.description].filter(Boolean).join(' ');
   const hasIncompleteStageEvidence = hasIncompleteProductionEvidence(stageValues, projectType, typeFallbackText);
   const finished = !hasIncompleteStageEvidence && (projectFinishedFlag || overallProgress >= 100 || hasStageValue(stageValues, "Project Finish Date"));
   const flow = getOperationalFlow(stageValues, fabricationStartDate, parsePercent(row, "Surface preparation and/or coating") ?? 0, finished, textValue(row, "PROJECT STATUS"), projectType, typeFallbackText);
@@ -1061,6 +1024,7 @@ function buildSpoolRow(row, parentSummary) {
     return 0;
   })();
   const weldingWeek = weldingPercent >= 100 && weldingFinishDate ? getProductionWeekLabel(weldingFinishDate) : "";
+  const observations = textValue(row, "OBSERVATIONS");
   const tratativaObservationMatches = getObservationTratativaMatches([{ source: parsedDrawing.iso || drawingText || `Linha ${row.rowNumber || row.id}`, text: observations }]);
 
   return {
@@ -1345,10 +1309,9 @@ function buildProject(summaryRow, childRows) {
   const projectType = textValue(summaryRow, "Project Type");
   const summaryDrawing = textValue(summaryRow, "Drawing");
   const stageValues = buildStageValues(summaryRow);
-  const summaryTypeFallbackText = [summaryDrawing, observations].filter(Boolean).join(' ');
-  const summaryHasIncompleteStageEvidence = hasIncompleteProductionEvidence(stageValues, projectType, summaryTypeFallbackText);
+  const summaryHasIncompleteStageEvidence = hasIncompleteProductionEvidence(stageValues, projectType, summaryDrawing);
   const summaryFinished = !summaryHasIncompleteStageEvidence && (projectFinishedFlag || overallProgress >= 100 || hasStageValue(stageValues, "Project Finish Date"));
-  const flow = getOperationalFlow(stageValues, fabricationStartDate, coatingPercent, summaryFinished, projectStatus, projectType, summaryTypeFallbackText);
+  const flow = getOperationalFlow(stageValues, fabricationStartDate, coatingPercent, summaryFinished, projectStatus, projectType, summaryDrawing);
   const awaitingShipment = flow.state === "awaiting_shipment";
   const uiState = uiStateFromFlow(flow, summaryFinished) || projectUiState(projectStatus, overallProgress, summaryFinished, fabricationStartDate, awaitingShipment);
   const weldingPercent = parsePercent(summaryRow, "Full welding execution") ?? 0;
