@@ -7939,13 +7939,17 @@ async function loadProjects(options = {}) {
       }
       const preferServerCache = Boolean(options.preferServerCache || (!background && !force));
       const requestUrl = force ? "/api/projects?force=1" : (preferServerCache ? "/api/projects?preferCache=1" : "/api/projects");
-      const response = await fetch(requestUrl, { cache: "no-store", credentials: "same-origin" });
+      let response = await fetch(requestUrl, { cache: "no-store", credentials: "same-origin" });
       let data = null;
 
       try {
         data = await response.json();
       } catch (parseError) {
-        throw new Error("Falha ao atualizar dados operacionais.");
+        if (requestUrl !== "/api/projects?preferCache=1") {
+          response = await fetch("/api/projects?preferCache=1", { cache: "no-store", credentials: "same-origin" });
+          data = await response.json().catch(() => null);
+        }
+        if (!data) throw new Error("Falha ao atualizar dados operacionais.");
       }
 
       if (response.status === 401) {
@@ -7958,7 +7962,18 @@ async function loadProjects(options = {}) {
       }
 
       if (!response.ok || !data.ok) {
-        throw new Error(data?.error || "Falha ao carregar projetos.");
+        if (requestUrl !== "/api/projects?preferCache=1") {
+          const fallbackResponse = await fetch("/api/projects?preferCache=1", { cache: "no-store", credentials: "same-origin" });
+          const fallbackData = await fallbackResponse.json().catch(() => null);
+          if (fallbackResponse.ok && fallbackData?.ok && Array.isArray(fallbackData.projects) && fallbackData.projects.length) {
+            response = fallbackResponse;
+            data = fallbackData;
+          } else {
+            throw new Error(data?.error || fallbackData?.error || "Falha ao carregar projetos.");
+          }
+        } else {
+          throw new Error(data?.error || "Falha ao carregar projetos.");
+        }
       }
       const projectsFromApi = Array.isArray(data.projects) ? data.projects : [];
       if (options.requireData && projectsFromApi.length === 0) {
