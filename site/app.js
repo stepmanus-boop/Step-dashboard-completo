@@ -4326,22 +4326,34 @@ function clientApplyRowDates(row, start, finish, sourceLabel = '') {
 function getClientSCurveActualMilestones(project) {
   const real = getClientTrackingDates(project);
   const hydro = shouldClientShowHydro(project);
+  // A Curva S precisa ser acumulada e sempre crescente.
+  // Não usar o percentual atual das etapas antigas aqui, porque uma etapa anterior
+  // já concluída em 100% fazia a linha realizada nascer em 100% e depois cair.
+  const inspectionPercent = hydro ? 72 : 82;
   const points = [
-    { date: real.fabricationStart, actual: Math.max(30, getClientStageValue(project, ['Drawing Execution Advance%', 'Drawing']), getClientStageValue(project, ['Material Separation', 'Material Release to Fabrication'])) , label: 'Fabrication Start' },
+    { date: real.fabricationStart, actual: 30, label: 'Fabrication Start' },
     { date: real.boilermakerFinish, actual: 42, label: 'Boilermaker Finish' },
-    { date: real.weldingFinish, actual: Math.max(55, getClientStageValue(project, ['Full welding execution'])), label: 'Welding Finish' },
-    { date: real.inspectionFinish, actual: Math.max(hydro ? 70 : 78, getClientStageValue(project, ['Final Dimensional Inpection/3D (QC)'])), label: 'Inspection Finish' },
-    { date: real.thFinish, actual: 82, label: 'TH Finish' },
-    { date: real.coatingFinish, actual: Math.max(92, getClientStageValue(project, ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)'])), label: 'Coating Finish' },
+    { date: real.weldingFinish, actual: 58, label: 'Welding Finish' },
+    { date: real.inspectionFinish, actual: inspectionPercent, label: 'Inspection Finish' },
+    { date: real.thFinish, actual: 84, label: 'TH Finish' },
+    { date: real.coatingFinish, actual: 92, label: 'Coating Finish' },
     { date: real.projectFinish, actual: 100, label: 'Project Finish' },
   ].filter((item) => item.date && (hydro || item.label !== 'TH Finish'));
+
   const byDate = new Map();
   for (const item of points) {
     const key = item.date.getTime();
     const previous = byDate.get(key);
     if (!previous || item.actual > previous.actual) byDate.set(key, item);
   }
-  return Array.from(byDate.values()).sort((a, b) => a.date - b.date).map((item) => ({ ...item, actual: clampClientPercent(item.actual) }));
+
+  let runningMax = 0;
+  return Array.from(byDate.values())
+    .sort((a, b) => a.date - b.date)
+    .map((item) => {
+      runningMax = Math.max(runningMax, clampClientPercent(item.actual));
+      return { ...item, actual: runningMax };
+    });
 }
 
 function getClientDetailStageKeys(project) {
@@ -4591,7 +4603,17 @@ function buildClientSCurveData(project) {
   const today = getCurrentBrazilDate();
   const actualNow = getClientOverallProgress(project);
   const plannedToday = getClientPlannedToday(project);
-  const trackingMilestones = getClientSCurveActualMilestones(project);
+  let trackingMilestones = getClientSCurveActualMilestones(project);
+  const lastTrackingMilestone = trackingMilestones[trackingMilestones.length - 1];
+  if (lastTrackingMilestone && today >= lastTrackingMilestone.date && actualNow > lastTrackingMilestone.actual) {
+    trackingMilestones = trackingMilestones.concat([{
+      date: today,
+      planned: getClientPlannedToday(project),
+      actual: clampClientPercent(actualNow),
+      trackingLabel: 'Atual',
+      label: 'Atual',
+    }]);
+  }
   const rawPoints = [];
 
   for (let day = 0; day <= duration; day += step) {
