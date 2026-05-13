@@ -1387,6 +1387,39 @@ function parseDateObject(value) {
   return null;
 }
 
+
+function parseClientSafeDateObject(value, options = {}) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const parsedDate = parseDateObject(value);
+    const year = parsedDate?.getUTCFullYear?.();
+    const minYear = Number(options.minYear) || 2020;
+    const maxYear = Number(options.maxYear) || 2055;
+    return year >= minYear && year <= maxYear ? parsedDate : null;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  // Evita que valores de percentual, booleanos, IDs ou números soltos virem datas
+  // por acidente. Ex.: new Date('0') = 01/01/2000, o que achatava a Curva S.
+  if (/^-?\d+(?:[.,]\d+)?$/.test(raw)) return null;
+  if (/%/.test(raw)) return null;
+  if (/^(sim|não|nao|yes|no|true|false|concluido|concluído|completed|n\/a|na)$/i.test(raw)) return null;
+
+  const hasDateShape = /\b\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}\b/.test(raw)
+    || /\b\d{4}-\d{2}-\d{2}\b/.test(raw);
+  if (!hasDateShape) return null;
+
+  const parsedDate = parseDateObject(raw);
+  if (!parsedDate) return null;
+  const year = parsedDate.getUTCFullYear();
+  const minYear = Number(options.minYear) || 2020;
+  const maxYear = Number(options.maxYear) || 2055;
+  if (year < minYear || year > maxYear) return null;
+  return parsedDate;
+}
+
 function compareProjectsByPlannedFinishDate(a, b) {
   const left = parseDateObject(a?.plannedFinishDate);
   const right = parseDateObject(b?.plannedFinishDate);
@@ -4241,12 +4274,12 @@ function clientReadDateCandidatesFromSource(source, wantedKeys, candidates) {
   if (!source || typeof source !== 'object') return;
   for (const key of wantedKeys) {
     const direct = source[key];
-    const parsedDirect = parseDateObject(direct);
+    const parsedDirect = parseClientSafeDateObject(direct);
     if (parsedDirect) candidates.push(parsedDirect);
   }
   for (const [key, value] of Object.entries(source)) {
     if (!clientTrackingKeyMatches(key, wantedKeys)) continue;
-    const parsed = parseDateObject(value);
+    const parsed = parseClientSafeDateObject(value);
     if (parsed) candidates.push(parsed);
   }
 }
@@ -4255,7 +4288,7 @@ function clientReadDateCandidatesFromMilestones(milestones, wantedKeys, candidat
   for (const item of Array.isArray(milestones) ? milestones : []) {
     if (!item || typeof item !== 'object') continue;
     if (!clientTrackingKeyMatches([item.key, item.label, item.name].filter(Boolean).join(' '), wantedKeys)) continue;
-    const parsed = parseDateObject(item.value ?? item.date ?? item.finishDate ?? item.startDate);
+    const parsed = parseClientSafeDateObject(item.value ?? item.date ?? item.finishDate ?? item.startDate);
     if (parsed) candidates.push(parsed);
   }
 }
@@ -4574,7 +4607,7 @@ function getClientAnalyticStartDate(project) {
     project?.stageValues?.['Drawing Start Date'],
   ];
   for (const value of candidates) {
-    const parsed = parseDateObject(value);
+    const parsed = parseClientSafeDateObject(value);
     if (parsed) return parsed;
   }
   const today = getCurrentBrazilDate();
@@ -4591,7 +4624,7 @@ function getClientAnalyticFinishDate(project) {
     getProjectShipmentDate(project),
   ];
   for (const value of candidates) {
-    const parsed = parseDateObject(value);
+    const parsed = parseClientSafeDateObject(value);
     if (parsed) return parsed;
   }
   const start = getClientAnalyticStartDate(project);
@@ -4655,7 +4688,7 @@ function getClientSCurvePlannedFinishDate(project) {
     project?.stageValues?.['Baseline Finish Date'],
   ];
   for (const value of candidates) {
-    const parsed = parseDateObject(value);
+    const parsed = parseClientSafeDateObject(value);
     if (parsed) return parsed;
   }
   return getClientAnalyticFinishDate(project);
@@ -4663,7 +4696,7 @@ function getClientSCurvePlannedFinishDate(project) {
 
 function getClientSCurveShipmentDate(project) {
   const realDates = getClientTrackingDates(project);
-  return parseDateObject(realDates.projectFinish) || parseDateObject(getProjectShipmentDate(project));
+  return parseClientSafeDateObject(realDates.projectFinish) || parseClientSafeDateObject(getProjectShipmentDate(project));
 }
 
 function getClientSCurveDelayInfo(project) {
@@ -4868,9 +4901,31 @@ function renderClientSCurveDelayOverlay(project, points, width, height, pad) {
   `;
 }
 
+function getClientSCurveSvgWidth(points) {
+  const baseWidth = 760;
+  if (!Array.isArray(points) || points.length < 2) return baseWidth;
+  const { start, finish } = clientChartDateBounds(points);
+  const totalDays = clientDaysBetween(start, finish);
+  // Até aproximadamente 70 dias o gráfico cabe no card.
+  // Acima disso, o SVG ganha largura extra e o card mostra barra de rolagem,
+  // mantendo a Curva S fluida sem achatar prazos longos.
+  const expandedWidth = baseWidth + Math.max(0, totalDays - 70) * 8;
+  return Math.min(2200, Math.max(baseWidth, Math.round(expandedWidth)));
+}
+
+function wrapClientSCurveSvg(svgMarkup, width) {
+  return `
+    <div class="client-scurve-scroll" role="region" aria-label="Curva S com rolagem horizontal" tabindex="0">
+      <div class="client-scurve-canvas" style="min-width:${Number(width) || 760}px">
+        ${svgMarkup}
+      </div>
+    </div>
+  `;
+}
+
 function renderClientSCurveSvg(project) {
   const points = buildClientSCurveData(project);
-  const width = 760;
+  const width = getClientSCurveSvgWidth(points);
   const height = 260;
   const pad = { left: 42, right: 16, top: 18, bottom: 38 };
   const innerW = width - pad.left - pad.right;
@@ -4893,7 +4948,7 @@ function renderClientSCurveSvg(project) {
   })();
   const delayOverlay = renderClientSCurveDelayOverlay(project, points, width, height, pad);
   const hoverTargets = buildClientChartHoverTargets(points, width, height);
-  return `
+  return wrapClientSCurveSvg(`
     <svg class="client-scurve-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Curva S planejado versus realizado">
       ${grid}
       ${delayOverlay}
@@ -4906,7 +4961,7 @@ function renderClientSCurveSvg(project) {
       <text x="${pad.left + innerW / 2 - 38}" y="${height - 12}" class="client-chart-date">${escapeHtml(mid)}</text>
       <text x="${width - pad.right - 72}" y="${height - 12}" class="client-chart-date">${escapeHtml(last)}</text>
     </svg>
-  `;
+  `, width);
 }
 
 function renderClientGauge(percent, label, plannedPercent = null, options = {}) {
@@ -5275,7 +5330,7 @@ function buildClientMacroSCurveData(projects = state.projects) {
 
 function renderClientMacroSCurveSvg(projects = state.projects) {
   const points = buildClientMacroSCurveData(projects);
-  const width = 760;
+  const width = getClientSCurveSvgWidth(points);
   const height = 260;
   const pad = { left: 42, right: 16, top: 18, bottom: 38 };
   const innerW = width - pad.left - pad.right;
@@ -5297,7 +5352,7 @@ function renderClientMacroSCurveSvg(projects = state.projects) {
     return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="client-chart-dot" />`;
   })();
   const hoverTargets = buildClientChartHoverTargets(points, width, height);
-  return `
+  return wrapClientSCurveSvg(`
     <svg class="client-scurve-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Curva S macro planejado versus realizado">
       ${grid}
       <line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" class="client-chart-axis" />
@@ -5309,7 +5364,7 @@ function renderClientMacroSCurveSvg(projects = state.projects) {
       <text x="${pad.left + innerW / 2 - 38}" y="${height - 12}" class="client-chart-date">${escapeHtml(mid)}</text>
       <text x="${width - pad.right - 72}" y="${height - 12}" class="client-chart-date">${escapeHtml(last)}</text>
     </svg>
-  `;
+  `, width);
 }
 
 function getClientMacroAttentionPoints(projects = state.projects) {

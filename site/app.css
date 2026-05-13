@@ -7348,3 +7348,43 @@ body.client-mode .client-logo-box img,
 .client-date-source {
   color: #57d7ff;
 }
+
+/* v36.22 - Curva S com barra de rolagem para prazos longos */
+.client-scurve-scroll {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 10px;
+  margin-top: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: #f59e0b rgba(31, 92, 132, .16);
+}
+
+.client-scurve-scroll::-webkit-scrollbar {
+  height: 10px;
+}
+
+.client-scurve-scroll::-webkit-scrollbar-track {
+  background: rgba(31, 92, 132, .12);
+  border-radius: 999px;
+}
+
+.client-scurve-scroll::-webkit-scrollbar-thumb {
+  background: #f59e0b;
+  border-radius: 999px;
+}
+
+.client-scurve-scroll::-webkit-scrollbar-thumb:hover {
+  background: #d97706;
+}
+
+.client-scurve-canvas {
+  width: fit-content;
+  min-width: 100%;
+}
+
+.client-scurve-canvas .client-scurve-svg {
+  display: block;
+  width: 100%;
+  min-width: 760px;
+}
