@@ -5107,6 +5107,43 @@ body.client-exec-open {
   stroke-width: 3;
 }
 
+.client-chart-hover-target {
+  fill: transparent;
+  stroke: transparent;
+  cursor: crosshair;
+  pointer-events: all;
+}
+
+.client-chart-hover-target:hover {
+  fill: rgba(10, 152, 120, .10);
+  stroke: rgba(10, 152, 120, .26);
+}
+
+.client-chart-tooltip {
+  position: fixed;
+  z-index: 99999;
+  min-width: 150px;
+  max-width: 240px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: rgba(7, 18, 31, .94);
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 700;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .25);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity .12s ease, transform .12s ease;
+}
+
+.client-chart-tooltip.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+
 .client-exec-side {
   display: grid;
   gap: 14px;

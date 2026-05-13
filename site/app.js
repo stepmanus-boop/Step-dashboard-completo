@@ -4356,6 +4356,56 @@ function getClientSCurveActualMilestones(project) {
     });
 }
 
+function clientInterpolateDate(start, finish, ratio) {
+  const a = parseDateObject(start);
+  const b = parseDateObject(finish);
+  if (!a || !b) return null;
+  const safeRatio = Math.max(0, Math.min(1, Number(ratio) || 0));
+  const time = a.getTime() + (b.getTime() - a.getTime()) * safeRatio;
+  return new Date(time);
+}
+
+function normalizeClientSCurveActualMilestones(project, scheduleStart, milestones) {
+  const start = parseDateObject(scheduleStart);
+  const list = Array.isArray(milestones) ? milestones.filter((item) => item?.date) : [];
+  if (!start || !list.length) return list;
+
+  const real = getClientTrackingDates(project);
+  const fabricationStart = parseDateObject(real.fabricationStart) || list[0]?.date;
+  const synthetic = [{ date: start, actual: 0, label: 'Início planejado' }];
+
+  // Quando a fabricação real começa muito depois da data inicial da BSP,
+  // criamos marcos executivos intermediários para a Curva S nascer no começo
+  // do cronograma e subir de forma controlada até o início real da fabricação.
+  if (fabricationStart && fabricationStart > start) {
+    const preFabricationSpan = fabricationStart.getTime() - start.getTime();
+    if (preFabricationSpan > 86400000) {
+      synthetic.push(
+        { date: clientInterpolateDate(start, fabricationStart, 0.40), actual: 10, label: 'Pré-fabricação | avanço inicial' },
+        { date: clientInterpolateDate(start, fabricationStart, 0.70), actual: 20, label: 'Pré-fabricação | avanço intermediário' },
+      );
+    }
+  }
+
+  const byDate = new Map();
+  for (const item of synthetic.concat(list)) {
+    const parsedDate = parseDateObject(item.date);
+    if (!parsedDate) continue;
+    const key = parsedDate.getTime();
+    const normalized = { ...item, date: parsedDate, actual: clampClientPercent(item.actual) };
+    const previous = byDate.get(key);
+    if (!previous || normalized.actual >= previous.actual) byDate.set(key, normalized);
+  }
+
+  let runningMax = 0;
+  return Array.from(byDate.values())
+    .sort((a, b) => a.date - b.date)
+    .map((item) => {
+      runningMax = Math.max(runningMax, clampClientPercent(item.actual));
+      return { ...item, actual: runningMax };
+    });
+}
+
 function getClientDetailStageKeys(project) {
   const keys = [
     'Drawing Execution Advance%',
@@ -4603,7 +4653,7 @@ function buildClientSCurveData(project) {
   const today = getCurrentBrazilDate();
   const actualNow = getClientOverallProgress(project);
   const plannedToday = getClientPlannedToday(project);
-  let trackingMilestones = getClientSCurveActualMilestones(project);
+  let trackingMilestones = normalizeClientSCurveActualMilestones(project, start, getClientSCurveActualMilestones(project));
   const lastTrackingMilestone = trackingMilestones[trackingMilestones.length - 1];
   if (lastTrackingMilestone && today >= lastTrackingMilestone.date && actualNow > lastTrackingMilestone.actual) {
     trackingMilestones = trackingMilestones.concat([{
@@ -4654,17 +4704,66 @@ function buildClientSCurveData(project) {
   });
 }
 
+function clientChartDateBounds(points) {
+  const dates = (Array.isArray(points) ? points : [])
+    .map((point) => parseDateObject(point?.date))
+    .filter(Boolean)
+    .sort((a, b) => a - b);
+  const start = dates[0] || getCurrentBrazilDate();
+  const finish = dates[dates.length - 1] || addUtcDays(start, 1);
+  return { start, finish: finish > start ? finish : addUtcDays(start, 1) };
+}
+
+function clientChartX(point, points, width, pad) {
+  const { start, finish } = clientChartDateBounds(points);
+  const date = parseDateObject(point?.date) || start;
+  const innerW = width - pad.left - pad.right;
+  const ratio = Math.max(0, Math.min(1, (date - start) / Math.max(1, finish - start)));
+  return pad.left + ratio * innerW;
+}
+
+function clientChartY(value, height, pad) {
+  const innerH = height - pad.top - pad.bottom;
+  return pad.top + (1 - clampClientPercent(value) / 100) * innerH;
+}
+
 function clientSvgPolyline(points, width, height, getValue) {
   const pad = { left: 42, right: 16, top: 18, bottom: 38 };
-  const innerW = width - pad.left - pad.right;
-  const innerH = height - pad.top - pad.bottom;
   const usable = points.filter((point) => getValue(point) != null);
   if (!usable.length) return '';
   return usable.map((point, index) => {
-    const x = pad.left + (points.indexOf(point) / Math.max(1, points.length - 1)) * innerW;
-    const y = pad.top + (1 - clampClientPercent(getValue(point)) / 100) * innerH;
+    const x = clientChartX(point, points, width, pad);
+    const y = clientChartY(getValue(point), height, pad);
     return `${index ? 'L' : 'M'} ${x.toFixed(1)} ${y.toFixed(1)}`;
   }).join(' ');
+}
+
+function buildClientChartHoverTargets(points, width, height) {
+  const pad = { left: 42, right: 16, top: 18, bottom: 38 };
+  const byDate = new Map();
+  for (const point of Array.isArray(points) ? points : []) {
+    const date = parseDateObject(point?.date);
+    if (!date) continue;
+    const key = date.toISOString().slice(0, 10);
+    const previous = byDate.get(key) || { date, planned: null, actual: null, labels: [] };
+    previous.planned = point.planned != null ? clampClientPercent(point.planned) : previous.planned;
+    previous.actual = point.actual != null ? clampClientPercent(point.actual) : previous.actual;
+    if (point.trackingLabel && !previous.labels.includes(point.trackingLabel)) previous.labels.push(point.trackingLabel);
+    byDate.set(key, previous);
+  }
+  return Array.from(byDate.values()).sort((a, b) => a.date - b.date).map((point) => {
+    const valueForY = point.actual != null ? point.actual : point.planned;
+    const x = clientChartX(point, points, width, pad);
+    const y = clientChartY(valueForY ?? 0, height, pad);
+    const tooltipLines = [
+      `Data: ${clientFormatDateValue(point.date)}`,
+      `Planejado: ${point.planned == null ? '--' : formatPercent(point.planned)}`,
+      `Realizado: ${point.actual == null ? '--' : formatPercent(point.actual)}`,
+    ];
+    if (point.labels.length) tooltipLines.push(`Marco: ${point.labels.join(' / ')}`);
+    const tooltipText = tooltipLines.join('\n');
+    return `<circle class="client-chart-hover-target" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="12" data-client-chart-tooltip="${escapeHtml(tooltipText)}"><title>${escapeHtml(tooltipText)}</title></circle>`;
+  }).join('');
 }
 
 function renderClientSCurveSvg(project) {
@@ -4684,12 +4783,13 @@ function renderClientSCurveSvg(project) {
   const mid = points[Math.floor(points.length / 2)]?.date ? clientFormatDateValue(points[Math.floor(points.length / 2)].date) : '';
   const last = points[points.length - 1]?.date ? clientFormatDateValue(points[points.length - 1].date) : '';
   const actualCircle = (() => {
-    const lastActualIndex = points.map((point, index) => ({ point, index })).filter((item) => item.point.actual != null).pop();
-    if (!lastActualIndex) return '';
-    const x = pad.left + (lastActualIndex.index / Math.max(1, points.length - 1)) * innerW;
-    const y = pad.top + (1 - clampClientPercent(lastActualIndex.point.actual) / 100) * innerH;
+    const lastActual = points.filter((point) => point.actual != null).pop();
+    if (!lastActual) return '';
+    const x = clientChartX(lastActual, points, width, pad);
+    const y = clientChartY(lastActual.actual, height, pad);
     return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="client-chart-dot" />`;
   })();
+  const hoverTargets = buildClientChartHoverTargets(points, width, height);
   return `
     <svg class="client-scurve-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Curva S planejado versus realizado">
       ${grid}
@@ -4697,6 +4797,7 @@ function renderClientSCurveSvg(project) {
       <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" class="client-chart-axis" />
       <path d="${plannedPath}" class="client-chart-planned" />
       ${actualPath ? `<path d="${actualPath}" class="client-chart-actual" />${actualCircle}` : ''}
+      ${hoverTargets}
       <text x="${pad.left}" y="${height - 12}" class="client-chart-date">${escapeHtml(first)}</text>
       <text x="${pad.left + innerW / 2 - 38}" y="${height - 12}" class="client-chart-date">${escapeHtml(mid)}</text>
       <text x="${width - pad.right - 72}" y="${height - 12}" class="client-chart-date">${escapeHtml(last)}</text>
@@ -5085,12 +5186,13 @@ function renderClientMacroSCurveSvg(projects = state.projects) {
   const mid = points[Math.floor(points.length / 2)]?.date ? clientFormatDateValue(points[Math.floor(points.length / 2)].date) : '';
   const last = points[points.length - 1]?.date ? clientFormatDateValue(points[points.length - 1].date) : '';
   const actualCircle = (() => {
-    const lastActualIndex = points.map((point, index) => ({ point, index })).filter((item) => item.point.actual != null).pop();
-    if (!lastActualIndex) return '';
-    const x = pad.left + (lastActualIndex.index / Math.max(1, points.length - 1)) * innerW;
-    const y = pad.top + (1 - clampClientPercent(lastActualIndex.point.actual) / 100) * innerH;
+    const lastActual = points.filter((point) => point.actual != null).pop();
+    if (!lastActual) return '';
+    const x = clientChartX(lastActual, points, width, pad);
+    const y = clientChartY(lastActual.actual, height, pad);
     return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="client-chart-dot" />`;
   })();
+  const hoverTargets = buildClientChartHoverTargets(points, width, height);
   return `
     <svg class="client-scurve-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Curva S macro planejado versus realizado">
       ${grid}
@@ -5098,6 +5200,7 @@ function renderClientMacroSCurveSvg(projects = state.projects) {
       <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" class="client-chart-axis" />
       <path d="${plannedPath}" class="client-chart-planned" />
       ${actualPath ? `<path d="${actualPath}" class="client-chart-actual" />${actualCircle}` : ''}
+      ${hoverTargets}
       <text x="${pad.left}" y="${height - 12}" class="client-chart-date">${escapeHtml(first)}</text>
       <text x="${pad.left + innerW / 2 - 38}" y="${height - 12}" class="client-chart-date">${escapeHtml(mid)}</text>
       <text x="${width - pad.right - 72}" y="${height - 12}" class="client-chart-date">${escapeHtml(last)}</text>
@@ -7867,7 +7970,54 @@ function startPolling() {
   }, 15000);
 }
 
+
+let clientChartTooltipEl = null;
+
+function getClientChartTooltipEl() {
+  if (clientChartTooltipEl) return clientChartTooltipEl;
+  clientChartTooltipEl = document.createElement('div');
+  clientChartTooltipEl.className = 'client-chart-tooltip';
+  clientChartTooltipEl.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(clientChartTooltipEl);
+  return clientChartTooltipEl;
+}
+
+function showClientChartTooltip(event, text) {
+  if (!text) return;
+  const tooltip = getClientChartTooltipEl();
+  tooltip.innerHTML = escapeHtml(text).replace(/\n/g, '<br>');
+  tooltip.style.left = `${Math.min(window.innerWidth - 220, Math.max(12, event.clientX + 14))}px`;
+  tooltip.style.top = `${Math.max(12, event.clientY - 18)}px`;
+  tooltip.classList.add('visible');
+  tooltip.setAttribute('aria-hidden', 'false');
+}
+
+function hideClientChartTooltip() {
+  if (!clientChartTooltipEl) return;
+  clientChartTooltipEl.classList.remove('visible');
+  clientChartTooltipEl.setAttribute('aria-hidden', 'true');
+}
+
+function bindClientChartTooltips() {
+  document.addEventListener('mousemove', (event) => {
+    const target = event.target?.closest?.('[data-client-chart-tooltip]');
+    if (!target) return;
+    showClientChartTooltip(event, target.getAttribute('data-client-chart-tooltip') || '');
+  });
+  document.addEventListener('mouseover', (event) => {
+    const target = event.target?.closest?.('[data-client-chart-tooltip]');
+    if (!target) return;
+    showClientChartTooltip(event, target.getAttribute('data-client-chart-tooltip') || '');
+  });
+  document.addEventListener('mouseout', (event) => {
+    const target = event.target?.closest?.('[data-client-chart-tooltip]');
+    if (!target) return;
+    hideClientChartTooltip();
+  });
+}
+
 function bindEvents() {
+  bindClientChartTooltips();
   if (attentionPopupCloseEl) {
     attentionPopupCloseEl.addEventListener('click', () => closeAttentionPopup());
   }
