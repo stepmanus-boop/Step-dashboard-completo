@@ -1,4 +1,4 @@
-const CACHE_NAME = "step-gerencia-pwa-v36-13-recovery-fallback";
+const CACHE_NAME = "step-gerencia-pwa-v36-14-render-safe-tracking-dates";
 // Versão v28: preserva cache local entre logouts e usa caminho rápido pós-login
 // - Mantém assets do app shell versionados para liberar app.js corrigido imediatamente
 // - API continua sem cache no Service Worker; dados operacionais usam cache local do app

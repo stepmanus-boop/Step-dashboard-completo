@@ -4554,20 +4554,57 @@ function getClientSCurveMilestoneDefinitions(project) {
   return definitions.map((item) => ({ ...item, percent: getClientFabricationMilestonePercent(project, item.key) }));
 }
 
+function getClientMilestoneRawValues(source, key) {
+  if (!source || !key) return [];
+  const values = [];
+  const normalizedKey = normalizeText(key);
+  const compactKey = normalizeCompactText(key);
+
+  const push = (value) => {
+    if (value == null || value === '') return;
+    values.push(value);
+  };
+
+  // Formato antigo/possível payload enriquecido: stageValues[Nome da coluna]
+  push(source?.stageValues?.[key]);
+
+  // Formato real do payload atual: milestones: [{ key, label, value }]
+  const milestones = Array.isArray(source?.milestones) ? source.milestones : [];
+  for (const milestone of milestones) {
+    const milestoneKey = normalizeText(milestone?.key || milestone?.label || '');
+    const milestoneCompact = normalizeCompactText(milestone?.key || milestone?.label || '');
+    if (milestoneKey === normalizedKey || milestoneCompact === compactKey) {
+      push(milestone?.value ?? milestone?.displayValue ?? milestone?.display ?? milestone?.raw);
+    }
+  }
+
+  // Campos diretos usados em algumas versões do backend
+  if (key === 'Fabrication Start Date') push(source?.fabricationStartDate);
+  if (key === 'Boilermaker Finish Date') push(source?.boilermakerFinishDate);
+  if (key === 'Welding Finish Date') push(source?.weldingFinishDate);
+  if (key === 'Inspection Finish Date (QC)') push(source?.inspectionFinishDate || source?.qcInspectionFinishDate);
+  if (key === 'TH Finish Date') push(source?.thFinishDate || source?.hydroFinishDate);
+  if (key === 'Coating Finish Date') push(source?.coatingFinishDate || source?.paintingFinishDate);
+  if (key === 'Project Finish Date') push(source?.projectFinishDate || source?.shipmentDate || source?.plannedFinishDate);
+
+  return values;
+}
+
 function getClientStageDateCandidates(project, key) {
   const values = [];
   const pushValue = (value) => {
     const parsed = parseDateObject(value);
     if (parsed) values.push(parsed);
   };
-  pushValue(project?.stageValues?.[key]);
-  if (key === 'Fabrication Start Date') pushValue(project?.fabricationStartDate);
+
+  getClientMilestoneRawValues(project, key).forEach(pushValue);
+
   if (Array.isArray(project?.spools)) {
     for (const spool of project.spools) {
-      pushValue(spool?.stageValues?.[key]);
-      if (key === 'Fabrication Start Date') pushValue(spool?.fabricationStartDate);
+      getClientMilestoneRawValues(spool, key).forEach(pushValue);
     }
   }
+
   const unique = new Map();
   values.forEach((date) => unique.set(clientDateKey(date), date));
   return Array.from(unique.values()).sort((a, b) => a - b);
@@ -7793,32 +7830,43 @@ function shouldIgnoreCachedProjectsPayload(cacheEntry) {
   return false;
 }
 
+function runDashboardRenderStep(label, callback) {
+  try {
+    return callback();
+  } catch (error) {
+    console.error(`[Render] Falha em ${label}:`, error?.stack || error?.message || error);
+    return null;
+  }
+}
+
 function applyProjectsPayload(data, options = {}) {
+  // A atualização de dados não pode ser perdida por falha visual isolada.
+  // Primeiro gravamos o payload no estado; depois cada bloco visual é renderizado com proteção própria.
   state.projects = enrichProjects(data.projects || []);
-  renderAdminProjectPmAliasOptions();
-  renderProjectViewTabs();
   state.stats = data.stats || null;
   state.meta = data.meta || null;
   state.alerts = data.alerts || [];
   state.projectsLoadedFromCache = Boolean(options.fromCache);
-  buildDemandOptions();
-  buildProjectTypeOptions();
-  buildWeekOptions();
 
   if (!state.selectedProjectId && state.projects.length) {
     state.selectedProjectId = state.projects[0].rowId;
   }
 
-  applyFilter();
-  renderStats();
-  renderTable();
-  renderSelectedProjectCard();
-  renderAlertBadge();
-  updateMeta();
-  renderAlertModal();
-  renderClientDashboard();
+  runDashboardRenderStep('opções PM/admin', () => renderAdminProjectPmAliasOptions());
+  runDashboardRenderStep('abas de projetos', () => renderProjectViewTabs());
+  runDashboardRenderStep('filtros de demanda', () => buildDemandOptions());
+  runDashboardRenderStep('filtros de tipo', () => buildProjectTypeOptions());
+  runDashboardRenderStep('filtros de semana', () => buildWeekOptions());
+  runDashboardRenderStep('aplicar filtros', () => applyFilter());
+  runDashboardRenderStep('cards principais', () => renderStats());
+  runDashboardRenderStep('tabela principal', () => renderTable());
+  runDashboardRenderStep('card selecionado', () => renderSelectedProjectCard());
+  runDashboardRenderStep('contador de alertas', () => renderAlertBadge());
+  runDashboardRenderStep('metadados', () => updateMeta());
+  runDashboardRenderStep('modal de alertas', () => renderAlertModal());
+  runDashboardRenderStep('portal do cliente', () => renderClientDashboard());
   if (state.user && sectorAlertsModalEl && !sectorAlertsModalEl.classList.contains('hidden')) {
-    renderManualAlerts();
+    runDashboardRenderStep('alertas manuais', () => renderManualAlerts());
   }
 }
 
