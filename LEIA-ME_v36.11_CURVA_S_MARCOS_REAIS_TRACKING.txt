@@ -1,0 +1,36 @@
+Versão v36.11 — Curva S alimentada por marcos reais do Tracking
+
+Objetivo
+- Fazer a Curva S do painel do cliente usar as datas reais informadas no Tracking para avaliar prazo, atraso e desvio.
+
+Marcos lidos do Tracking
+- Fabrication Start Date
+- Boilermaker Finish Date
+- Welding Finish Date
+- Inspection Finish Date (QC)
+- TH Finish Date
+
+Regras aplicadas
+- A linha planejada continua usando a data inicial e final da BSP.
+- A linha realizada deixa de ser apenas uma estimativa proporcional quando houver marcos reais.
+- Cada data preenchida no Tracking vira um ponto real da curva S.
+- O sistema compara a data real de cada marco contra a data esperada pela curva planejada.
+- Quando houver atraso, o painel gera ponto de atenção automático.
+- Para BSPs com várias linhas/spools:
+  - Fabrication Start Date usa a primeira data encontrada.
+  - Finish Dates usam a última data encontrada, pois a etapa só é considerada concluída quando o último item conclui.
+- TH Finish Date só entra quando o Hydro Testing/TH for aplicável.
+- Se a BSP não tiver marcos reais preenchidos, o sistema mantém o comportamento anterior de estimativa para não quebrar a visualização.
+
+Locais alterados
+- site/app.js
+- site/app.css
+- site/sw.js
+
+Validação
+- node --check site/app.js
+- node --check site/sw.js
+- node --check netlify/functions/projects.js
+
+Observação
+- Não foi alterada a leitura principal do Smartsheet nem criada chamada extra de API. A performance permanece preservada porque a regra usa os stageValues que já chegam no payload atual.

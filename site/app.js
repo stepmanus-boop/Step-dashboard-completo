@@ -803,6 +803,98 @@ function normalizeCompactText(value) {
   return normalizeText(value).replace(/[_ -]+/g, "");
 }
 
+const CLIENT_NO_HYDRO_OBSERVATION_RULES = [
+  {
+    label: 'Sem Hydro Testing por solda de campo',
+    aliases: [
+      'possui solda de campo',
+      'possui solda em campo',
+      'com solda de campo',
+      'com solda em campo',
+      'solda de campo',
+      'solda em campo',
+      'solda no campo',
+      'solda campo',
+      'soldagem de campo',
+      'soldagem em campo',
+      'field weld',
+      'field welding',
+      'field welded',
+      'f.w.',
+      'fw',
+      'sem th',
+      'nao tem th',
+      'não tem th',
+      'nao possui th',
+      'não possui th',
+      'nao requer th',
+      'não requer th',
+      'nao aplica th',
+      'não aplica th',
+      'nao aplicar th',
+      'não aplicar th',
+      'sem hydro',
+      'sem hidro',
+      'nao requer hydro',
+      'não requer hydro',
+      'nao requer hidro',
+      'não requer hidro',
+      'nao requer teste hidrostatico',
+      'não requer teste hidrostatico',
+      'sem teste hidrostatico',
+      'sem teste hidrostático',
+    ],
+  },
+];
+
+function textMatchesHydroExclusionRule(text, aliases = []) {
+  const normalized = normalizeText(text || '').replace(/\s+/g, ' ').trim();
+  const compact = normalizeCompactText(text || '');
+  if (!normalized && !compact) return false;
+  return aliases.some((alias) => {
+    const normalizedAlias = normalizeText(alias || '').replace(/\s+/g, ' ').trim();
+    const compactAlias = normalizeCompactText(alias || '');
+    if (!normalizedAlias) return false;
+    if (normalizedAlias === 'fw') {
+      return /(^|[^a-z0-9])f\.?w\.?([^a-z0-9]|$)/i.test(normalized);
+    }
+    return Boolean(
+      normalized.includes(normalizedAlias)
+      || (compactAlias.length >= 6 && compact.includes(compactAlias))
+    );
+  });
+}
+
+function clientTextIndicatesNoHydroTesting(text) {
+  return CLIENT_NO_HYDRO_OBSERVATION_RULES.some((rule) => textMatchesHydroExclusionRule(text, rule.aliases));
+}
+
+function clientObservationIndicatesNoHydroTesting(project) {
+  return getProjectObservationContexts(project).some((context) => clientTextIndicatesNoHydroTesting(context.text));
+}
+
+function clientDirectObservationIndicatesNoHydroTesting(project) {
+  return [
+    project?.observations,
+    project?.OBSERVATIONS,
+    project?.observation,
+    project?.note,
+    project?.notes,
+    project?.comments,
+  ].some(clientTextIndicatesNoHydroTesting);
+}
+
+function clientSpoolObservationIndicatesNoHydroTesting(spool) {
+  return [
+    spool?.observations,
+    spool?.OBSERVATIONS,
+    spool?.observation,
+    spool?.note,
+    spool?.notes,
+    spool?.comments,
+  ].some(clientTextIndicatesNoHydroTesting);
+}
+
 
 const CLIENT_TRATATIVA_OBSERVATION_RULES = [
   {
@@ -1917,8 +2009,9 @@ function getSpoolQualityCompetence(project, spool) {
   const finalDimensional = getStageWorkspacePercent(stageValues, 'Final Dimensional Inpection/3D (QC)');
   const initialDimensional = getStageWorkspacePercent(stageValues, 'Initial Dimensional Inspection/3D');
   const finalInspection = getStageWorkspacePercent(stageValues, 'Final Inspection');
+  const includeHydro = isClientSpoolMaterial({ ...(project || {}), projectType: spool?.projectType || project?.projectType, spools: spool ? [spool] : project?.spools });
 
-  if (text.includes('hydro') || text.includes('teste hidrostatico') || /\bth\b/.test(text) || text.includes('aguardando em th') || (th > 0 && th < 100)) return 'th';
+  if (includeHydro && (text.includes('hydro') || text.includes('teste hidrostatico') || /\bth\b/.test(text) || text.includes('aguardando em th') || (th > 0 && th < 100))) return 'th';
   if (text.includes('nde') || /\bend\b/.test(text) || text.includes('non destructive') || (nde != null && nde > 0 && nde < 100)) return 'nde';
   if (text.includes('final dimensional') || text.includes('final dimensional inspection') || text.includes('final dimensional inpection') || finalDimensional > 0) return 'dimensional_final';
   if (text.includes('initial dimensional') || text.includes('inspecao dimensional inicial') || initialDimensional > 0) return 'dimensional_inicial';
@@ -1986,12 +2079,13 @@ function getSpoolCompetenceSector(project, spool) {
   const fabricationStarted = Boolean(spool?.fabricationStartDate || hasStageWorkspaceValue(stageValues, 'Fabrication Start Date'));
   const boilermakerDone = hasStageWorkspaceValue(stageValues, 'Boilermaker Finish Date');
   const projectFinishDate = hasStageWorkspaceValue(stageValues, 'Project Finish Date');
+  const includeHydro = isClientSpoolMaterial({ ...(project || {}), projectType: spool?.projectType || project?.projectType, spools: spool ? [spool] : project?.spools });
 
   if (projectFinishDate || packageDelivered >= 100) return '';
   if (coating >= 100) return 'pendente_envio';
-  if (coating > 0 || th >= 100) return 'pintura';
+  if (coating > 0 || (includeHydro && th >= 100) || (!includeHydro && finalDimensional >= 100)) return 'pintura';
   if (fullWelding > 0 && fullWelding < 100) return 'solda';
-  if (th > 0 || (nde != null && nde > 0) || finalDimensional >= 100 || finalDimensional > 0 || fullWelding >= 100 || initialDimensional > 0 || boilermakerDone || spoolAssemble >= 100) {
+  if ((includeHydro && th > 0) || (nde != null && nde > 0) || finalDimensional > 0 || (includeHydro && finalDimensional >= 100) || fullWelding >= 100 || initialDimensional > 0 || boilermakerDone || spoolAssemble >= 100) {
     if (initialDimensional >= 100 && fullWelding <= 0) return 'solda';
     return 'inspecao';
   }
@@ -4089,7 +4183,7 @@ function renderClientProjectDetail(project) {
     ${renderClientOnHoldNotice(project)}
 
     <div class="client-stage-strip">
-      ${['Drawing Execution Advance%', 'Procuremnt Status %', 'Material Separation', 'Full welding execution', 'Non Destructive Examination (QC)', 'Hydro Test Pressure (QC)', 'Surface preparation and/or coating', 'Final Inspection', 'Package and Delivered'].map((key) => {
+      ${getClientDetailStageKeys(project).map((key) => {
         const label = (state.meta?.stageOrder || []).find((stage) => stage.key === key)?.label || key;
         const value = stageValues[key];
         return renderClientStageStripCard(label, value);
@@ -4139,6 +4233,61 @@ function getClientStageValue(project, keys) {
     if (value != null && value !== '' && value !== 'N/A') return clientPercentValue(value);
   }
   return 0;
+}
+
+function isClientSpoolMaterial(project) {
+  if (clientDirectObservationIndicatesNoHydroTesting(project)) return false;
+  if (project?.hydroTestingApplicable === false) return false;
+
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  if (spools.length && spools.every((spool) => spool?.hydroTestingApplicable === false || clientSpoolObservationIndicatesNoHydroTesting(spool))) return false;
+  if (project?.hydroTestingApplicable === true || spools.some((spool) => spool?.hydroTestingApplicable === true && !clientSpoolObservationIndicatesNoHydroTesting(spool))) return true;
+
+  const explicitType = normalizeText([project?.projectType, project?.type, project?.project_type].filter(Boolean).join(' '));
+  if (explicitType) {
+    if (explicitType.includes('spool')) return true;
+    if (explicitType.includes('support') || explicitType.includes('suporte') || explicitType === 'sup' || explicitType.includes('structure') || explicitType.includes('estrutura') || explicitType.includes('frame')) return false;
+  }
+
+  const evidence = normalizeText([
+    project?.summaryDrawing,
+    project?.drawing,
+    project?.observations,
+    project?.OBSERVATIONS,
+    ...spools.flatMap((spool) => [spool?.iso, spool?.drawing, spool?.description, spool?.observations, spool?.OBSERVATIONS]),
+  ].filter(Boolean).join(' '));
+
+  if (/\bspl\b/.test(evidence) || evidence.includes('spool')) return true;
+  if (/\bsup\b/.test(evidence) || evidence.includes('support') || evidence.includes('suporte') || evidence.includes('structure') || evidence.includes('estrutura') || evidence.includes('frame')) return false;
+  return false;
+}
+
+function getClientDetailStageKeys(project) {
+  const keys = [
+    'Drawing Execution Advance%',
+    'Procuremnt Status %',
+    'Material Separation',
+    'Full welding execution',
+    'Non Destructive Examination (QC)',
+    'Hydro Test Pressure (QC)',
+    'Surface preparation and/or coating',
+    'Final Inspection',
+    'Package and Delivered',
+  ];
+  return isClientSpoolMaterial(project) ? keys : keys.filter((key) => key !== 'Hydro Test Pressure (QC)');
+}
+
+function getClientFabricationStageItems(project) {
+  const items = [
+    { keys: ['Welding Preparation', 'Spool Assemble and tack weld'], weight: 10 },
+    { keys: ['Initial Dimensional Inspection/3D'], weight: 8 },
+    { keys: ['Full welding execution'], weight: 25 },
+    { keys: ['Non Destructive Examination (QC)'], weight: 12 },
+    { keys: ['Final Dimensional Inpection/3D (QC)'], weight: 8 },
+    { keys: ['Hydro Test Pressure (QC)'], weight: 7, spoolOnly: true },
+    { keys: ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)'], weight: 15 },
+  ];
+  return items.filter((item) => !item.spoolOnly || isClientSpoolMaterial(project));
 }
 
 const CLIENT_PRODUCTION_STAGE_EVIDENCE_KEYS = [
@@ -4193,17 +4342,11 @@ function getClientProductionStageSnapshots(project) {
     if (!best.hasEvidence || item.percent > best.percent) return item;
     return best;
   }, { hasEvidence: false, percent: 0 });
-  const fabrication = { hasEvidence: hasClientStageEvidence(project, [
-    'Welding Preparation',
-    'Spool Assemble and tack weld',
-    'Initial Dimensional Inspection/3D',
-    'Full welding execution',
-    'Non Destructive Examination (QC)',
-    'Final Dimensional Inpection/3D (QC)',
-    'Hydro Test Pressure (QC)',
-    'Surface preparation and/or coating',
-    'HDG / FBE.  (PAINT)',
-  ]), percent: getClientFabricationProgress(project) };
+  const fabricationEvidenceKeys = getClientFabricationStageItems(project).flatMap((item) => item.keys);
+  const fabrication = {
+    hasEvidence: hasClientStageEvidence(project, fabricationEvidenceKeys),
+    percent: getClientFabricationProgress(project),
+  };
   const packageDelivery = getClientStageEvidenceValue(project, ['Package and Delivered', 'Final Inspection']);
   return [
     { key: 'engineering', label: 'Engineering / Drawing', percent: engineering.percent, weight: 15, hasEvidence: engineering.hasEvidence },
@@ -4232,15 +4375,7 @@ function getClientFabricationProgress(project) {
   const painting = getClientStageValue(project, ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)']);
   if (painting >= 99.9) return 100;
 
-  const stages = [
-    { keys: ['Welding Preparation', 'Spool Assemble and tack weld'], weight: 10 },
-    { keys: ['Initial Dimensional Inspection/3D'], weight: 8 },
-    { keys: ['Full welding execution'], weight: 25 },
-    { keys: ['Non Destructive Examination (QC)'], weight: 12 },
-    { keys: ['Final Dimensional Inpection/3D (QC)'], weight: 8 },
-    { keys: ['Hydro Test Pressure (QC)'], weight: 7 },
-    { keys: ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)'], weight: 15 },
-  ];
+  const stages = getClientFabricationStageItems(project);
   const totalWeight = stages.reduce((sum, item) => sum + item.weight, 0);
   if (!totalWeight) return 0;
   return clampClientPercent(stages.reduce((sum, item) => sum + getClientStageValue(project, item.keys) * item.weight, 0) / totalWeight);
@@ -4356,55 +4491,216 @@ function clientSchedulePlannedPercent(progressRatio) {
   return 100;
 }
 
-function getClientPlannedToday(project) {
+function clientDateKey(date) {
+  const parsed = parseDateObject(date);
+  if (!parsed) return '';
+  return parsed.toISOString().slice(0, 10);
+}
+
+function clientDateDiffDays(left, right) {
+  const a = parseDateObject(left);
+  const b = parseDateObject(right);
+  if (!a || !b) return 0;
+  return Math.round((a - b) / 86400000);
+}
+
+function getClientPlannedAtDate(project, dateValue) {
   const start = getClientAnalyticStartDate(project);
-  const finish = getClientAnalyticFinishDate(project);
+  let finish = getClientAnalyticFinishDate(project);
+  const date = parseDateObject(dateValue);
+  if (!date) return 0;
+  if (finish <= start) finish = addUtcDays(start, 30);
+  if (date <= start) return 0;
+  if (date >= finish) return 100;
+  return clientSchedulePlannedPercent((date - start) / Math.max(1, finish - start));
+}
+
+function getClientPlannedToday(project) {
+  return getClientPlannedAtDate(project, getCurrentBrazilDate());
+}
+
+function getClientFabricationMilestonePercent(project, milestoneKey) {
+  if (milestoneKey === 'Fabrication Start Date') return 30;
+  const items = getClientFabricationStageItems(project);
+  const totalWeight = items.reduce((sum, item) => sum + Number(item.weight || 0), 0) || 1;
+  const isMatch = (item, key) => (item.keys || []).includes(key);
+  let cumulative = 0;
+  let percent = 30;
+  for (const item of items) {
+    cumulative += Number(item.weight || 0);
+    if (
+      (milestoneKey === 'Boilermaker Finish Date' && (isMatch(item, 'Welding Preparation') || isMatch(item, 'Spool Assemble and tack weld'))) ||
+      (milestoneKey === 'Welding Finish Date' && isMatch(item, 'Full welding execution')) ||
+      (milestoneKey === 'Inspection Finish Date (QC)' && isMatch(item, 'Final Dimensional Inpection/3D (QC)')) ||
+      (milestoneKey === 'TH Finish Date' && isMatch(item, 'Hydro Test Pressure (QC)'))
+    ) {
+      percent = 30 + (cumulative / totalWeight) * 65;
+      break;
+    }
+  }
+  return clampClientPercent(percent);
+}
+
+function getClientSCurveMilestoneDefinitions(project) {
+  const definitions = [
+    { key: 'Fabrication Start Date', label: 'Início da fabricação' },
+    { key: 'Boilermaker Finish Date', label: 'Caldeiraria concluída' },
+    { key: 'Welding Finish Date', label: 'Solda concluída' },
+    { key: 'Inspection Finish Date (QC)', label: 'Inspeção QC concluída' },
+  ];
+  if (isClientSpoolMaterial(project)) {
+    definitions.push({ key: 'TH Finish Date', label: 'TH concluído' });
+  }
+  return definitions.map((item) => ({ ...item, percent: getClientFabricationMilestonePercent(project, item.key) }));
+}
+
+function getClientStageDateCandidates(project, key) {
+  const values = [];
+  const pushValue = (value) => {
+    const parsed = parseDateObject(value);
+    if (parsed) values.push(parsed);
+  };
+  pushValue(project?.stageValues?.[key]);
+  if (key === 'Fabrication Start Date') pushValue(project?.fabricationStartDate);
+  if (Array.isArray(project?.spools)) {
+    for (const spool of project.spools) {
+      pushValue(spool?.stageValues?.[key]);
+      if (key === 'Fabrication Start Date') pushValue(spool?.fabricationStartDate);
+    }
+  }
+  const unique = new Map();
+  values.forEach((date) => unique.set(clientDateKey(date), date));
+  return Array.from(unique.values()).sort((a, b) => a - b);
+}
+
+function getClientProjectMilestoneDate(project, key) {
+  const dates = getClientStageDateCandidates(project, key);
+  if (!dates.length) return null;
+  return key === 'Fabrication Start Date' ? dates[0] : dates[dates.length - 1];
+}
+
+function getClientSCurveMilestones(project) {
+  return getClientSCurveMilestoneDefinitions(project)
+    .map((definition) => {
+      const date = getClientProjectMilestoneDate(project, definition.key);
+      if (!date) return null;
+      return {
+        ...definition,
+        date,
+        dateLabel: clientFormatDateValue(date),
+        plannedAtDate: getClientPlannedAtDate(project, date),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.date - b.date || a.percent - b.percent);
+}
+
+function getClientExpectedDateForPlannedPercent(project, percent) {
+  const start = getClientAnalyticStartDate(project);
+  let finish = getClientAnalyticFinishDate(project);
+  if (finish <= start) finish = addUtcDays(start, 30);
+  const target = clampClientPercent(percent);
+  if (target <= 0) return start;
+  if (target >= 100) return finish;
+  const duration = clientDaysBetween(start, finish);
+  for (let day = 0; day <= duration; day += 1) {
+    const date = addUtcDays(start, day);
+    if (getClientPlannedAtDate(project, date) >= target) return date;
+  }
+  return finish;
+}
+
+function getClientSCurveMilestoneAnalysis(project) {
+  return getClientSCurveMilestones(project).map((milestone) => {
+    const expectedDate = getClientExpectedDateForPlannedPercent(project, milestone.percent);
+    const daysDeviation = clientDateDiffDays(milestone.date, expectedDate);
+    const percentDeviation = clampClientPercent(milestone.plannedAtDate) - clampClientPercent(milestone.percent);
+    let state = 'on_time';
+    if (daysDeviation > 2 || percentDeviation >= 5) state = 'late';
+    else if (daysDeviation < -2 || percentDeviation <= -5) state = 'ahead';
+    return {
+      ...milestone,
+      expectedDate,
+      expectedDateLabel: clientFormatDateValue(expectedDate),
+      daysDeviation,
+      percentDeviation,
+      state,
+    };
+  });
+}
+
+function getClientActualProgressAtDate(project, dateValue) {
+  const date = parseDateObject(dateValue);
+  if (!date) return null;
   const today = getCurrentBrazilDate();
-  if (today <= start) return 0;
-  if (today >= finish) return 100;
-  return clientSchedulePlannedPercent((today - start) / Math.max(1, finish - start));
+  if (date > today) return null;
+  const milestones = getClientSCurveMilestones(project).filter((milestone) => milestone.date <= date);
+  if (milestones.length) {
+    const milestoneProgress = milestones.reduce((max, milestone) => Math.max(max, Number(milestone.percent || 0)), 0);
+    if (clientDateKey(date) === clientDateKey(today)) {
+      return clampClientPercent(Math.max(milestoneProgress, getClientOverallProgress(project)));
+    }
+    return clampClientPercent(milestoneProgress);
+  }
+  const actualNow = getClientOverallProgress(project);
+  const plannedToday = getClientPlannedToday(project);
+  const plannedAtDate = getClientPlannedAtDate(project, date);
+  if (plannedToday > 0) return clampClientPercent((plannedAtDate / plannedToday) * actualNow);
+  return actualNow > 0 ? actualNow : 0;
+}
+
+function buildClientSCurveDateSeries(start, finish, extraDates = []) {
+  const duration = clientDaysBetween(start, finish);
+  const step = Math.max(1, Math.ceil(duration / 14));
+  const dates = new Map();
+  for (let day = 0; day <= duration; day += step) {
+    const date = addUtcDays(start, day);
+    dates.set(clientDateKey(date), date);
+  }
+  dates.set(clientDateKey(start), start);
+  dates.set(clientDateKey(finish), finish);
+  extraDates.forEach((value) => {
+    const date = parseDateObject(value);
+    if (date && date >= start && date <= finish) dates.set(clientDateKey(date), date);
+  });
+  return Array.from(dates.values()).sort((a, b) => a - b);
 }
 
 function buildClientSCurveData(project) {
   const start = getClientAnalyticStartDate(project);
   let finish = getClientAnalyticFinishDate(project);
   if (finish <= start) finish = addUtcDays(start, 30);
-  const duration = clientDaysBetween(start, finish);
-  const step = Math.max(1, Math.ceil(duration / 14));
   const today = getCurrentBrazilDate();
-  const actualNow = getClientOverallProgress(project);
-  const plannedToday = getClientPlannedToday(project);
-  const points = [];
-  for (let day = 0; day <= duration; day += step) {
-    const date = addUtcDays(start, day);
-    const ratio = day / duration;
-    const planned = clientSchedulePlannedPercent(ratio);
-    let actual = null;
-    if (date <= today) {
-      if (plannedToday > 0) {
-        actual = clampClientPercent((planned / plannedToday) * actualNow);
-      } else {
-        actual = actualNow > 0 ? actualNow : 0;
-      }
-    }
-    points.push({ date, planned, actual });
+  const milestoneDates = getClientSCurveMilestones(project).map((milestone) => milestone.date);
+  const dates = buildClientSCurveDateSeries(start, finish, [...milestoneDates, today]);
+  return dates.map((date) => ({
+    date,
+    planned: getClientPlannedAtDate(project, date),
+    actual: date <= today ? getClientActualProgressAtDate(project, date) : null,
+  }));
+}
+
+function clientPointX(point, index, points, pad, innerW) {
+  const first = parseDateObject(points[0]?.date);
+  const last = parseDateObject(points[points.length - 1]?.date);
+  const current = parseDateObject(point?.date);
+  if (first && last && current && last > first) {
+    const ratio = Math.max(0, Math.min(1, (current - first) / Math.max(1, last - first)));
+    return pad.left + ratio * innerW;
   }
-  if (points[points.length - 1]?.date < finish) {
-    points.push({ date: finish, planned: 100, actual: finish <= today ? actualNow : null });
-  }
-  return points;
+  return pad.left + (index / Math.max(1, points.length - 1)) * innerW;
 }
 
 function clientSvgPolyline(points, width, height, getValue) {
   const pad = { left: 42, right: 16, top: 18, bottom: 38 };
   const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
-  const usable = points.filter((point) => getValue(point) != null);
+  const usable = points.map((point, index) => ({ point, index })).filter((item) => getValue(item.point) != null);
   if (!usable.length) return '';
-  return usable.map((point, index) => {
-    const x = pad.left + (points.indexOf(point) / Math.max(1, points.length - 1)) * innerW;
+  return usable.map(({ point, index }, pathIndex) => {
+    const x = clientPointX(point, index, points, pad, innerW);
     const y = pad.top + (1 - clampClientPercent(getValue(point)) / 100) * innerH;
-    return `${index ? 'L' : 'M'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+    return `${pathIndex ? 'L' : 'M'} ${x.toFixed(1)} ${y.toFixed(1)}`;
   }).join(' ');
 }
 
@@ -4427,17 +4723,25 @@ function renderClientSCurveSvg(project) {
   const actualCircle = (() => {
     const lastActualIndex = points.map((point, index) => ({ point, index })).filter((item) => item.point.actual != null).pop();
     if (!lastActualIndex) return '';
-    const x = pad.left + (lastActualIndex.index / Math.max(1, points.length - 1)) * innerW;
+    const x = clientPointX(lastActualIndex.point, lastActualIndex.index, points, pad, innerW);
     const y = pad.top + (1 - clampClientPercent(lastActualIndex.point.actual) / 100) * innerH;
     return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="client-chart-dot" />`;
   })();
+  const milestoneDots = getClientSCurveMilestoneAnalysis(project).map((milestone) => {
+    const point = { date: milestone.date };
+    const index = points.findIndex((item) => clientDateKey(item.date) === clientDateKey(milestone.date));
+    const x = clientPointX(point, index >= 0 ? index : 0, points, pad, innerW);
+    const y = pad.top + (1 - clampClientPercent(milestone.percent) / 100) * innerH;
+    const state = milestone.state === 'late' ? 'late' : milestone.state === 'ahead' ? 'ahead' : 'on-time';
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.5" class="client-chart-milestone client-chart-milestone--${state}"><title>${escapeHtml(milestone.label)} • ${escapeHtml(milestone.dateLabel)} • ${formatPercent(milestone.percent)}</title></circle>`;
+  }).join('');
   return `
     <svg class="client-scurve-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Curva S planejado versus realizado">
       ${grid}
       <line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" class="client-chart-axis" />
       <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" class="client-chart-axis" />
       <path d="${plannedPath}" class="client-chart-planned" />
-      ${actualPath ? `<path d="${actualPath}" class="client-chart-actual" />${actualCircle}` : ''}
+      ${actualPath ? `<path d="${actualPath}" class="client-chart-actual" />${milestoneDots}${actualCircle}` : ''}
       <text x="${pad.left}" y="${height - 12}" class="client-chart-date">${escapeHtml(first)}</text>
       <text x="${pad.left + innerW / 2 - 38}" y="${height - 12}" class="client-chart-date">${escapeHtml(mid)}</text>
       <text x="${width - pad.right - 72}" y="${height - 12}" class="client-chart-date">${escapeHtml(last)}</text>
@@ -4476,6 +4780,30 @@ function getClientCompletedTags(project) {
   return spools.filter((spool) => !hasClientIncompleteProductionEvidence(spool) && (clientPercentValue(spool?.overallProgress) >= 100 || String(spool?.uiState || '').toLowerCase() === 'completed')).length;
 }
 
+function renderClientSCurveMilestoneSummary(project) {
+  const milestones = getClientSCurveMilestoneAnalysis(project);
+  if (!milestones.length) {
+    return '<div class="client-scurve-milestones client-scurve-milestones--empty">Nenhum marco real do Tracking informado ainda para alimentar a curva S.</div>';
+  }
+  return `
+    <div class="client-scurve-milestones">
+      ${milestones.map((milestone) => {
+        const stateLabel = milestone.state === 'late' ? 'Atraso' : milestone.state === 'ahead' ? 'Adiantado' : 'No prazo';
+        const deviationText = milestone.daysDeviation === 0
+          ? 'sem desvio em dias'
+          : `${Math.abs(milestone.daysDeviation)} dia(s) ${milestone.daysDeviation > 0 ? 'após' : 'antes'} do previsto`;
+        return `
+          <div class="client-scurve-milestone client-scurve-milestone--${milestone.state}">
+            <span>${escapeHtml(milestone.label)}</span>
+            <strong>${escapeHtml(milestone.dateLabel)}</strong>
+            <small>${formatPercent(milestone.percent)} • ${escapeHtml(stateLabel)} • ${escapeHtml(deviationText)}</small>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
 function getClientAttentionPoints(project) {
   const actual = getClientOverallProgress(project);
   const planned = getClientPlannedToday(project);
@@ -4485,6 +4813,11 @@ function getClientAttentionPoints(project) {
   const daysToFinish = Math.round((finish - today) / 86400000);
   const points = [];
   if (planned - actual >= 10) points.push(`Realizado ${formatPercent(actual)} contra planejado ${formatPercent(planned)}: desvio de ${formatPercent(planned - actual)}.`);
+  const delayedMilestones = getClientSCurveMilestoneAnalysis(project).filter((milestone) => milestone.state === 'late');
+  delayedMilestones.slice(0, 3).forEach((milestone) => {
+    const days = milestone.daysDeviation > 0 ? `${milestone.daysDeviation} dia(s) após o previsto` : `desvio de ${formatPercent(Math.max(0, milestone.percentDeviation))}`;
+    points.push(`${milestone.label} informado em ${milestone.dateLabel}, previsto pela curva para ${milestone.expectedDateLabel}: ${days}.`);
+  });
   if (getClientFabricationProgress(project) < 25 && planned > 35) points.push('Fabricação abaixo do ritmo planejado para a data atual.');
   const painting = getClientStageValue(project, ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)']);
   if (getClientFabricationProgress(project) >= 60 && painting <= 0) points.push('Pintura ainda não iniciada após avanço relevante da fabricação.');
@@ -4574,9 +4907,9 @@ function buildClientExecutiveSchedule(project) {
     { key: 'weld', label: 'Weld', base: 10, percent: getClientStageValue(project, ['Full welding execution']) },
     { key: 'nde', label: 'Non Destructive Examination', base: 8, percent: getClientStageValue(project, ['Non Destructive Examination (QC)']) },
     { key: 'final-dimensional', label: 'Final Dimensional Inspection', base: 8, percent: getClientStageValue(project, ['Final Dimensional Inpection/3D (QC)']) },
-    { key: 'hydro', label: 'Hydro Testing', base: 6, percent: getClientStageValue(project, ['Hydro Test Pressure (QC)']) },
+    { key: 'hydro', label: 'Hydro Testing', base: 6, percent: getClientStageValue(project, ['Hydro Test Pressure (QC)']), spoolOnly: true },
     { key: 'painting', label: 'Painting', base: 14, percent: getClientStageValue(project, ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)']) },
-  ];
+  ].filter((item) => !item.spoolOnly || isClientSpoolMaterial(project));
   const logisticsTemplate = [
     { key: 'packing', label: 'Packing', base: 1, percent: getClientStageValue(project, ['Package and Delivered']) },
     { key: 'final-inspection', label: 'Final Inspection', base: 1, percent: getClientStageValue(project, ['Final Inspection']) },
@@ -4763,25 +5096,19 @@ function getClientMacroFabricationProgress(projects = state.projects) {
 }
 
 function buildClientMacroSCurveData(projects = state.projects) {
-  const { start, finish } = getClientMacroDateRange(projects);
-  const duration = clientDaysBetween(start, finish);
-  const step = Math.max(1, Math.ceil(duration / 14));
+  const list = getClientMacroProjects(projects);
+  const { start, finish } = getClientMacroDateRange(list);
   const today = getCurrentBrazilDate();
-  const actualNow = getClientMacroOverallProgress(projects);
-  const plannedToday = getClientMacroPlannedToday(projects);
-  const points = [];
-  for (let day = 0; day <= duration; day += step) {
-    const date = addUtcDays(start, day);
-    const ratio = day / duration;
-    const planned = clientSchedulePlannedPercent(ratio);
-    let actual = null;
-    if (date <= today) {
-      actual = plannedToday > 0 ? clampClientPercent((planned / plannedToday) * actualNow) : actualNow;
-    }
-    points.push({ date, planned, actual });
-  }
-  if (points[points.length - 1]?.date < finish) points.push({ date: finish, planned: 100, actual: finish <= today ? actualNow : null });
-  return points;
+  const dates = buildClientSCurveDateSeries(start, finish, [today]);
+  return dates.map((date) => {
+    const planned = list.length
+      ? clampClientPercent(list.reduce((sum, project) => sum + getClientPlannedAtDate(project, date), 0) / list.length)
+      : 0;
+    const actual = date <= today && list.length
+      ? clampClientPercent(list.reduce((sum, project) => sum + (getClientActualProgressAtDate(project, date) ?? 0), 0) / list.length)
+      : null;
+    return { date, planned, actual };
+  });
 }
 
 function renderClientMacroSCurveSvg(projects = state.projects) {
@@ -4803,7 +5130,7 @@ function renderClientMacroSCurveSvg(projects = state.projects) {
   const actualCircle = (() => {
     const lastActualIndex = points.map((point, index) => ({ point, index })).filter((item) => item.point.actual != null).pop();
     if (!lastActualIndex) return '';
-    const x = pad.left + (lastActualIndex.index / Math.max(1, points.length - 1)) * innerW;
+    const x = clientPointX(lastActualIndex.point, lastActualIndex.index, points, pad, innerW);
     const y = pad.top + (1 - clampClientPercent(lastActualIndex.point.actual) / 100) * innerH;
     return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="client-chart-dot" />`;
   })();
@@ -5147,7 +5474,7 @@ async function downloadClientBspExecutivePdf(project) {
   doc.addPage('a4', 'portrait');
   await drawClientPdfHeader(doc, 'Relatório Operacional STEP', subtitle, metaLine);
   drawClientPdfSectionTitle(doc, 'Processos da BSP por etapa', contentX, 42);
-  const detailStageKeys = ['Drawing Execution Advance%', 'Procuremnt Status %', 'Material Separation', 'Full welding execution', 'Non Destructive Examination (QC)', 'Hydro Test Pressure (QC)', 'Surface preparation and/or coating', 'Final Inspection', 'Package and Delivered'];
+  const detailStageKeys = getClientDetailStageKeys(project);
   const stageRows = detailStageKeys.map((key) => [clientReportStageLabel(key), formatPercent(getClientStageValue(project, [key]))]);
   doc.autoTable({
     startY: 48,
@@ -5373,7 +5700,7 @@ function openClientMacroExecutive(projects = state.projects, options = {}) {
 
     <div class="client-exec-grid client-exec-grid--main">
       <section class="client-exec-card client-exec-card--curve">
-        <div class="client-exec-card-head"><h3>${isUnitScope ? 'Curva S | Unidade' : 'Curva S | Carteira do Cliente'}</h3><span>Planejado x realizado consolidado das BSPs</span></div>
+        <div class="client-exec-card-head"><h3>${isUnitScope ? 'Curva S | Unidade' : 'Curva S | Carteira do Cliente'}</h3><span>Planejado x realizado consolidado das BSPs, usando marcos reais quando informados</span></div>
         <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span></div>
         ${renderClientMacroSCurveSvg(list)}
       </section>
@@ -5448,7 +5775,7 @@ function openClientBspExecutive(project) {
   const deviationPercent = Math.max(0, plannedToday - overall);
   const stageValues = project.stageValues || {};
   const spools = Array.isArray(project.spools) ? project.spools : [];
-  const detailStageKeys = ['Drawing Execution Advance%', 'Procuremnt Status %', 'Material Separation', 'Full welding execution', 'Non Destructive Examination (QC)', 'Hydro Test Pressure (QC)', 'Surface preparation and/or coating', 'Final Inspection', 'Package and Delivered'];
+  const detailStageKeys = getClientDetailStageKeys(project);
 
   content.innerHTML = `
     <header class="client-exec-header">
@@ -5500,9 +5827,10 @@ function openClientBspExecutive(project) {
 
     <div class="client-exec-grid client-exec-grid--main">
       <section class="client-exec-card client-exec-card--curve">
-        <div class="client-exec-card-head"><h3>Curva S | Planejado x Realizado</h3><span>Baseada na data inicial e final da BSP</span></div>
-        <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span></div>
+        <div class="client-exec-card-head"><h3>Curva S | Planejado x Realizado</h3><span>Planejado pela data inicial/final e realizado pelos marcos reais do Tracking</span></div>
+        <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span><span><i class="milestone"></i> Marcos reais</span></div>
         ${renderClientSCurveSvg(project)}
+        ${renderClientSCurveMilestoneSummary(project)}
       </section>
       <aside class="client-exec-side">
         <section class="client-exec-card">

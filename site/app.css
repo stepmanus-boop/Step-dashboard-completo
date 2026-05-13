@@ -7258,3 +7258,79 @@ body.client-mode .client-logo-box img,
   background: rgba(111, 240, 255, .14);
   border: 1px solid rgba(111, 240, 255, .28);
 }
+
+.client-exec-legend .milestone {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #efc14f;
+  box-shadow: 0 0 0 3px rgba(239, 193, 79, .22);
+}
+
+.client-chart-milestone {
+  stroke: white;
+  stroke-width: 2.5;
+  filter: drop-shadow(0 4px 8px rgba(15, 58, 83, .18));
+}
+
+.client-chart-milestone--late {
+  fill: #e05252;
+}
+
+.client-chart-milestone--ahead {
+  fill: #0a9878;
+}
+
+.client-chart-milestone--on-time {
+  fill: #efc14f;
+}
+
+.client-scurve-milestones {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.client-scurve-milestones--empty {
+  display: block;
+  padding: 11px 13px;
+  border-radius: 14px;
+  background: rgba(239, 244, 248, .78);
+  color: #567085;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.client-scurve-milestone {
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(31, 92, 132, .12);
+  background: rgba(255, 255, 255, .88);
+  box-shadow: 0 8px 20px rgba(15, 58, 83, .07);
+}
+
+.client-scurve-milestone span,
+.client-scurve-milestone small {
+  display: block;
+  color: #60798d;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.client-scurve-milestone strong {
+  display: block;
+  margin: 4px 0;
+  color: #123246;
+  font-size: 14px;
+}
+
+.client-scurve-milestone--late {
+  border-color: rgba(224, 82, 82, .32);
+  background: rgba(255, 242, 242, .94);
+}
+
+.client-scurve-milestone--ahead {
+  border-color: rgba(10, 152, 120, .28);
+  background: rgba(232, 250, 245, .94);
+}

@@ -296,6 +296,117 @@ function pct(stageValues, key) {
   return numberFromStageValue(stageValues, key) ?? 0;
 }
 
+const HYDRO_EXCLUSION_OBSERVATION_ALIASES = [
+  'possui solda de campo',
+  'possui solda em campo',
+  'com solda de campo',
+  'com solda em campo',
+  'solda de campo',
+  'solda em campo',
+  'solda no campo',
+  'solda campo',
+  'soldagem de campo',
+  'soldagem em campo',
+  'field weld',
+  'field welding',
+  'field welded',
+  'f.w.',
+  'fw',
+  'sem th',
+  'nao tem th',
+  'não tem th',
+  'nao possui th',
+  'não possui th',
+  'nao requer th',
+  'não requer th',
+  'nao aplica th',
+  'não aplica th',
+  'nao aplicar th',
+  'não aplicar th',
+  'sem hydro',
+  'sem hidro',
+  'nao requer hydro',
+  'não requer hydro',
+  'nao requer hidro',
+  'não requer hidro',
+  'nao requer teste hidrostatico',
+  'não requer teste hidrostatico',
+  'sem teste hidrostatico',
+  'sem teste hidrostático',
+];
+
+function normalizeHydroRuleText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_ .\/-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function compactHydroRuleText(value) {
+  return normalizeHydroRuleText(value).replace(/[^a-z0-9]+/g, '');
+}
+
+function textMatchesHydroExclusionAlias(text, alias) {
+  const normalized = normalizeHydroRuleText(text);
+  const compact = compactHydroRuleText(text);
+  const normalizedAlias = normalizeHydroRuleText(alias);
+  const compactAlias = compactHydroRuleText(alias);
+  if (!normalized || !normalizedAlias) return false;
+
+  if (normalizedAlias === 'fw') {
+    return /(^|[^a-z0-9])f\.?w\.?([^a-z0-9]|$)/i.test(normalized);
+  }
+
+  return Boolean(
+    normalized.includes(normalizedAlias)
+    || (compactAlias.length >= 6 && compact.includes(compactAlias))
+  );
+}
+
+function observationIndicatesNoHydroTesting(value) {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  return HYDRO_EXCLUSION_OBSERVATION_ALIASES.some((alias) => textMatchesHydroExclusionAlias(text, alias));
+}
+
+function isSpoolMaterialType(projectType, fallbackText = '') {
+  const normalize = (value) => String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+  // Regra executiva do cliente: mesmo sendo spool, se a observação indicar
+  // solda de campo/field weld ou dispensa de TH, o Hydro Testing não entra no fluxo.
+  if (observationIndicatesNoHydroTesting([projectType, fallbackText].filter(Boolean).join(' '))) return false;
+
+  const typeText = normalize(projectType).trim();
+  if (typeText) {
+    if (typeText.includes('spool')) return true;
+    if (typeText.includes('support') || typeText.includes('suporte') || typeText === 'sup' || typeText.includes('structure') || typeText.includes('estrutura') || typeText.includes('frame')) return false;
+  }
+
+  const evidence = normalize(fallbackText);
+  if (/\bspl\b/.test(evidence) || evidence.includes('spool')) return true;
+  if (/\bsup\b/.test(evidence) || evidence.includes('support') || evidence.includes('suporte') || evidence.includes('structure') || evidence.includes('estrutura') || evidence.includes('frame')) return false;
+  return false;
+}
+
+function fabricationStageItemsForType(projectType, fallbackText = '') {
+  const includeHydro = isSpoolMaterialType(projectType, fallbackText);
+  return [
+    { keys: ["Welding Preparation", "Spool Assemble and tack weld"], weight: 10 },
+    { keys: ["Initial Dimensional Inspection/3D"], weight: 8 },
+    { keys: ["Full welding execution"], weight: 25 },
+    { keys: ["Non Destructive Examination (QC)"], weight: 12 },
+    { keys: ["Final Dimensional Inpection/3D (QC)"], weight: 8 },
+    { keys: ["Hydro Test Pressure (QC)"], weight: 7, spoolOnly: true },
+    { keys: ["Surface preparation and/or coating", "HDG / FBE.  (PAINT)"], weight: 15 },
+  ].filter((item) => !item.spoolOnly || includeHydro);
+}
+
 const PRODUCTION_STAGE_EVIDENCE_KEYS = [
   "Drawing Execution Advance%",
   "Drawing",
@@ -334,18 +445,10 @@ function stageEvidenceValue(stageValues, keys) {
   return { hasEvidence: false, percent: 0 };
 }
 
-function fabricationProgressFromStageValues(stageValues) {
+function fabricationProgressFromStageValues(stageValues, projectType = '', fallbackText = '') {
   const painting = Math.max(pct(stageValues, "Surface preparation and/or coating"), pct(stageValues, "HDG / FBE.  (PAINT)"));
   if (painting >= 99.9) return 100;
-  const stages = [
-    { keys: ["Welding Preparation", "Spool Assemble and tack weld"], weight: 10 },
-    { keys: ["Initial Dimensional Inspection/3D"], weight: 8 },
-    { keys: ["Full welding execution"], weight: 25 },
-    { keys: ["Non Destructive Examination (QC)"], weight: 12 },
-    { keys: ["Final Dimensional Inpection/3D (QC)"], weight: 8 },
-    { keys: ["Hydro Test Pressure (QC)"], weight: 7 },
-    { keys: ["Surface preparation and/or coating", "HDG / FBE.  (PAINT)"], weight: 15 },
-  ];
+  const stages = fabricationStageItemsForType(projectType, fallbackText);
   const totalWeight = stages.reduce((sum, item) => sum + item.weight, 0) || 100;
   return Math.max(0, Math.min(100, stages.reduce((sum, item) => {
     const value = item.keys.reduce((max, key) => Math.max(max, pct(stageValues, key)), 0);
@@ -353,7 +456,7 @@ function fabricationProgressFromStageValues(stageValues) {
   }, 0) / totalWeight));
 }
 
-function productionStageSnapshotsFromValues(stageValues) {
+function productionStageSnapshotsFromValues(stageValues, projectType = '', fallbackText = '') {
   const engineering = stageEvidenceValue(stageValues, ["Drawing Execution Advance%", "Drawing"]);
   const procurementCandidates = [
     stageEvidenceValue(stageValues, ["Procuremnt Status %", "Procurement Status %", "Procurement"]),
@@ -365,19 +468,10 @@ function productionStageSnapshotsFromValues(stageValues) {
     if (!best.hasEvidence || item.percent > best.percent) return item;
     return best;
   }, { hasEvidence: false, percent: 0 });
+  const fabricationEvidenceKeys = fabricationStageItemsForType(projectType, fallbackText).flatMap((item) => item.keys);
   const fabrication = {
-    hasEvidence: hasStageProgressEvidence(stageValues, [
-      "Welding Preparation",
-      "Spool Assemble and tack weld",
-      "Initial Dimensional Inspection/3D",
-      "Full welding execution",
-      "Non Destructive Examination (QC)",
-      "Final Dimensional Inpection/3D (QC)",
-      "Hydro Test Pressure (QC)",
-      "Surface preparation and/or coating",
-      "HDG / FBE.  (PAINT)",
-    ]),
-    percent: fabricationProgressFromStageValues(stageValues),
+    hasEvidence: hasStageProgressEvidence(stageValues, fabricationEvidenceKeys),
+    percent: fabricationProgressFromStageValues(stageValues, projectType, fallbackText),
   };
   const packageDelivery = stageEvidenceValue(stageValues, ["Package and Delivered", "Final Inspection"]);
   return [
@@ -388,18 +482,18 @@ function productionStageSnapshotsFromValues(stageValues) {
   ];
 }
 
-function weightedOverallFromStageValues(stageValues) {
-  const stages = productionStageSnapshotsFromValues(stageValues);
+function weightedOverallFromStageValues(stageValues, projectType = '', fallbackText = '') {
+  const stages = productionStageSnapshotsFromValues(stageValues, projectType, fallbackText);
   const totalWeight = stages.reduce((sum, stage) => sum + stage.weight, 0) || 100;
   return Math.max(0, Math.min(100, stages.reduce((sum, stage) => sum + stage.percent * stage.weight, 0) / totalWeight));
 }
 
-function hasIncompleteProductionEvidence(stageValues) {
-  return productionStageSnapshotsFromValues(stageValues).some((stage) => stage.hasEvidence && Number(stage.percent || 0) < 99.9);
+function hasIncompleteProductionEvidence(stageValues, projectType = '', fallbackText = '') {
+  return productionStageSnapshotsFromValues(stageValues, projectType, fallbackText).some((stage) => stage.hasEvidence && Number(stage.percent || 0) < 99.9);
 }
 
 function isSpoolFinishedByState(spool) {
-  if (!spool || hasIncompleteProductionEvidence(spool.stageValues)) return false;
+  if (!spool || hasIncompleteProductionEvidence(spool.stageValues, spool.projectType, [spool.iso, spool.drawing, spool.description, spool.observations].filter(Boolean).join(' '))) return false;
   return Boolean(
     spool.finished
     || spool.projectFinishedFlag
@@ -437,7 +531,7 @@ function makeFlow(status, sector, percent = 0, stageStatus = null, state = null)
   return { state: flowState, sector: normalizedSector, status, percent: normalizedPercent, stageStatus: statusType };
 }
 
-function deriveOperationalStage(stageValues, fabricationStartDate, coatingPercent, finished, projectStatus) {
+function deriveOperationalStage(stageValues, fabricationStartDate, coatingPercent, finished, projectStatus, projectType = '', fallbackText = '') {
   const drawing = pct(stageValues, "Drawing Execution Advance%");
   const procurement = Math.max(pct(stageValues, "Procuremnt Status %"), pct(stageValues, "Material Release to Fabrication"));
   const materialSeparation = pct(stageValues, "Material Separation");
@@ -458,6 +552,7 @@ function deriveOperationalStage(stageValues, fabricationStartDate, coatingPercen
   const projectFinished = isStageBooleanDone(stageValues, "Project Finished?");
   const normalizedProjectStatus = String(projectStatus || "").trim().toUpperCase().replace(/\s+/g, " ");
   const isHold = ["ON HOLD", "HOLD", "PAUSED", "EM ESPERA"].includes(normalizedProjectStatus);
+  const includeHydro = isSpoolMaterialType(projectType, fallbackText);
 
   if (finished || projectFinished || projectFinishDate) return makeFlow("Finalizado", "Enviado", 100, "completed", "completed");
 
@@ -486,10 +581,10 @@ function deriveOperationalStage(stageValues, fabricationStartDate, coatingPercen
   if (coating > 0) {
     return makeFlow(paintingStatusFromPercent(coating), "Pintura", coating, null, "in_production");
   }
-  if (th >= 100) return makeFlow("Pintura", "Pintura", 0, "waiting", "in_production");
-  if (th > 0) return makeFlow("TH", "Qualidade", th, null, "in_inspection");
+  if (includeHydro && th >= 100) return makeFlow("Pintura", "Pintura", 0, "waiting", "in_production");
+  if (includeHydro && th > 0) return makeFlow("TH", "Qualidade", th, null, "in_inspection");
   if (nde != null && nde > 0 && nde < 100) return makeFlow("Aguardando END", "Qualidade", nde, null, "in_inspection");
-  if (finalDimensional >= 100) return makeFlow("TH", "Qualidade", 0, "waiting", "in_inspection");
+  if (finalDimensional >= 100) return includeHydro ? makeFlow("TH", "Qualidade", 0, "waiting", "in_inspection") : makeFlow("Pintura", "Pintura", 0, "waiting", "in_production");
   if (finalDimensional > 0) return makeFlow("Inspeção Dimensional Final - 3D", "Qualidade", finalDimensional, null, "in_inspection");
   if (fullWelding >= 100) return makeFlow("Inspeção Dimensional Final - 3D", "Qualidade", 0, "waiting", "in_inspection");
   if (fullWelding > 0) return makeFlow("Solda", "Produção", fullWelding, null, "in_production");
@@ -825,8 +920,8 @@ function projectUiState(projectStatus, overallProgress, finished, fabricationSta
   return "in_progress";
 }
 
-function getOperationalFlow(stageValues, fabricationStartDate, coatingPercent, finished, projectStatus) {
-  return deriveOperationalStage(stageValues, fabricationStartDate, coatingPercent, finished, projectStatus);
+function getOperationalFlow(stageValues, fabricationStartDate, coatingPercent, finished, projectStatus, projectType = '', fallbackText = '') {
+  return deriveOperationalStage(stageValues, fabricationStartDate, coatingPercent, finished, projectStatus, projectType, fallbackText);
 }
 
 function classifyStageSector(stageValue) {
@@ -991,9 +1086,13 @@ function buildSpoolRow(row, parentSummary) {
   const projectFinishedFlag = isTruthyValue(getCellValue(row, "Project Finished?").raw);
   const fabricationStartDate = textValue(row, "Fabrication Start Date");
   const stageValues = buildStageValues(row);
-  const hasIncompleteStageEvidence = hasIncompleteProductionEvidence(stageValues);
+  const observations = textValue(row, "OBSERVATIONS");
+  const parentObservations = textValue(parentSummary, "OBSERVATIONS");
+  const projectType = textValue(row, "Project Type") || textValue(parentSummary, "Project Type");
+  const typeFallbackText = [drawingText, parsedDrawing.iso, parsedDrawing.description, observations, parentObservations].filter(Boolean).join(' ');
+  const hasIncompleteStageEvidence = hasIncompleteProductionEvidence(stageValues, projectType, typeFallbackText);
   const finished = !hasIncompleteStageEvidence && (projectFinishedFlag || overallProgress >= 100 || hasStageValue(stageValues, "Project Finish Date"));
-  const flow = getOperationalFlow(stageValues, fabricationStartDate, parsePercent(row, "Surface preparation and/or coating") ?? 0, finished, textValue(row, "PROJECT STATUS"));
+  const flow = getOperationalFlow(stageValues, fabricationStartDate, parsePercent(row, "Surface preparation and/or coating") ?? 0, finished, textValue(row, "PROJECT STATUS"), projectType, typeFallbackText);
   const awaitingShipment = flow.state === "awaiting_shipment";
   const uiState = uiStateFromFlow(flow, finished);
   const coatingPercent = parsePercent(row, "Surface preparation and/or coating") ?? 0;
@@ -1007,7 +1106,6 @@ function buildSpoolRow(row, parentSummary) {
     return 0;
   })();
   const weldingWeek = weldingPercent >= 100 && weldingFinishDate ? getProductionWeekLabel(weldingFinishDate) : "";
-  const observations = textValue(row, "OBSERVATIONS");
   const tratativaObservationMatches = getObservationTratativaMatches([{ source: parsedDrawing.iso || drawingText || `Linha ${row.rowNumber || row.id}`, text: observations }]);
 
   return {
@@ -1020,6 +1118,8 @@ function buildSpoolRow(row, parentSummary) {
     tratativaObservationMatches,
     hasTratativaObservation: tratativaObservationMatches.length > 0,
     pm: textValue(row, "PM") || textValue(parentSummary, "PM"),
+    projectType,
+    hydroTestingApplicable: isSpoolMaterialType(projectType, typeFallbackText),
     operationalSector: flow.sector,
     operationalState: flow.state,
     currentStatus: flow.status,
@@ -1165,7 +1265,7 @@ function applyProjectSpoolRollup(project) {
   const fallbackFlow = project.flow || makeFlow(project.currentStage || "AG. Emissão de detalhamento", project.operationalSector || "Engenharia", project.currentStagePercent || 0, project.currentStageStatus || "waiting", project.operationalState || project.uiState || "not_started");
   const summary = summarizeFlowItems(spools, fallbackFlow, project.quantitySpools || 1);
   const explicitFinished = Boolean(project.finished || project.projectFinishedFlag || hasProjectFinishDateMarker(project) || isProjectStatusFinished(project.projectStatus));
-  const hasIncompleteStageEvidence = hasIncompleteProductionEvidence(project.stageValues) || spools.some((spool) => hasIncompleteProductionEvidence(spool.stageValues));
+  const hasIncompleteStageEvidence = hasIncompleteProductionEvidence(project.stageValues, project.projectType, [project.summaryDrawing, project.observations].filter(Boolean).join(' ')) || spools.some((spool) => hasIncompleteProductionEvidence(spool.stageValues, spool.projectType || project.projectType, [spool.iso, spool.drawing, spool.description, spool.observations].filter(Boolean).join(' ')));
   const allSpoolsFinishedByEvidence = spools.length > 0 && spools.every(isSpoolFinishedByState);
   
   // v32.2: Cálculo de progresso baseado estritamente nas ISOs (spools)
@@ -1187,7 +1287,7 @@ function applyProjectSpoolRollup(project) {
       const stageTotalKilos = spoolsWithStageEvidence.reduce((sum, s) => sum + (s.kilos || 0), 0) || spoolsWithStageEvidence.length || 1;
       project.overallProgress = spoolsWithStageEvidence.reduce((sum, s) => {
         const weight = s.kilos || (stageTotalKilos / spoolsWithStageEvidence.length);
-        return sum + weightedOverallFromStageValues(s.stageValues) * weight;
+        return sum + weightedOverallFromStageValues(s.stageValues, s.projectType || project.projectType, [s.iso, s.drawing, s.description, s.observations, project.observations].filter(Boolean).join(' ')) * weight;
       }, 0) / stageTotalKilos;
     }
     
@@ -1202,7 +1302,7 @@ function applyProjectSpoolRollup(project) {
   }
 
   if (hasStageProgressEvidence(project.stageValues)) {
-    project.overallProgress = weightedOverallFromStageValues(project.stageValues);
+    project.overallProgress = weightedOverallFromStageValues(project.stageValues, project.projectType, [project.summaryDrawing, project.observations].filter(Boolean).join(' '));
   }
 
   const finalFinished = summary.allFinished || (explicitFinished && !hasIncompleteStageEvidence && (spools.length === 0 || allSpoolsFinishedByEvidence));
@@ -1274,6 +1374,10 @@ function applyProjectSpoolRollup(project) {
     }
   }
 
+  project.hydroTestingApplicable = spools.length
+    ? spools.some((spool) => isSpoolMaterialType(spool?.projectType || project.projectType, [spool?.iso, spool?.drawing, spool?.description, spool?.observations, project.observations].filter(Boolean).join(' ')))
+    : isSpoolMaterialType(project.projectType, [project.summaryDrawing, project.observations].filter(Boolean).join(' '));
+
   return project;
 }
 
@@ -1288,10 +1392,13 @@ function buildProject(summaryRow, childRows) {
   const observations = textValue(summaryRow, "OBSERVATIONS");
   const coatingPercent = parsePercent(summaryRow, "Surface preparation and/or coating") ?? 0;
   const fabricationStartDate = textValue(summaryRow, "Fabrication Start Date");
+  const projectType = textValue(summaryRow, "Project Type");
+  const summaryDrawing = textValue(summaryRow, "Drawing");
+  const summaryHydroFallbackText = [summaryDrawing, observations, projectText].filter(Boolean).join(' ');
   const stageValues = buildStageValues(summaryRow);
-  const summaryHasIncompleteStageEvidence = hasIncompleteProductionEvidence(stageValues);
+  const summaryHasIncompleteStageEvidence = hasIncompleteProductionEvidence(stageValues, projectType, summaryHydroFallbackText);
   const summaryFinished = !summaryHasIncompleteStageEvidence && (projectFinishedFlag || overallProgress >= 100 || hasStageValue(stageValues, "Project Finish Date"));
-  const flow = getOperationalFlow(stageValues, fabricationStartDate, coatingPercent, summaryFinished, projectStatus);
+  const flow = getOperationalFlow(stageValues, fabricationStartDate, coatingPercent, summaryFinished, projectStatus, projectType, summaryHydroFallbackText);
   const awaitingShipment = flow.state === "awaiting_shipment";
   const uiState = uiStateFromFlow(flow, summaryFinished) || projectUiState(projectStatus, overallProgress, summaryFinished, fabricationStartDate, awaitingShipment);
   const weldingPercent = parsePercent(summaryRow, "Full welding execution") ?? 0;
@@ -1350,8 +1457,9 @@ function buildProject(summaryRow, childRows) {
     projectStatus,
     observations,
     jobProcessStatus: textValue(summaryRow, "Job Process Status") || progress.currentStage.label,
-    summaryDrawing: textValue(summaryRow, "Drawing"),
-    projectType: textValue(summaryRow, "Project Type"),
+    summaryDrawing,
+    projectType,
+    hydroTestingApplicable: isSpoolMaterialType(projectType, summaryHydroFallbackText),
     fabricationStartDate: formatDateValue(textValue(summaryRow, "Fabrication Start Date")),
     plannedStartDate: formatDateValue(textValue(summaryRow, "Start Date")),
     plannedFinishDate: formatDateValue(textValue(summaryRow, "Finish Date")),
@@ -1654,7 +1762,7 @@ function hasProjectFinishedBooleanMarker(project) {
 
 function areAllProjectSpoolsFinished(project) {
   const spools = Array.isArray(project?.spools) ? project.spools : [];
-  return spools.length > 0 && spools.every((spool) => !hasIncompleteProductionEvidence(spool?.stageValues) && Boolean(
+  return spools.length > 0 && spools.every((spool) => !hasIncompleteProductionEvidence(spool?.stageValues, spool?.projectType, [spool?.iso, spool?.drawing, spool?.description, spool?.observations, project?.observations].filter(Boolean).join(' ')) && Boolean(
     spool?.finished
     || spool?.projectFinishedFlag
     || spool?.uiState === "completed"
@@ -1670,7 +1778,7 @@ function areAllProjectSpoolsFinished(project) {
 
 function hasProjectFinishedMarker(project) {
   if (!project) return false;
-  if (hasIncompleteProductionEvidence(project.stageValues) || (Array.isArray(project.spools) && project.spools.some((spool) => hasIncompleteProductionEvidence(spool.stageValues)))) return false;
+  if (hasIncompleteProductionEvidence(project.stageValues, project.projectType, [project.summaryDrawing, project.observations].filter(Boolean).join(' ')) || (Array.isArray(project.spools) && project.spools.some((spool) => hasIncompleteProductionEvidence(spool.stageValues, spool.projectType || project.projectType, [spool.iso, spool.drawing, spool.description, spool.observations].filter(Boolean).join(' '))))) return false;
   return Boolean(
     hasProjectFinishedBooleanMarker(project)
     || hasProjectFinishDateMarker(project)
