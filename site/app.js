@@ -803,98 +803,6 @@ function normalizeCompactText(value) {
   return normalizeText(value).replace(/[_ -]+/g, "");
 }
 
-const CLIENT_NO_HYDRO_OBSERVATION_RULES = [
-  {
-    label: 'Sem Hydro Testing por solda de campo',
-    aliases: [
-      'possui solda de campo',
-      'possui solda em campo',
-      'com solda de campo',
-      'com solda em campo',
-      'solda de campo',
-      'solda em campo',
-      'solda no campo',
-      'solda campo',
-      'soldagem de campo',
-      'soldagem em campo',
-      'field weld',
-      'field welding',
-      'field welded',
-      'f.w.',
-      'fw',
-      'sem th',
-      'nao tem th',
-      'não tem th',
-      'nao possui th',
-      'não possui th',
-      'nao requer th',
-      'não requer th',
-      'nao aplica th',
-      'não aplica th',
-      'nao aplicar th',
-      'não aplicar th',
-      'sem hydro',
-      'sem hidro',
-      'nao requer hydro',
-      'não requer hydro',
-      'nao requer hidro',
-      'não requer hidro',
-      'nao requer teste hidrostatico',
-      'não requer teste hidrostatico',
-      'sem teste hidrostatico',
-      'sem teste hidrostático',
-    ],
-  },
-];
-
-function textMatchesHydroExclusionRule(text, aliases = []) {
-  const normalized = normalizeText(text || '').replace(/\s+/g, ' ').trim();
-  const compact = normalizeCompactText(text || '');
-  if (!normalized && !compact) return false;
-  return aliases.some((alias) => {
-    const normalizedAlias = normalizeText(alias || '').replace(/\s+/g, ' ').trim();
-    const compactAlias = normalizeCompactText(alias || '');
-    if (!normalizedAlias) return false;
-    if (normalizedAlias === 'fw') {
-      return /(^|[^a-z0-9])f\.?w\.?([^a-z0-9]|$)/i.test(normalized);
-    }
-    return Boolean(
-      normalized.includes(normalizedAlias)
-      || (compactAlias.length >= 6 && compact.includes(compactAlias))
-    );
-  });
-}
-
-function clientTextIndicatesNoHydroTesting(text) {
-  return CLIENT_NO_HYDRO_OBSERVATION_RULES.some((rule) => textMatchesHydroExclusionRule(text, rule.aliases));
-}
-
-function clientObservationIndicatesNoHydroTesting(project) {
-  return getProjectObservationContexts(project).some((context) => clientTextIndicatesNoHydroTesting(context.text));
-}
-
-function clientDirectObservationIndicatesNoHydroTesting(project) {
-  return [
-    project?.observations,
-    project?.OBSERVATIONS,
-    project?.observation,
-    project?.note,
-    project?.notes,
-    project?.comments,
-  ].some(clientTextIndicatesNoHydroTesting);
-}
-
-function clientSpoolObservationIndicatesNoHydroTesting(spool) {
-  return [
-    spool?.observations,
-    spool?.OBSERVATIONS,
-    spool?.observation,
-    spool?.note,
-    spool?.notes,
-    spool?.comments,
-  ].some(clientTextIndicatesNoHydroTesting);
-}
-
 
 const CLIENT_TRATATIVA_OBSERVATION_RULES = [
   {
@@ -2009,7 +1917,7 @@ function getSpoolQualityCompetence(project, spool) {
   const finalDimensional = getStageWorkspacePercent(stageValues, 'Final Dimensional Inpection/3D (QC)');
   const initialDimensional = getStageWorkspacePercent(stageValues, 'Initial Dimensional Inspection/3D');
   const finalInspection = getStageWorkspacePercent(stageValues, 'Final Inspection');
-  const includeHydro = isClientSpoolMaterial({ ...(project || {}), projectType: spool?.projectType || project?.projectType, spools: spool ? [spool] : project?.spools });
+  const includeHydro = isClientHydroApplicable({ ...(project || {}), projectType: spool?.projectType || project?.projectType, spools: spool ? [spool] : project?.spools });
 
   if (includeHydro && (text.includes('hydro') || text.includes('teste hidrostatico') || /\bth\b/.test(text) || text.includes('aguardando em th') || (th > 0 && th < 100))) return 'th';
   if (text.includes('nde') || /\bend\b/.test(text) || text.includes('non destructive') || (nde != null && nde > 0 && nde < 100)) return 'nde';
@@ -2079,7 +1987,7 @@ function getSpoolCompetenceSector(project, spool) {
   const fabricationStarted = Boolean(spool?.fabricationStartDate || hasStageWorkspaceValue(stageValues, 'Fabrication Start Date'));
   const boilermakerDone = hasStageWorkspaceValue(stageValues, 'Boilermaker Finish Date');
   const projectFinishDate = hasStageWorkspaceValue(stageValues, 'Project Finish Date');
-  const includeHydro = isClientSpoolMaterial({ ...(project || {}), projectType: spool?.projectType || project?.projectType, spools: spool ? [spool] : project?.spools });
+  const includeHydro = isClientHydroApplicable({ ...(project || {}), projectType: spool?.projectType || project?.projectType, spools: spool ? [spool] : project?.spools });
 
   if (projectFinishDate || packageDelivered >= 100) return '';
   if (coating >= 100) return 'pendente_envio';
@@ -4236,30 +4144,71 @@ function getClientStageValue(project, keys) {
 }
 
 function isClientSpoolMaterial(project) {
-  if (clientDirectObservationIndicatesNoHydroTesting(project)) return false;
-  if (project?.hydroTestingApplicable === false) return false;
-
-  const spools = Array.isArray(project?.spools) ? project.spools : [];
-  if (spools.length && spools.every((spool) => spool?.hydroTestingApplicable === false || clientSpoolObservationIndicatesNoHydroTesting(spool))) return false;
-  if (project?.hydroTestingApplicable === true || spools.some((spool) => spool?.hydroTestingApplicable === true && !clientSpoolObservationIndicatesNoHydroTesting(spool))) return true;
-
   const explicitType = normalizeText([project?.projectType, project?.type, project?.project_type].filter(Boolean).join(' '));
   if (explicitType) {
     if (explicitType.includes('spool')) return true;
     if (explicitType.includes('support') || explicitType.includes('suporte') || explicitType === 'sup' || explicitType.includes('structure') || explicitType.includes('estrutura') || explicitType.includes('frame')) return false;
   }
 
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
   const evidence = normalizeText([
     project?.summaryDrawing,
     project?.drawing,
-    project?.observations,
-    project?.OBSERVATIONS,
-    ...spools.flatMap((spool) => [spool?.iso, spool?.drawing, spool?.description, spool?.observations, spool?.OBSERVATIONS]),
+    ...spools.flatMap((spool) => [spool?.iso, spool?.drawing, spool?.description]),
   ].filter(Boolean).join(' '));
 
   if (/\bspl\b/.test(evidence) || evidence.includes('spool')) return true;
   if (/\bsup\b/.test(evidence) || evidence.includes('support') || evidence.includes('suporte') || evidence.includes('structure') || evidence.includes('estrutura') || evidence.includes('frame')) return false;
   return false;
+}
+
+
+function hasClientHydroExclusionObservation(project) {
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  const text = normalizeText([
+    project?.observations,
+    project?.observation,
+    project?.OBSERVATIONS,
+    project?.stageValues?.OBSERVATIONS,
+    project?.stageValues?.['Observations'],
+    project?.stageValues?.['OBSERVATION'],
+    ...spools.flatMap((spool) => [
+      spool?.observations,
+      spool?.observation,
+      spool?.OBSERVATIONS,
+      spool?.stageValues?.OBSERVATIONS,
+      spool?.stageValues?.['Observations'],
+      spool?.stageValues?.['OBSERVATION'],
+    ]),
+  ].filter(Boolean).join(' | '));
+  if (!text) return false;
+
+  const compact = text.replace(/[^a-z0-9]+/g, '');
+  return Boolean(
+    text.includes('possui solda de campo')
+    || text.includes('solda de campo')
+    || text.includes('solda em campo')
+    || text.includes('soldagem de campo')
+    || text.includes('field weld')
+    || text.includes('field welding')
+    || text.includes('sem th')
+    || text.includes('nao requer th')
+    || text.includes('nao aplica th')
+    || text.includes('sem hydro')
+    || text.includes('sem teste hidrostatico')
+    || /\bf\s*\.?\s*w\.?\b/.test(text)
+    || compact.includes('fieldweld')
+    || compact.includes('fieldwelding')
+    || compact.includes('soldadecampo')
+    || compact.includes('soldaemcampo')
+    || compact.includes('semth')
+    || compact.includes('naorequerth')
+    || compact.includes('naoaplicath')
+  );
+}
+
+function isClientHydroApplicable(project) {
+  return isClientSpoolMaterial(project) && !hasClientHydroExclusionObservation(project);
 }
 
 function getClientDetailStageKeys(project) {
@@ -4274,7 +4223,7 @@ function getClientDetailStageKeys(project) {
     'Final Inspection',
     'Package and Delivered',
   ];
-  return isClientSpoolMaterial(project) ? keys : keys.filter((key) => key !== 'Hydro Test Pressure (QC)');
+  return isClientHydroApplicable(project) ? keys : keys.filter((key) => key !== 'Hydro Test Pressure (QC)');
 }
 
 function getClientFabricationStageItems(project) {
@@ -4287,7 +4236,7 @@ function getClientFabricationStageItems(project) {
     { keys: ['Hydro Test Pressure (QC)'], weight: 7, spoolOnly: true },
     { keys: ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)'], weight: 15 },
   ];
-  return items.filter((item) => !item.spoolOnly || isClientSpoolMaterial(project));
+  return items.filter((item) => !item.spoolOnly || isClientHydroApplicable(project));
 }
 
 const CLIENT_PRODUCTION_STAGE_EVIDENCE_KEYS = [
@@ -4428,6 +4377,7 @@ function getClientAnalyticStartDate(project) {
     project?.stageValues?.['Project Start Date'],
     project?.stageValues?.['Fabrication Start Date'],
     project?.stageValues?.['Drawing Start Date'],
+    getClientTrackingDate(project, 'fabricationStart', 'earliest'),
   ];
   for (const value of candidates) {
     const parsed = parseDateObject(value);
@@ -4445,6 +4395,8 @@ function getClientAnalyticFinishDate(project) {
     project?.projectFinishDate,
     project?.stageValues?.['Project Finish Date'],
     getProjectShipmentDate(project),
+    getClientTrackingDate(project, 'projectFinish', 'latest'),
+    getLatestClientDate(Object.values(getClientTrackingMilestoneDates(project) || {})),
   ];
   for (const value of candidates) {
     const parsed = parseDateObject(value);
@@ -4454,6 +4406,180 @@ function getClientAnalyticFinishDate(project) {
   const fallback = new Date(start);
   fallback.setUTCDate(start.getUTCDate() + 120);
   return fallback;
+}
+
+
+const CLIENT_TRACKING_DATE_FIELDS = {
+  fabricationStart: ['Fabrication Start Date', 'fabricationStartDate', 'Fab. Start Date', 'FABRICATION START DATE'],
+  boilermakerFinish: ['Boilermaker Finish Date', 'boilermakerFinishDate', 'Caldeiraria Finish Date', 'Caldeiraria Finish'],
+  weldingFinish: ['Welding Finish Date', 'weldingFinishDate', 'Solda Finish Date', 'Solda Finish'],
+  inspectionFinish: ['Inspection Finish Date (QC)', 'inspectionFinishDate', 'Final Dimensional Inspection Finish Date', 'Final Dimensional Inpection/3D (QC) Finish Date'],
+  thFinish: ['TH Finish Date', 'Hydro Testing Finish Date', 'Hydro Test Finish Date', 'Hydro Test Pressure (QC) Finish Date'],
+  coatingFinish: ['Coating Finish Date', 'Painting Finish Date', 'Surface preparation and/or coating Finish Date', 'HDG / FBE.  (PAINT) Finish Date'],
+  projectFinish: ['Project Finish Date', 'projectFinishDate', 'Delivery Date', 'Shipment Date', 'Data de envio'],
+};
+
+function normalizeClientFieldKey(value) {
+  return normalizeText(value).replace(/[^a-z0-9]+/g, '');
+}
+
+function getClientDateFromObjectByAliases(source, aliases) {
+  if (!source || !aliases?.length) return null;
+  const wanted = new Set(aliases.map(normalizeClientFieldKey).filter(Boolean));
+
+  for (const alias of aliases) {
+    if (Object.prototype.hasOwnProperty.call(source, alias)) {
+      const parsed = parseDateObject(source[alias]);
+      if (parsed) return parsed;
+    }
+  }
+
+  const directEntries = Object.entries(source || {});
+  for (const [key, value] of directEntries) {
+    if (!wanted.has(normalizeClientFieldKey(key))) continue;
+    const parsed = parseDateObject(value);
+    if (parsed) return parsed;
+  }
+
+  const stageValues = source.stageValues && typeof source.stageValues === 'object' ? source.stageValues : null;
+  if (stageValues) {
+    for (const alias of aliases) {
+      if (Object.prototype.hasOwnProperty.call(stageValues, alias)) {
+        const parsed = parseDateObject(stageValues[alias]);
+        if (parsed) return parsed;
+      }
+    }
+    for (const [key, value] of Object.entries(stageValues)) {
+      if (!wanted.has(normalizeClientFieldKey(key))) continue;
+      const parsed = parseDateObject(value);
+      if (parsed) return parsed;
+    }
+  }
+
+  const milestones = Array.isArray(source.milestones) ? source.milestones : [];
+  for (const item of milestones) {
+    const key = normalizeClientFieldKey(item?.key || item?.label || item?.name);
+    if (!wanted.has(key)) continue;
+    const parsed = parseDateObject(item?.value ?? item?.date ?? item?.rawValue);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
+function getClientTrackingDate(project, field, mode = 'latest') {
+  const aliases = CLIENT_TRACKING_DATE_FIELDS[field] || [];
+  if (!aliases.length) return null;
+  const sources = [project, ...(Array.isArray(project?.spools) ? project.spools : [])];
+  const dates = sources
+    .map((source) => getClientDateFromObjectByAliases(source, aliases))
+    .filter((date) => date instanceof Date && !Number.isNaN(date.getTime()))
+    .sort((a, b) => a - b);
+  if (!dates.length) return null;
+  return mode === 'earliest' ? dates[0] : dates[dates.length - 1];
+}
+
+function getClientTrackingMilestoneDates(project) {
+  const hydro = isClientHydroApplicable(project);
+  return {
+    fabricationStart: getClientTrackingDate(project, 'fabricationStart', 'earliest'),
+    boilermakerFinish: getClientTrackingDate(project, 'boilermakerFinish', 'latest'),
+    weldingFinish: getClientTrackingDate(project, 'weldingFinish', 'latest'),
+    inspectionFinish: getClientTrackingDate(project, 'inspectionFinish', 'latest'),
+    thFinish: hydro ? getClientTrackingDate(project, 'thFinish', 'latest') : null,
+    coatingFinish: getClientTrackingDate(project, 'coatingFinish', 'latest'),
+    projectFinish: getClientTrackingDate(project, 'projectFinish', 'latest'),
+  };
+}
+
+function getLatestClientDate(values) {
+  const dates = values.filter((date) => date instanceof Date && !Number.isNaN(date.getTime())).sort((a, b) => a - b);
+  return dates.length ? dates[dates.length - 1] : null;
+}
+
+function clientCalendarDaysDiff(start, finish) {
+  const left = parseDateObject(start);
+  const right = parseDateObject(finish);
+  if (!left || !right) return 0;
+  return Math.round((right - left) / 86400000);
+}
+
+function applyClientTrackingDatesToSchedule(project, rows) {
+  const dates = getClientTrackingMilestoneDates(project);
+  if (!Object.values(dates).some(Boolean)) return rows;
+
+  const fabricationFinish = getLatestClientDate([
+    dates.coatingFinish,
+    dates.thFinish,
+    dates.inspectionFinish,
+    dates.weldingFinish,
+    dates.boilermakerFinish,
+  ]);
+
+  return rows.map((row) => {
+    const next = { ...row, plannedStart: row.start, plannedFinish: row.finish };
+    const labelKey = normalizeClientFieldKey(row.label);
+    let usedTracking = false;
+
+    if (labelKey === 'fabrication') {
+      if (dates.fabricationStart) { next.start = dates.fabricationStart; usedTracking = true; }
+      if (fabricationFinish) { next.finish = fabricationFinish; usedTracking = true; }
+    } else if (labelKey === 'fitup') {
+      if (dates.fabricationStart) { next.start = dates.fabricationStart; usedTracking = true; }
+      if (dates.boilermakerFinish) { next.finish = dates.boilermakerFinish; usedTracking = true; }
+    } else if (labelKey === 'weld') {
+      if (dates.boilermakerFinish) { next.start = dates.boilermakerFinish; usedTracking = true; }
+      if (dates.weldingFinish) { next.finish = dates.weldingFinish; usedTracking = true; }
+    } else if (labelKey === 'finaldimensionalinspection') {
+      if (dates.weldingFinish) next.start = dates.weldingFinish;
+      if (dates.inspectionFinish) { next.finish = dates.inspectionFinish; usedTracking = true; }
+    } else if (labelKey === 'hydrotesting') {
+      if (dates.thFinish) {
+        if (dates.inspectionFinish) next.start = dates.inspectionFinish;
+        next.finish = dates.thFinish;
+        usedTracking = true;
+      }
+    } else if (labelKey === 'painting') {
+      if (dates.coatingFinish) {
+        if (dates.thFinish || dates.inspectionFinish) next.start = dates.thFinish || dates.inspectionFinish;
+        next.finish = dates.coatingFinish;
+        usedTracking = true;
+      }
+    } else if (labelKey === 'delivery' || labelKey === 'package_delivery') {
+      if (dates.projectFinish) { next.finish = dates.projectFinish; usedTracking = true; }
+    }
+
+    if (next.start && next.finish && next.finish < next.start) {
+      next.start = next.finish;
+    }
+    next.fromTracking = usedTracking;
+    if (next.fromTracking) {
+      next.duration = Math.max(1, countBusinessDaysInclusive(next.start, next.finish) || next.duration || 1);
+      next.deviationDays = clientCalendarDaysDiff(next.plannedFinish, next.finish);
+    }
+    return next;
+  });
+}
+
+function getClientSCurveTrackingMilestones(project) {
+  const dates = getClientTrackingMilestoneDates(project);
+  const hydro = isClientHydroApplicable(project);
+  const items = [
+    { key: 'fabricationStart', label: 'Fabrication Start Date', date: dates.fabricationStart, actual: 30 },
+    { key: 'boilermakerFinish', label: 'Boilermaker Finish Date', date: dates.boilermakerFinish, actual: 40 },
+    { key: 'weldingFinish', label: 'Welding Finish Date', date: dates.weldingFinish, actual: 55 },
+    { key: 'inspectionFinish', label: 'Inspection Finish Date (QC)', date: dates.inspectionFinish, actual: hydro ? 70 : 80 },
+    { key: 'thFinish', label: 'TH Finish Date', date: dates.thFinish, actual: 82 },
+    { key: 'coatingFinish', label: 'Coating Finish Date', date: dates.coatingFinish, actual: 92 },
+    { key: 'projectFinish', label: 'Project Finish Date', date: dates.projectFinish, actual: 100 },
+  ].filter((item) => item.date instanceof Date && !Number.isNaN(item.date.getTime()))
+   .sort((a, b) => a.date - b.date || a.actual - b.actual);
+
+  let maxActual = 0;
+  return items.map((item) => {
+    maxActual = Math.max(maxActual, item.actual);
+    return { ...item, actual: clampClientPercent(maxActual) };
+  });
 }
 
 function addUtcDays(date, days) {
@@ -4491,228 +4617,58 @@ function clientSchedulePlannedPercent(progressRatio) {
   return 100;
 }
 
-function getClientPlannedAtDate(project, dateValue) {
-  const start = getClientAnalyticStartDate(project);
-  let finish = getClientAnalyticFinishDate(project);
-  const date = parseDateObject(dateValue);
-  if (!date) return 0;
-  if (finish <= start) finish = addUtcDays(start, 30);
-  if (date <= start) return 0;
-  if (date >= finish) return 100;
-  return clientSchedulePlannedPercent((date - start) / Math.max(1, finish - start));
-}
-
 function getClientPlannedToday(project) {
-  return getClientPlannedAtDate(project, getCurrentBrazilDate());
-}
-
-function clientDateKey(date) {
-  const parsed = parseDateObject(date);
-  if (!parsed) return '';
-  return parsed.toISOString().slice(0, 10);
-}
-
-function clientDateDiffDays(left, right) {
-  const a = parseDateObject(left);
-  const b = parseDateObject(right);
-  if (!a || !b) return 0;
-  return Math.round((a - b) / 86400000);
-}
-
-function clientLatestDate(values) {
-  const dates = values.map((value) => parseDateObject(value)).filter(Boolean).sort((a, b) => a - b);
-  return dates.length ? dates[dates.length - 1] : null;
-}
-
-function getClientTrackingDateAliases(key) {
-  const map = {
-    'Fabrication Start Date': ['Fabrication Start Date', 'Fabrication Start', 'Fab Start', 'Fab. Start', 'Data inicio fabricacao', 'Data início fabricação'],
-    'Boilermaker Finish Date': ['Boilermaker Finish Date', 'Boilermaker Finish', 'Caldeiraria Finish Date', 'Caldeiraria Finish', 'Caldeiraria termino', 'Caldeiraria término'],
-    'Welding Finish Date': ['Welding Finish Date', 'Welding Finish', 'Weld Finish Date', 'Weld Finish', 'Solda Finish Date', 'Solda termino', 'Solda término'],
-    'Inspection Finish Date (QC)': ['Inspection Finish Date (QC)', 'Inspection Finish Date', 'QC Inspection Finish Date', 'Final Dimensional Inspection Finish Date', 'Final Dimensional Inpection/3D (QC) Finish Date', 'Inspecao Finish Date', 'Inspeção Finish Date'],
-    'TH Finish Date': ['TH Finish Date', 'Hydro Finish Date', 'Hydro Testing Finish Date', 'Hydro Test Pressure Finish Date', 'Teste Hidrostatico Finish Date', 'Teste Hidrostático Finish Date'],
-    'Coating Finish Date': ['Coating Finish Date', 'Painting Finish Date', 'Paint Finish Date', 'Pintura Finish Date', 'Surface preparation and/or coating Finish Date'],
-    'Project Finish Date': ['Project Finish Date', 'Data de Envio', 'Shipment Date', 'Delivery Date', 'Package and Delivered Finish Date'],
-  };
-  return map[key] || [key];
-}
-
-function getClientTrackingRawDateValues(source, key) {
-  if (!source || !key) return [];
-  const aliases = getClientTrackingDateAliases(key);
-  const normalizedAliases = new Set(aliases.map((item) => normalizeText(item)));
-  const compactAliases = new Set(aliases.map((item) => normalizeCompactText(item)));
-  const values = [];
-  const push = (value) => {
-    if (value == null || value === '' || value === 'N/A') return;
-    values.push(value);
-  };
-
-  const candidateObjects = [
-    source.stageValues,
-    source.stage_values,
-    source.milestoneValues,
-    source.milestone_values,
-    source.dates,
-    source,
-  ].filter(Boolean);
-
-  for (const obj of candidateObjects) {
-    for (const alias of aliases) push(obj?.[alias]);
-    for (const [objKey, objValue] of Object.entries(obj || {})) {
-      if (!objKey || typeof objValue === 'object') continue;
-      const nk = normalizeText(objKey);
-      const ck = normalizeCompactText(objKey);
-      if (normalizedAliases.has(nk) || compactAliases.has(ck)) push(objValue);
-    }
-  }
-
-  const textMatchesAlias = (text) => {
-    const nk = normalizeText(text);
-    const ck = normalizeCompactText(text);
-    if (!nk && !ck) return false;
-    if (normalizedAliases.has(nk) || compactAliases.has(ck)) return true;
-    for (const alias of normalizedAliases) {
-      if (alias && (nk.includes(alias) || alias.includes(nk))) return true;
-    }
-    for (const alias of compactAliases) {
-      if (alias && (ck.includes(alias) || alias.includes(ck))) return true;
-    }
-    return false;
-  };
-
-  const milestones = Array.isArray(source.milestones) ? source.milestones : [];
-  for (const milestone of milestones) {
-    const fields = [milestone?.key, milestone?.label, milestone?.name, milestone?.title].filter(Boolean);
-    if (fields.some(textMatchesAlias)) {
-      push(milestone?.value ?? milestone?.displayValue ?? milestone?.display ?? milestone?.raw ?? milestone?.date);
-    }
-  }
-
-  const directMap = {
-    'Fabrication Start Date': ['fabricationStartDate', 'fabrication_start_date'],
-    'Boilermaker Finish Date': ['boilermakerFinishDate', 'boilermaker_finish_date'],
-    'Welding Finish Date': ['weldingFinishDate', 'welding_finish_date'],
-    'Inspection Finish Date (QC)': ['inspectionFinishDate', 'qcInspectionFinishDate', 'inspection_finish_date', 'qc_inspection_finish_date'],
-    'TH Finish Date': ['thFinishDate', 'hydroFinishDate', 'th_finish_date', 'hydro_finish_date'],
-    'Coating Finish Date': ['coatingFinishDate', 'paintingFinishDate', 'coating_finish_date', 'painting_finish_date'],
-    'Project Finish Date': ['projectFinishDate', 'shipmentDate', 'deliveryDate', 'project_finish_date', 'shipment_date'],
-  };
-  (directMap[key] || []).forEach((field) => push(source?.[field]));
-  return values;
-}
-
-function getClientTrackingDateCandidates(project, key) {
-  const dates = [];
-  const pushParsed = (value) => {
-    const parsed = parseDateObject(value);
-    if (parsed) dates.push(parsed);
-  };
-  getClientTrackingRawDateValues(project, key).forEach(pushParsed);
-  if (Array.isArray(project?.spools)) {
-    for (const spool of project.spools) getClientTrackingRawDateValues(spool, key).forEach(pushParsed);
-  }
-  const unique = new Map();
-  dates.forEach((date) => unique.set(clientDateKey(date), date));
-  return Array.from(unique.values()).sort((a, b) => a - b);
-}
-
-function getClientTrackingMilestoneDate(project, key) {
-  const dates = getClientTrackingDateCandidates(project, key);
-  if (!dates.length) return null;
-  return key === 'Fabrication Start Date' ? dates[0] : dates[dates.length - 1];
-}
-
-function getClientSCurveTrackingMilestonePercent(project, key) {
-  const values = {
-    'Fabrication Start Date': 30,
-    'Boilermaker Finish Date': 45,
-    'Welding Finish Date': 60,
-    'Inspection Finish Date (QC)': 75,
-    'TH Finish Date': 85,
-    'Coating Finish Date': 95,
-    'Project Finish Date': 100,
-  };
-  if (key === 'TH Finish Date' && !isClientSpoolMaterial(project)) return null;
-  return values[key] ?? null;
-}
-
-function getClientSCurveTrackingMilestones(project) {
-  const definitions = [
-    ['Fabrication Start Date', 'Início da fabricação'],
-    ['Boilermaker Finish Date', 'Caldeiraria concluída'],
-    ['Welding Finish Date', 'Solda concluída'],
-    ['Inspection Finish Date (QC)', 'Inspeção QC concluída'],
-    ['TH Finish Date', 'TH concluído'],
-    ['Coating Finish Date', 'Pintura concluída'],
-    ['Project Finish Date', 'Entrega concluída'],
-  ];
-  return definitions.map(([key, label]) => {
-    const percent = getClientSCurveTrackingMilestonePercent(project, key);
-    const date = percent == null ? null : getClientTrackingMilestoneDate(project, key);
-    if (!date) return null;
-    return { key, label, date, percent };
-  }).filter(Boolean).sort((a, b) => a.date - b.date || a.percent - b.percent);
+  const start = getClientAnalyticStartDate(project);
+  const finish = getClientAnalyticFinishDate(project);
+  const today = getCurrentBrazilDate();
+  if (today <= start) return 0;
+  if (today >= finish) return 100;
+  return clientSchedulePlannedPercent((today - start) / Math.max(1, finish - start));
 }
 
 function buildClientSCurveData(project) {
   let start = getClientAnalyticStartDate(project);
   let finish = getClientAnalyticFinishDate(project);
-  if (finish <= start) finish = addUtcDays(start, 30);
-  const today = getCurrentBrazilDate();
-  const milestones = getClientSCurveTrackingMilestones(project);
-
-  if (!milestones.length) {
-    const duration = clientDaysBetween(start, finish);
-    const step = Math.max(1, Math.ceil(duration / 14));
-    const actualNow = getClientOverallProgress(project);
-    const plannedToday = getClientPlannedToday(project);
-    const points = [];
-    for (let day = 0; day <= duration; day += step) {
-      const date = addUtcDays(start, day);
-      const ratio = day / duration;
-      const planned = clientSchedulePlannedPercent(ratio);
-      let actual = null;
-      if (date <= today) {
-        if (plannedToday > 0) {
-          actual = clampClientPercent((planned / plannedToday) * actualNow);
-        } else {
-          actual = actualNow > 0 ? actualNow : 0;
-        }
-      }
-      points.push({ date, planned, actual });
-    }
-    if (points[points.length - 1]?.date < finish) {
-      points.push({ date: finish, planned: 100, actual: finish <= today ? actualNow : null });
-    }
-    return points;
+  const trackingMilestones = getClientSCurveTrackingMilestones(project);
+  if (trackingMilestones.length) {
+    const firstTracking = trackingMilestones[0].date;
+    const lastTracking = trackingMilestones[trackingMilestones.length - 1].date;
+    if (firstTracking < start) start = firstTracking;
+    if (lastTracking > finish) finish = lastTracking;
   }
-
-  const milestoneDates = milestones.map((item) => item.date);
-  const earliest = milestoneDates[0];
-  const latest = milestoneDates[milestoneDates.length - 1];
-  if (earliest && earliest < start) start = earliest;
-  if (latest && latest > finish) finish = latest;
+  if (finish <= start) finish = addUtcDays(start, 30);
   const duration = clientDaysBetween(start, finish);
   const step = Math.max(1, Math.ceil(duration / 14));
-  const dates = new Map();
-  for (let day = 0; day <= duration; day += step) {
-    const date = addUtcDays(start, day);
-    dates.set(clientDateKey(date), date);
-  }
-  [start, finish, today, ...milestoneDates].forEach((value) => {
-    const parsed = parseDateObject(value);
-    if (parsed) dates.set(clientDateKey(parsed), parsed);
+  const today = getCurrentBrazilDate();
+  const actualNow = getClientOverallProgress(project);
+  const plannedToday = getClientPlannedToday(project);
+
+  const offsets = new Set([0, duration]);
+  for (let day = 0; day <= duration; day += step) offsets.add(day);
+  trackingMilestones.forEach((item) => {
+    const offset = Math.max(0, Math.min(duration, Math.round((item.date - start) / 86400000)));
+    offsets.add(offset);
   });
-  return Array.from(dates.values()).sort((a, b) => a - b).map((date) => {
-    const completed = milestones.filter((item) => item.date <= date);
-    const milestoneActual = completed.length ? completed.reduce((max, item) => Math.max(max, item.percent), 0) : 0;
-    const todayExtra = clientDateKey(date) === clientDateKey(today) ? getClientOverallProgress(project) : 0;
-    return {
-      date,
-      planned: getClientPlannedAtDate(project, date),
-      actual: date <= today ? clampClientPercent(Math.max(milestoneActual, todayExtra)) : null,
-    };
+
+  const sortedOffsets = [...offsets].sort((a, b) => a - b);
+  return sortedOffsets.map((day) => {
+    const date = addUtcDays(start, day);
+    const ratio = day / duration;
+    const planned = clientSchedulePlannedPercent(ratio);
+    let actual = null;
+
+    if (trackingMilestones.length) {
+      const achieved = trackingMilestones.filter((item) => item.date <= date).pop();
+      actual = achieved ? achieved.actual : null;
+    } else if (date <= today) {
+      if (plannedToday > 0) {
+        actual = clampClientPercent((planned / plannedToday) * actualNow);
+      } else {
+        actual = actualNow > 0 ? actualNow : 0;
+      }
+    }
+
+    return { date, planned, actual };
   });
 }
 
@@ -4813,6 +4769,10 @@ function getClientAttentionPoints(project) {
   if (daysToFinish <= 21 && daysToFinish >= 0 && actual < 80) points.push(`Término previsto em ${daysToFinish} dia(s) com progresso abaixo de 80%.`);
   const blocked = stages.find((stage) => stage.percent <= 0);
   if (blocked && planned > 20) points.push(`${blocked.label} sem progresso registrado.`);
+  const scheduleRows = buildClientExecutiveSchedule(project).filter((row) => row.type === 'child' && row.fromTracking && row.deviationDays > 0);
+  scheduleRows.slice(0, 3).forEach((row) => {
+    points.push(`${row.label}: data do Tracking em ${formatClientDateShort(row.finish)} contra planejado ${formatClientDateShort(row.plannedFinish)} (${row.deviationDays} dia(s) de desvio).`);
+  });
   if (!points.length) points.push('Sem ponto crítico automático identificado neste momento.');
   return points;
 }
@@ -4876,102 +4836,6 @@ function scaleDurationVector(baseItems, targetTotal) {
   return baseItems.map((item) => rows.find((row) => row.key === item.key) || { ...item, duration: Math.max(1, Number(item.base || 1)) });
 }
 
-function getClientScheduleTrackingDates(project, row) {
-  const fabricationStart = getClientTrackingMilestoneDate(project, 'Fabrication Start Date');
-  const boilermakerFinish = getClientTrackingMilestoneDate(project, 'Boilermaker Finish Date');
-  const weldingFinish = getClientTrackingMilestoneDate(project, 'Welding Finish Date');
-  const inspectionFinish = getClientTrackingMilestoneDate(project, 'Inspection Finish Date (QC)');
-  const thFinish = isClientSpoolMaterial(project) ? getClientTrackingMilestoneDate(project, 'TH Finish Date') : null;
-  const coatingFinish = getClientTrackingMilestoneDate(project, 'Coating Finish Date');
-  const projectFinish = getClientTrackingMilestoneDate(project, 'Project Finish Date') || parseDateObject(getProjectShipmentDate(project));
-  const nextBusinessDay = (value) => value ? addBusinessDaysUtc(value, 1) : null;
-
-  switch (row?.key) {
-    case 'fabrication':
-      return { start: fabricationStart, finish: clientLatestDate([coatingFinish, thFinish, inspectionFinish, weldingFinish, boilermakerFinish]) };
-    case 'fitup':
-      return { start: fabricationStart, finish: boilermakerFinish };
-    case 'weld':
-      return { start: nextBusinessDay(boilermakerFinish) || fabricationStart, finish: weldingFinish };
-    case 'final-dimensional':
-      return { start: nextBusinessDay(weldingFinish), finish: inspectionFinish };
-    case 'hydro':
-      return { start: nextBusinessDay(inspectionFinish), finish: thFinish };
-    case 'painting':
-      return { start: nextBusinessDay(thFinish || inspectionFinish), finish: coatingFinish };
-    case 'delivery':
-    case 'delivery-step':
-      return { start: null, finish: projectFinish };
-    default:
-      return { start: null, finish: null };
-  }
-}
-
-function applyClientTrackingDatesToScheduleRows(project, rows) {
-  return rows.map((row) => {
-    const plannedStart = parseDateObject(row.start);
-    const plannedFinish = parseDateObject(row.finish);
-    const tracking = getClientScheduleTrackingDates(project, row);
-    let start = parseDateObject(tracking.start) || plannedStart;
-    let finish = parseDateObject(tracking.finish) || plannedFinish;
-    const startSource = tracking.start ? 'tracking' : 'planned';
-    const finishSource = tracking.finish ? 'tracking' : 'planned';
-
-    if (start && finish && start > finish) {
-      if (finishSource === 'tracking' && startSource !== 'tracking') start = finish;
-      else if (startSource === 'tracking' && finishSource !== 'tracking') finish = start;
-    }
-
-    const duration = start && finish && (startSource === 'tracking' || finishSource === 'tracking')
-      ? Math.max(1, countBusinessDaysInclusive(start, finish) || row.duration || 1)
-      : row.duration;
-
-    return {
-      ...row,
-      plannedStart,
-      plannedFinish,
-      start,
-      finish,
-      duration,
-      startSource,
-      finishSource,
-      trackingApplied: startSource === 'tracking' || finishSource === 'tracking',
-      startDeviationDays: startSource === 'tracking' ? clientDateDiffDays(start, plannedStart) : 0,
-      finishDeviationDays: finishSource === 'tracking' ? clientDateDiffDays(finish, plannedFinish) : 0,
-    };
-  });
-}
-
-function formatClientScheduleDateCell(row, field) {
-  const value = field === 'start' ? row.start : row.finish;
-  const planned = field === 'start' ? row.plannedStart : row.plannedFinish;
-  const source = field === 'start' ? row.startSource : row.finishSource;
-  const deviation = field === 'start' ? row.startDeviationDays : row.finishDeviationDays;
-  const valueText = formatClientDateShort(value);
-  if (source !== 'tracking') return escapeHtml(valueText);
-  const plannedText = formatClientDateShort(planned);
-  const deviationText = deviation === 0 ? 'sem desvio' : `${Math.abs(deviation)}d ${deviation > 0 ? 'após' : 'antes'}`;
-  return `<span class="client-schedule-date client-schedule-date--tracking">${escapeHtml(valueText)}</span><small class="client-schedule-date-note">Tracking • Plan.: ${escapeHtml(plannedText)} • ${escapeHtml(deviationText)}</small>`;
-}
-
-function getClientSCurveTrackingMilestoneAnalysis(project) {
-  return getClientSCurveTrackingMilestones(project).map((milestone) => {
-    const plannedPercentAtRealDate = getClientPlannedAtDate(project, milestone.date);
-    const percentDeviation = plannedPercentAtRealDate - milestone.percent;
-    const state = percentDeviation >= 8 ? 'late' : percentDeviation <= -8 ? 'ahead' : 'on_time';
-    return { ...milestone, plannedPercentAtRealDate, percentDeviation, state };
-  });
-}
-
-function renderClientSCurveMilestoneSummary(project) {
-  const milestones = getClientSCurveTrackingMilestoneAnalysis(project);
-  if (!milestones.length) return '<div class="client-scurve-milestones client-scurve-milestones--empty">Nenhum marco real do Tracking informado ainda para alimentar a Curva S.</div>';
-  return `<div class="client-scurve-milestones">${milestones.map((milestone) => {
-    const stateLabel = milestone.state === 'late' ? 'Atenção' : milestone.state === 'ahead' ? 'Adiantado' : 'No prazo';
-    return `<div class="client-scurve-milestone client-scurve-milestone--${milestone.state}"><span>${escapeHtml(milestone.label)}</span><strong>${escapeHtml(clientFormatDateValue(milestone.date))}</strong><small>Real ${formatPercent(milestone.percent)} • Planejado na data ${formatPercent(milestone.plannedPercentAtRealDate)} • ${escapeHtml(stateLabel)}</small></div>`;
-  }).join('')}</div>`;
-}
-
 function buildClientExecutiveSchedule(project) {
   const start = getClientAnalyticStartDate(project);
   const finish = getClientAnalyticFinishDate(project) || getProjectShipmentDate(project);
@@ -4993,11 +4857,11 @@ function buildClientExecutiveSchedule(project) {
     { key: 'final-dimensional', label: 'Final Dimensional Inspection', base: 8, percent: getClientStageValue(project, ['Final Dimensional Inpection/3D (QC)']) },
     { key: 'hydro', label: 'Hydro Testing', base: 6, percent: getClientStageValue(project, ['Hydro Test Pressure (QC)']), spoolOnly: true },
     { key: 'painting', label: 'Painting', base: 14, percent: getClientStageValue(project, ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)']) },
-  ].filter((item) => !item.spoolOnly || isClientSpoolMaterial(project));
+  ].filter((item) => !item.spoolOnly || isClientHydroApplicable(project));
   const logisticsTemplate = [
     { key: 'packing', label: 'Packing', base: 1, percent: getClientStageValue(project, ['Package and Delivered']) },
     { key: 'final-inspection', label: 'Final Inspection', base: 1, percent: getClientStageValue(project, ['Final Inspection']) },
-    { key: 'delivery-step', label: 'Delivery', base: 1, percent: getClientPackageProgress(project) },
+    { key: 'delivery', label: 'Delivery', base: 1, percent: getClientPackageProgress(project) },
   ];
   const fabricationGroup = groupDurations.find((item) => item.key === 'fabrication');
   const deliveryGroup = groupDurations.find((item) => item.key === 'delivery');
@@ -5009,29 +4873,29 @@ function buildClientExecutiveSchedule(project) {
   for (const group of groupDurations) {
     const groupStart = new Date(cursor.getTime());
     const groupFinish = addBusinessDaysUtc(groupStart, Math.max(0, (group.duration || 1) - 1)) || groupStart;
-    rows.push({ key: group.key, type: 'group', label: group.label, progress: group.percent, duration: group.duration, start: groupStart, finish: groupFinish });
+    rows.push({ type: 'group', label: group.label, progress: group.percent, duration: group.duration, start: groupStart, finish: groupFinish });
     let children = [];
     if (group.key === 'engineering') {
-      children = [{ key: 'drawings', label: 'Drawings', progress: group.percent, duration: group.duration }];
+      children = [{ label: 'Drawings', progress: group.percent, duration: group.duration }];
     } else if (group.key === 'procurement') {
-      children = [{ key: 'materials-acquisition', label: 'Materials for Application Acquisition', progress: group.percent, duration: group.duration }];
+      children = [{ label: 'Materials for Application Acquisition', progress: group.percent, duration: group.duration }];
     } else if (group.key === 'fabrication') {
-      children = fabricationDurations.map((item) => ({ key: item.key, label: item.label, progress: item.percent, duration: item.duration }));
+      children = fabricationDurations.map((item) => ({ label: item.label, progress: item.percent, duration: item.duration }));
     } else if (group.key === 'delivery') {
-      children = logisticsDurations.map((item) => ({ key: item.key, label: item.label, progress: item.percent, duration: item.duration }));
+      children = logisticsDurations.map((item) => ({ label: item.label, progress: item.percent, duration: item.duration }));
     }
 
     let childCursor = new Date(groupStart.getTime());
     for (const child of children) {
       const childStart = new Date(childCursor.getTime());
       const childFinish = addBusinessDaysUtc(childStart, Math.max(0, (child.duration || 1) - 1)) || childStart;
-      rows.push({ key: child.key, type: 'child', label: child.label, progress: child.progress, duration: child.duration, start: childStart, finish: childFinish });
+      rows.push({ type: 'child', label: child.label, progress: child.progress, duration: child.duration, start: childStart, finish: childFinish });
       childCursor = addBusinessDaysUtc(childFinish, 1) || childFinish;
     }
 
     cursor = addBusinessDaysUtc(groupFinish, 1) || groupFinish;
   }
-  return applyClientTrackingDatesToScheduleRows(project, rows);
+  return applyClientTrackingDatesToSchedule(project, rows);
 }
 
 function getClientScheduleVisualState(progress) {
@@ -5052,7 +4916,10 @@ function renderClientExecutiveSchedule(project) {
           ${rows.map((row) => {
             const state = getClientScheduleVisualState(row.progress);
             const label = row.type === 'group' ? `<strong>${escapeHtml(row.label)}</strong>` : `<span class="client-schedule-child">${escapeHtml(row.label)}</span>`;
-            return `<tr class="client-schedule-row client-schedule-row--${state} client-schedule-row--${row.type} ${row.trackingApplied ? 'client-schedule-row--tracking' : ''}"><td>${label}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(row.progress)}</span></td><td>${formatNumber(row.duration, 0)}d</td><td>${formatClientScheduleDateCell(row, 'start')}</td><td>${formatClientScheduleDateCell(row, 'finish')}</td><td><span class="client-spool-chip client-spool-chip--${state}">${row.trackingApplied ? 'Tracking' : state === 'completed' ? 'Concluído' : state === 'in-progress' ? 'Em andamento' : 'Não iniciado'}</span></td></tr>`;
+            const trackingStatus = row.fromTracking
+              ? `Tracking${row.deviationDays ? ` • ${row.deviationDays > 0 ? '+' : ''}${row.deviationDays}d` : ''}`
+              : (state === 'completed' ? 'Concluído' : state === 'in-progress' ? 'Em andamento' : 'Não iniciado');
+            return `<tr class="client-schedule-row client-schedule-row--${state} client-schedule-row--${row.type}"><td>${label}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(row.progress)}</span></td><td>${formatNumber(row.duration, 0)}d</td><td>${formatClientDateShort(row.start)}</td><td>${formatClientDateShort(row.finish)}</td><td><span class="client-spool-chip client-spool-chip--${state}">${escapeHtml(trackingStatus)}</span></td></tr>`;
           }).join('')}
         </tbody>
       </table>
@@ -5917,10 +5784,9 @@ function openClientBspExecutive(project) {
 
     <div class="client-exec-grid client-exec-grid--main">
       <section class="client-exec-card client-exec-card--curve">
-        <div class="client-exec-card-head"><h3>Curva S | Planejado x Realizado</h3><span>Planejado pela janela da BSP; realizado pelos marcos reais do Tracking quando existirem</span></div>
-        <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span><span><i class="milestone"></i> Marcos reais</span></div>
+        <div class="client-exec-card-head"><h3>Curva S | Planejado x Realizado</h3><span>Baseada na data inicial e final da BSP</span></div>
+        <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span></div>
         ${renderClientSCurveSvg(project)}
-        ${renderClientSCurveMilestoneSummary(project)}
       </section>
       <aside class="client-exec-side">
         <section class="client-exec-card">
@@ -5949,7 +5815,7 @@ function openClientBspExecutive(project) {
     </section>
 
     <section class="client-exec-card client-exec-schedule-card">
-      <div class="client-exec-card-head"><h3>Schedule Executivo da BSP</h3><span>Planejado pela janela da BSP e atualizado pelas datas reais do Tracking</span></div>
+      <div class="client-exec-card-head"><h3>Schedule Executivo da BSP</h3><span>Prazos médios por etapa com base na data inicial e final</span></div>
       ${renderClientExecutiveSchedule(project)}
     </section>
 

@@ -1,0 +1,27 @@
+Versão v36.16 - Base funcional v36.9 + datas reais do Tracking
+
+Base usada:
+- step_dashboard_tracking_CLIENTE_v36.9_HYDRO_APENAS_SPOOL(1).zip
+
+Alterações aplicadas de forma isolada:
+1. Mantida a base funcional v36.9 para não quebrar o carregamento do painel.
+2. Hydro Testing continua aparecendo somente para Spool.
+3. Hydro Testing/TH também é removido quando OBSERVATIONS indicar solda de campo, field weld, sem TH ou variações.
+4. Schedule Executivo do painel do cliente passa a ler marcos reais do Tracking:
+   - Fabrication Start Date
+   - Boilermaker Finish Date
+   - Welding Finish Date
+   - Inspection Finish Date (QC)
+   - TH Finish Date, quando existir e quando TH for aplicável
+5. Curva S passa a usar os marcos reais do Tracking para a linha Realizado, sem alterar a API principal.
+6. Leitura robusta das datas em milestones, stageValues, campos diretos do projeto e campos dos spools.
+
+Validações:
+- node --check site/app.js
+- node --check site/sw.js
+- node --check netlify/functions/projects.js
+- teste local com fallback-projects.json e BSP 25-1165-38:
+  Fabrication Start Date: 23/02/2026
+  Boilermaker Finish Date: 02/03/2026
+  Welding Finish Date: 03/03/2026
+  Inspection Finish Date (QC): 02/04/2026
