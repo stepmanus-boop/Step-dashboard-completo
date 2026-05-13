@@ -4644,15 +4644,82 @@ function getClientPlannedToday(project) {
   return clientSchedulePlannedPercent((today - start) / Math.max(1, finish - start));
 }
 
+
+function getClientSCurvePlannedFinishDate(project) {
+  const candidates = [
+    project?.plannedFinishDate,
+    project?.plannedEndDate,
+    project?.baselineFinishDate,
+    project?.stageValues?.['Planned Finish Date'],
+    project?.stageValues?.['Planned Finish'],
+    project?.stageValues?.['Baseline Finish Date'],
+  ];
+  for (const value of candidates) {
+    const parsed = parseDateObject(value);
+    if (parsed) return parsed;
+  }
+  return getClientAnalyticFinishDate(project);
+}
+
+function getClientSCurveShipmentDate(project) {
+  const realDates = getClientTrackingDates(project);
+  return parseDateObject(realDates.projectFinish) || parseDateObject(getProjectShipmentDate(project));
+}
+
+function getClientSCurveDelayInfo(project) {
+  const plannedFinish = parseDateObject(getClientSCurvePlannedFinishDate(project));
+  if (!plannedFinish) return null;
+  const shipmentDate = getClientSCurveShipmentDate(project);
+  const today = getCurrentBrazilDate();
+  const actualNow = getClientOverallProgress(project);
+  let end = null;
+  let status = '';
+  let endLabel = '';
+  let completed = false;
+
+  if (shipmentDate && shipmentDate > plannedFinish) {
+    end = shipmentDate;
+    status = 'Finalizado com atraso';
+    endLabel = 'Envio real';
+    completed = true;
+  } else if (!shipmentDate && actualNow < 100 && today > plannedFinish) {
+    end = today;
+    status = 'Em atraso';
+    endLabel = 'Hoje';
+  }
+
+  if (!end || end <= plannedFinish) return null;
+  const days = Math.max(1, Math.round((end.getTime() - plannedFinish.getTime()) / 86400000));
+  return {
+    start: plannedFinish,
+    end,
+    days,
+    status,
+    endLabel,
+    completed,
+    tooltip: [
+      'Desvio de prazo',
+      `Status: ${status}`,
+      `Término planejado: ${clientFormatDateValue(plannedFinish)}`,
+      `${endLabel}: ${clientFormatDateValue(end)}`,
+      `Atraso: +${days} dia(s)`,
+    ].join('\n'),
+  };
+}
+
+function clientDateMax(...values) {
+  const dates = values.map(parseDateObject).filter(Boolean).sort((a, b) => a - b);
+  return dates.length ? dates[dates.length - 1] : null;
+}
+
 function buildClientSCurveData(project) {
   const start = getClientAnalyticStartDate(project);
-  let finish = getClientAnalyticFinishDate(project);
-  if (finish <= start) finish = addUtcDays(start, 30);
-  const duration = clientDaysBetween(start, finish);
-  const step = Math.max(1, Math.ceil(duration / 14));
+  let plannedFinish = getClientSCurvePlannedFinishDate(project);
+  if (plannedFinish <= start) plannedFinish = addUtcDays(start, 30);
   const today = getCurrentBrazilDate();
   const actualNow = getClientOverallProgress(project);
   const plannedToday = getClientPlannedToday(project);
+  const delayInfo = getClientSCurveDelayInfo(project);
   let trackingMilestones = normalizeClientSCurveActualMilestones(project, start, getClientSCurveActualMilestones(project));
   const lastTrackingMilestone = trackingMilestones[trackingMilestones.length - 1];
   if (lastTrackingMilestone && today >= lastTrackingMilestone.date && actualNow > lastTrackingMilestone.actual) {
@@ -4664,19 +4731,31 @@ function buildClientSCurveData(project) {
       label: 'Atual',
     }]);
   }
+
+  const lastMilestoneDate = trackingMilestones.length ? trackingMilestones[trackingMilestones.length - 1].date : null;
+  const chartFinish = clientDateMax(plannedFinish, delayInfo?.end, lastMilestoneDate) || plannedFinish;
+  const plannedDuration = Math.max(1, clientDaysBetween(start, plannedFinish));
+  const step = Math.max(1, Math.ceil(plannedDuration / 14));
   const rawPoints = [];
 
-  for (let day = 0; day <= duration; day += step) {
+  for (let day = 0; day <= plannedDuration; day += step) {
     const date = addUtcDays(start, day);
-    const ratio = day / duration;
+    const ratio = day / plannedDuration;
     const planned = clientSchedulePlannedPercent(ratio);
     rawPoints.push({ date, planned, actual: null });
   }
-  if (rawPoints[rawPoints.length - 1]?.date < finish) {
-    rawPoints.push({ date: finish, planned: 100, actual: null });
+  if (rawPoints[rawPoints.length - 1]?.date < plannedFinish) {
+    rawPoints.push({ date: plannedFinish, planned: 100, actual: null, trackingLabel: 'Término planejado' });
   }
+  if (delayInfo?.end && delayInfo.end > plannedFinish) {
+    rawPoints.push({ date: delayInfo.end, planned: 100, actual: null, trackingLabel: delayInfo.endLabel || 'Desvio de prazo', delayInfo });
+  }
+  if (chartFinish > plannedFinish && (!delayInfo || chartFinish.getTime() !== delayInfo.end.getTime())) {
+    rawPoints.push({ date: chartFinish, planned: 100, actual: null });
+  }
+
   for (const milestone of trackingMilestones) {
-    const ratio = Math.max(0, Math.min(1, (milestone.date - start) / Math.max(1, finish - start)));
+    const ratio = Math.max(0, Math.min(1, (milestone.date - start) / Math.max(1, plannedFinish - start)));
     rawPoints.push({ date: milestone.date, planned: clientSchedulePlannedPercent(ratio), actual: milestone.actual, trackingLabel: milestone.label });
   }
 
@@ -4700,7 +4779,7 @@ function buildClientSCurveData(project) {
         actual = actualNow > 0 ? actualNow : 0;
       }
     }
-    return { ...point, actual };
+    return { ...point, actual, delayInfo: point.delayInfo || delayInfo || null };
   });
 }
 
@@ -4766,6 +4845,29 @@ function buildClientChartHoverTargets(points, width, height) {
   }).join('');
 }
 
+
+function renderClientSCurveDelayOverlay(project, points, width, height, pad) {
+  const delayInfo = getClientSCurveDelayInfo(project);
+  if (!delayInfo) return '';
+  const x1 = clientChartX({ date: delayInfo.start }, points, width, pad);
+  const x2 = clientChartX({ date: delayInfo.end }, points, width, pad);
+  if (!Number.isFinite(x1) || !Number.isFinite(x2) || x2 <= x1) return '';
+  const top = pad.top;
+  const bottom = height - pad.bottom;
+  const y100 = clientChartY(100, height, pad);
+  const tooltip = escapeHtml(delayInfo.tooltip);
+  const labelX = Math.min(width - pad.right - 90, Math.max(pad.left + 6, x1 + 8));
+  const labelY = Math.max(pad.top + 12, y100 - 10);
+  return `
+    <rect x="${x1.toFixed(1)}" y="${top}" width="${(x2 - x1).toFixed(1)}" height="${(bottom - top)}" class="client-chart-delay-band" />
+    <line x1="${x1.toFixed(1)}" y1="${top}" x2="${x1.toFixed(1)}" y2="${bottom}" class="client-chart-delay-boundary" />
+    <line x1="${x2.toFixed(1)}" y1="${top}" x2="${x2.toFixed(1)}" y2="${bottom}" class="client-chart-delay-boundary client-chart-delay-boundary--end" />
+    <line x1="${x1.toFixed(1)}" y1="${y100.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y100.toFixed(1)}" class="client-chart-delay-line" />
+    <text x="${labelX.toFixed(1)}" y="${labelY.toFixed(1)}" class="client-chart-delay-label">+${delayInfo.days}d</text>
+    <rect x="${x1.toFixed(1)}" y="${top}" width="${(x2 - x1).toFixed(1)}" height="${(bottom - top)}" class="client-chart-hover-target client-chart-delay-hover" data-client-chart-tooltip="${tooltip}"><title>${tooltip}</title></rect>
+  `;
+}
+
 function renderClientSCurveSvg(project) {
   const points = buildClientSCurveData(project);
   const width = 760;
@@ -4789,10 +4891,12 @@ function renderClientSCurveSvg(project) {
     const y = clientChartY(lastActual.actual, height, pad);
     return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="client-chart-dot" />`;
   })();
+  const delayOverlay = renderClientSCurveDelayOverlay(project, points, width, height, pad);
   const hoverTargets = buildClientChartHoverTargets(points, width, height);
   return `
     <svg class="client-scurve-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Curva S planejado versus realizado">
       ${grid}
+      ${delayOverlay}
       <line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" class="client-chart-axis" />
       <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" class="client-chart-axis" />
       <path d="${plannedPath}" class="client-chart-planned" />
@@ -5888,7 +5992,7 @@ function openClientBspExecutive(project) {
     <div class="client-exec-grid client-exec-grid--main">
       <section class="client-exec-card client-exec-card--curve">
         <div class="client-exec-card-head"><h3>Curva S | Planejado x Realizado</h3><span>Baseada na data inicial e final da BSP</span></div>
-        <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span></div>
+        <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span><span><i class="delay"></i> Desvio</span></div>
         ${renderClientSCurveSvg(project)}
       </section>
       <aside class="client-exec-side">

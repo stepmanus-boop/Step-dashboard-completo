@@ -5057,8 +5057,9 @@ body.client-exec-open {
   background: #0a9878;
 }
 
-.client-exec-legend .deviation {
-  background: #efc14f;
+.client-exec-legend .deviation,
+.client-exec-legend .delay {
+  background: #f59e0b;
 }
 
 .client-scurve-svg {
@@ -5105,6 +5106,45 @@ body.client-exec-open {
   fill: #0a9878;
   stroke: white;
   stroke-width: 3;
+}
+
+.client-chart-delay-band {
+  fill: rgba(245, 158, 11, .12);
+  stroke: none;
+}
+
+.client-chart-delay-boundary {
+  stroke: rgba(245, 158, 11, .58);
+  stroke-width: 1.6;
+  stroke-dasharray: 5 4;
+}
+
+.client-chart-delay-boundary--end {
+  stroke-width: 2;
+}
+
+.client-chart-delay-line {
+  stroke: #f59e0b;
+  stroke-width: 5;
+  stroke-linecap: round;
+  filter: drop-shadow(0 6px 12px rgba(245, 158, 11, .22));
+}
+
+.client-chart-delay-label {
+  fill: #b45309;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .04em;
+}
+
+.client-chart-delay-hover {
+  fill: transparent;
+  stroke: transparent;
+}
+
+.client-chart-delay-hover:hover {
+  fill: rgba(245, 158, 11, .10);
+  stroke: rgba(245, 158, 11, .35);
 }
 
 .client-chart-hover-target {
