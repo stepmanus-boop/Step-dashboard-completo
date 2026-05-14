@@ -177,6 +177,7 @@ const sessionUserMetaEl = document.getElementById("session-user-meta");
 const sessionStatusEl = document.getElementById("session-status");
 const logoutButtonEl = document.getElementById("logout-button");
 const openChangePasswordButtonEl = document.getElementById("open-change-password-button");
+const openClientApiButtonEl = document.getElementById("open-client-api-button");
 const openLoginButtonEl = document.getElementById("open-login-button");
 const changePasswordModalEl = document.getElementById("change-password-modal");
 const changePasswordFormEl = document.getElementById("change-password-form");
@@ -8832,6 +8833,12 @@ if (openLoginButtonEl) {
   });
 }
 
+if (openClientApiButtonEl) {
+  openClientApiButtonEl.addEventListener("click", () => {
+    openClientApiModal();
+  });
+}
+
 if (loginCloseEl) {
   loginCloseEl.addEventListener("click", closeLoginModal);
 }
@@ -9771,6 +9778,7 @@ function updateSessionUi() {
     sessionStatusEl.textContent = "bloqueado";
     logoutButtonEl.classList.add("hidden");
     if (openChangePasswordButtonEl) openChangePasswordButtonEl.classList.add("hidden");
+    if (openClientApiButtonEl) openClientApiButtonEl.classList.add("hidden");
     openAdminPanelEl.classList.add("hidden");
     if (openLoginButtonEl) openLoginButtonEl.classList.remove("hidden");
     setClientDashboardMode();
@@ -9794,6 +9802,9 @@ function updateSessionUi() {
   logoutButtonEl.classList.remove("hidden");
   if (openChangePasswordButtonEl) openChangePasswordButtonEl.classList.remove("hidden");
   if (openLoginButtonEl) openLoginButtonEl.classList.add("hidden");
+  if (openClientApiButtonEl) {
+    openClientApiButtonEl.classList.toggle("hidden", !isClientUser(user));
+  }
   if (user.role === "admin") {
     openAdminPanelEl.classList.remove("hidden");
   } else {

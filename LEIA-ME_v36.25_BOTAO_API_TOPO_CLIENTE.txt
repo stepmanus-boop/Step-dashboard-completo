@@ -1,0 +1,15 @@
+v36.25 - Botão Gerar API no topo do Portal do Cliente
+
+Base: v36.24 API interna do cliente.
+
+Alteração:
+- Criado botão "Gerar API" logo após "Instalar app" na barra superior.
+- O botão aparece somente para usuário com perfil Cliente.
+- O botão abre o mesmo modal da API já existente no Portal do Cliente.
+- Mantido o botão "Gerar API" dentro do card do cliente.
+- Atualizado cache do PWA para carregar index/app.js novos.
+
+Arquivos alterados:
+- site/index.html
+- site/app.js
+- site/sw.js
