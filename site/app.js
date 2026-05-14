@@ -17,7 +17,7 @@ const state = {
   projectView: 'all',
   projectDrill: { open: false, mode: 'total', selectedClientKey: '', selectedVesselKey: '' },
   clientPortal: { selectedVesselKey: '', selectedProjectId: null, rowClickTimer: null, vesselClickTimer: null },
-  clientApi: { keys: [], loading: false, newToken: '', feedback: '' },
+  clientApi: { keys: [], loading: false, newToken: '', newTokenKeyId: '', feedback: '' },
   sectorScopedView: false,
   stats: null,
   meta: null,
@@ -6210,27 +6210,44 @@ function renderClientApiKeys() {
     }
   }
   if (!listEl) return;
+  const rawToken = state.clientApi.newToken || '';
+  const rawTokenId = state.clientApi.newTokenKeyId || '';
+  const tokenNotice = rawToken ? `
+    <article class="client-api-key-item client-api-key-item--new-token">
+      <div>
+        <strong>Token criado agora</strong>
+        <span>Copie este token completo. Ele não será exibido novamente depois que fechar esta janela.</span>
+        <code>${escapeHtml(rawToken)}</code>
+        <small>Use em Authorization: Bearer ${escapeHtml(rawToken)}</small>
+      </div>
+      <button class="mini-action-button" type="button" data-client-api-copy-token>Copiar token</button>
+    </article>
+  ` : '';
   if (state.clientApi.loading) {
-    listEl.innerHTML = '<div class="client-api-empty">Carregando chaves...</div>';
+    listEl.innerHTML = `${tokenNotice}<div class="client-api-empty">Carregando chaves...</div>`;
     return;
   }
   const keys = Array.isArray(state.clientApi.keys) ? state.clientApi.keys : [];
   if (!keys.length) {
-    listEl.innerHTML = '<div class="client-api-empty">Nenhuma API criada ainda.</div>';
+    listEl.innerHTML = `${tokenNotice}<div class="client-api-empty">Nenhuma API criada ainda.</div>`;
     return;
   }
-  listEl.innerHTML = keys.map((key) => {
+  listEl.innerHTML = tokenNotice + keys.map((key) => {
     const status = key.active === false ? 'Revogada' : 'Ativa';
     const created = key.createdAt ? new Date(key.createdAt).toLocaleString('pt-BR') : '--';
     const used = key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString('pt-BR') : 'Nunca usada';
+    const isNewKey = rawToken && rawTokenId && String(key.id || '') === String(rawTokenId);
     return `
-      <article class="client-api-key-item ${key.active === false ? 'is-revoked' : ''}">
+      <article class="client-api-key-item ${key.active === false ? 'is-revoked' : ''} ${isNewKey ? 'is-new-key' : ''}">
         <div>
           <strong>${escapeHtml(key.name || 'API do cliente')}</strong>
           <span>${escapeHtml(key.tokenPreview || 'step_••••')}</span>
           <small>Criada: ${escapeHtml(created)} • Último uso: ${escapeHtml(used)} • ${escapeHtml(status)}</small>
         </div>
-        ${key.active === false ? '' : `<button class="mini-action-button mini-action-button--danger" type="button" data-client-api-revoke="${escapeHtml(key.id)}">Revogar</button>`}
+        <div class="client-api-key-actions">
+          ${isNewKey ? '<button class="mini-action-button" type="button" data-client-api-copy-token>Copiar token</button>' : ''}
+          ${key.active === false ? '' : `<button class="mini-action-button mini-action-button--danger" type="button" data-client-api-revoke="${escapeHtml(key.id)}">Revogar</button>`}
+        </div>
       </article>
     `;
   }).join('');
@@ -6257,6 +6274,7 @@ function openClientApiModal() {
   if (!isClientUser()) return;
   const modal = ensureClientApiModal();
   state.clientApi.newToken = '';
+  state.clientApi.newTokenKeyId = '';
   state.clientApi.feedback = '';
   modal.classList.remove('hidden');
   document.body.classList.add('client-api-open');
@@ -6270,6 +6288,7 @@ function closeClientApiModal() {
   if (modal) modal.classList.add('hidden');
   document.body.classList.remove('client-api-open');
   state.clientApi.newToken = '';
+  state.clientApi.newTokenKeyId = '';
 }
 
 async function createClientApiKeyFromModal() {
@@ -6278,6 +6297,7 @@ async function createClientApiKeyFromModal() {
   state.clientApi.loading = true;
   state.clientApi.feedback = 'Criando chave...';
   state.clientApi.newToken = '';
+  state.clientApi.newTokenKeyId = '';
   renderClientApiKeys();
   try {
     const response = await fetch('/api/client-api-keys', {
@@ -6290,11 +6310,16 @@ async function createClientApiKeyFromModal() {
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao criar API.');
     state.clientApi.newToken = data.key?.token || '';
+    state.clientApi.newTokenKeyId = data.key?.id || '';
     state.clientApi.feedback = 'API criada com sucesso. Copie o token agora.';
     renderClientApiExample(state.clientApi.newToken || '<SUA_API_KEY>');
     await loadClientApiKeys();
     state.clientApi.feedback = 'API criada com sucesso. Copie o token agora.';
     renderClientApiKeys();
+    setTimeout(() => {
+      const tokenBox = document.getElementById('client-api-new-token') || document.querySelector('.client-api-key-item--new-token');
+      tokenBox?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    }, 50);
   } catch (error) {
     state.clientApi.feedback = error?.message || 'Falha ao criar API.';
     renderClientApiKeys();
@@ -6325,15 +6350,46 @@ async function revokeClientApiKeyFromModal(id) {
   }
 }
 
+function copyTextToClipboard(value) {
+  const text = String(value || '');
+  if (!text) return Promise.reject(new Error('Nada para copiar.'));
+  if (navigator.clipboard?.writeText && window.isSecureContext !== false) {
+    return navigator.clipboard.writeText(text);
+  }
+  return new Promise((resolve, reject) => {
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', 'readonly');
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      textarea.setSelectionRange(0, textarea.value.length);
+      const ok = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      ok ? resolve() : reject(new Error('Cópia bloqueada pelo navegador.'));
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
 function copyClientApiToken() {
   const token = state.clientApi.newToken || '';
-  if (!token) return;
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(token).then(() => {
-      state.clientApi.feedback = 'Token copiado.';
-      renderClientApiKeys();
-    }).catch(() => {});
+  if (!token) {
+    state.clientApi.feedback = 'O token completo só aparece no momento da criação. Crie uma nova API caso não tenha copiado.';
+    renderClientApiKeys();
+    return;
   }
+  copyTextToClipboard(token).then(() => {
+    state.clientApi.feedback = 'Token copiado.';
+    renderClientApiKeys();
+  }).catch(() => {
+    state.clientApi.feedback = 'Não consegui copiar automaticamente. Selecione o token completo exibido e copie manualmente.';
+    renderClientApiKeys();
+  });
 }
 
 function handleClientApiModalClick(event) {

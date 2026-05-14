@@ -7618,3 +7618,32 @@ body.client-mode .client-logo-box img,
     flex-direction: column;
   }
 }
+
+/* v36.26 - API do cliente: token completo sempre visível após criar */
+.client-api-key-item--new-token {
+  border-color: rgba(47, 216, 166, .55) !important;
+  background: linear-gradient(135deg, rgba(2, 75, 58, .55), rgba(2, 33, 56, .72)) !important;
+}
+.client-api-key-item--new-token code {
+  display: block;
+  max-width: 100%;
+  overflow: auto;
+  white-space: nowrap;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, .34);
+  color: #fff;
+  font-size: .9rem;
+  user-select: all;
+}
+.client-api-key-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.client-api-key-item.is-new-key {
+  border-color: rgba(47, 216, 166, .35) !important;
+}
