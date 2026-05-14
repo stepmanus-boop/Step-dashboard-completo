@@ -397,7 +397,6 @@
       <div class="admin-tabs" role="tablist" aria-label="Abas do admin">
         <button class="admin-tab is-active" type="button" data-admin-tab-trigger="usuario" aria-selected="true">Novo usuário</button>
         <button class="admin-tab" type="button" data-admin-tab-trigger="historico" aria-selected="false">Histórico operacional</button>
-        <button class="admin-tab" type="button" data-admin-tab-trigger="login-automatico" aria-selected="false">Login automático</button>
         <button class="admin-tab" type="button" data-admin-tab-trigger="alerta" aria-selected="false">Novo alerta operacional</button>
       </div>
 
@@ -447,16 +446,14 @@
               </select>
             </label>
             <label class="stack-field">
-              <span>País / Ambiente operacional</span>
-              <select id="admin-user-operation-region">
-                <option value="BR">Brasil</option>
-                <option value="PT" selected>Portugal</option>
+              <span>Ambiente operacional</span>
+              <select id="admin-user-operation-region" disabled>
+                <option value="BR" selected>Brasil</option>
               </select>
               <div class="country-button-row" data-operation-region-buttons>
-                <button type="button" class="country-pill" data-operation-region-option="BR">Brasil</button>
-                <button type="button" class="country-pill is-active" data-operation-region-option="PT">Portugal</button>
+                <button type="button" class="country-pill is-active" data-operation-region-option="BR" disabled>Brasil</button>
               </div>
-              <small class="field-helper">Esse campo separa cadastros e dados por país. Para novos países, basta adicionar outra opção seguindo o mesmo padrão.</small>
+              <small class="field-helper">Este é o painel Brasil. Usuários criados aqui ficam sempre vinculados ao ambiente BR.</small>
             </label>
           </div>
           <label class="stack-field">
@@ -569,28 +566,6 @@
         <div id="admin-users-list" class="admin-list empty-state">Nenhum usuário carregado.</div>
       </section>
 
-        </div>
-      </div>
-
-
-      <div class="admin-tab-panel" data-admin-tab-panel="login-automatico" hidden>
-        <div class="admin-grid">
-          <section class="admin-card admin-card--wide">
-            <div class="admin-card-head">
-              <div>
-                <h4>Login automático</h4>
-                <p class="muted-small">Gere links por ambiente. O cliente continua digitando o login normal; o site identifica BR/PT automaticamente.</p>
-              </div>
-            </div>
-            <div class="stack-field">
-              <span>Ambiente do link</span>
-              <div class="country-button-row" data-auto-login-region-buttons>
-                <button type="button" class="country-pill" data-auto-login-region="BR">Brasil</button>
-                <button type="button" class="country-pill is-active" data-auto-login-region="PT">Portugal</button>
-              </div>
-            </div>
-            <div id="admin-auto-login-list" class="admin-list empty-state">Carregue os usuários para gerar os links.</div>
-          </section>
         </div>
       </div>
 

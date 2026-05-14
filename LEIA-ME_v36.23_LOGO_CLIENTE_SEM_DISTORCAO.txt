@@ -1,0 +1,19 @@
+Versão v36.23 - Correção da logo do Portal do Cliente
+
+Base: v36.22 estável.
+
+Correção aplicada:
+- Ajustado o CSS da logo do Portal do Cliente para não distorcer marcas horizontais/retangulares.
+- A logo agora usa object-fit: contain em vez de cover.
+- A imagem mantém a proporção original do arquivo enviado no cadastro do cliente.
+- O quadro da logo continua com fundo branco e visual corporativo.
+- Atualizado o cache do PWA para forçar o navegador a buscar o app.css novo.
+
+Arquivos alterados:
+- site/app.css
+- site/sw.js
+
+Validações:
+- node --check site/app.js
+- node --check site/sw.js
+- node --check netlify/functions/projects.js

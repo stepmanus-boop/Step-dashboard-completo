@@ -6,7 +6,6 @@ const {
   listClientApiKeysForUser,
   createClientApiKey,
   revokeClientApiKey,
-  deleteRevokedClientApiKey,
 } = require('./_supabase');
 
 function sha256(value) {
@@ -19,15 +18,12 @@ function makeApiToken() {
 
 function safeKey(key, includeRaw = false, rawToken = '') {
   return {
-    accessMode: 'read_only',
-    allowedMethods: ['GET'],
-    permissions: ['read:projects'],
     id: key.id,
     name: key.name,
     clientKey: key.clientKey,
     clientName: key.clientName,
     tokenPreview: `${key.tokenPrefix || 'step_'}••••${key.tokenLast4 || ''}`,
-    scopes: ['read:projects'],
+    scopes: key.scopes || ['read:projects'],
     active: key.active !== false,
     expiresAt: key.expiresAt || null,
     lastUsedAt: key.lastUsedAt || null,
@@ -50,7 +46,7 @@ async function hydrateSessionUser(session = {}) {
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
-    return jsonResponse(200, { ok: true }, { headers: { 'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS' } });
+    return jsonResponse(200, { ok: true });
   }
 
   const auth = requireSession(event);
@@ -89,7 +85,7 @@ exports.handler = async (event) => {
         tokenHash,
         tokenPrefix,
         tokenLast4,
-        name: String(body.name || 'API de leitura do Portal do Cliente').trim().slice(0, 120),
+        name: String(body.name || 'API do Portal do Cliente').trim().slice(0, 120),
         scopes: ['read:projects'],
         createdBy: user.username || '',
         createdByName: user.name || user.clientName || '',
@@ -100,14 +96,9 @@ exports.handler = async (event) => {
     if (event.httpMethod === 'DELETE') {
       const body = JSON.parse(event.body || '{}');
       const id = body.id || event.queryStringParameters?.id || '';
-      const action = String(body.action || event.queryStringParameters?.action || 'revoke').toLowerCase();
-      if (!id) return jsonResponse(400, { ok: false, error: 'Informe a chave que será revogada ou excluída.' });
-      if (action === 'delete') {
-        const deleted = await deleteRevokedClientApiKey(id, user.sub || user.id);
-        return jsonResponse(200, { ok: true, deleted: true, key: safeKey(deleted || { id, active: false }) });
-      }
+      if (!id) return jsonResponse(400, { ok: false, error: 'Informe a chave que será revogada.' });
       const revoked = await revokeClientApiKey(id, user.sub || user.id);
-      return jsonResponse(200, { ok: true, revoked: true, key: safeKey(revoked || { id, active: false }) });
+      return jsonResponse(200, { ok: true, key: safeKey(revoked || { id, active: false }) });
     }
 
     return jsonResponse(405, { ok: false, error: 'Método não permitido.' });

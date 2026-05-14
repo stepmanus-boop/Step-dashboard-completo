@@ -1,14 +1,12 @@
 const { jsonResponse, createSessionCookie, normalizeText } = require('./_auth');
 
-function normalizeOperationRegion(value = process.env.OPERATION_REGION || process.env.SMARTSHEET_DEFAULT_REGION || 'PT') {
-  const normalized = String(value || 'PT').trim().toUpperCase();
-  if (['BR', 'BRASIL', 'BRAZIL'].includes(normalized)) return 'BR';
-  return 'PT';
+function normalizeOperationRegion(value = 'BR') {
+  // Build Brasil: site separado do Portugal. Nunca autentica como PT.
+  return 'BR';
 }
 
 function getLoginRegion(event, body = {}) {
-  const qs = event?.queryStringParameters || {};
-  return normalizeOperationRegion(body.operationRegion || body.region || body.siteKey || qs.region || qs.operationRegion || process.env.SITE_KEY || process.env.OPERATION_REGION || 'PT');
+  return 'BR';
 }
 
 const { getUserByUsername, isSupabaseConfigured, userPasswordMatches, upsertUserPresence } = require('./_supabase');
@@ -96,8 +94,8 @@ exports.handler = async (event) => {
         projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
         qualityCompetencies: Array.isArray(user.qualityCompetencies) ? user.qualityCompetencies : [],
         clientKey: user.clientKey || '',
-        operationRegion: user.operationRegion || 'PT',
-        siteKey: user.siteKey || user.operationRegion || 'PT',
+        operationRegion: user.operationRegion || 'BR',
+        siteKey: user.siteKey || user.operationRegion || 'BR',
         clientName: user.clientName || '',
         clientLogoUrl: user.clientLogoUrl || '',
         clientPlatformImageUrl: user.clientPlatformImageUrl || '',

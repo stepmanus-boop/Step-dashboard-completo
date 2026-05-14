@@ -34,32 +34,6 @@ where active = true;
 create index if not exists idx_client_api_keys_client_key
 on public.client_api_keys(client_key);
 
--- Blindagem de permissão: todas as chaves desta tabela são SOMENTE LEITURA.
--- Mesmo que alguém tente gravar outro escopo por engano, o banco força read:projects.
-alter table public.client_api_keys
-add column if not exists access_mode text default 'read_only';
-
-update public.client_api_keys
-set scopes = '["read:projects"]'::jsonb,
-    access_mode = 'read_only'
-where scopes is distinct from '["read:projects"]'::jsonb
-   or access_mode is distinct from 'read_only';
-
-do $$
-begin
-  if not exists (
-    select 1 from pg_constraint where conname = 'client_api_keys_read_only_scope_chk'
-  ) then
-    alter table public.client_api_keys
-    add constraint client_api_keys_read_only_scope_chk
-    check (
-      access_mode = 'read_only'
-      and jsonb_typeof(scopes) = 'array'
-      and scopes = '["read:projects"]'::jsonb
-    );
-  end if;
-end $$;
-
 alter table public.client_api_keys enable row level security;
 
 -- A aplicação usa SERVICE_ROLE_KEY nas Netlify Functions. Esta policy deixa a tabela fechada para anon/auth direto.

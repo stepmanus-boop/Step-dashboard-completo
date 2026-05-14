@@ -18,6 +18,7 @@ const state = {
   projectDrill: { open: false, mode: 'total', selectedClientKey: '', selectedVesselKey: '' },
   clientPortal: { selectedVesselKey: '', selectedProjectId: null, rowClickTimer: null, vesselClickTimer: null },
   clientApi: { keys: [], loading: false, newToken: '', newTokenKeyId: '', feedback: '' },
+  clientBspOverrides: { items: [], byProjectRowId: {}, byProjectNumber: {}, loading: false, loaded: false, feedback: '', editingProjectId: null, activeExecutiveProjectId: null },
   sectorScopedView: false,
   stats: null,
   meta: null,
@@ -322,7 +323,6 @@ const adminUsersListEl = document.getElementById("admin-users-list");
 const adminPresenceSummaryEl = document.getElementById("admin-presence-summary");
 const adminPresenceListEl = document.getElementById("admin-presence-list");
 const adminAlertsListEl = document.getElementById("admin-alerts-list");
-const adminAutoLoginListEl = document.getElementById("admin-auto-login-list");
 const adminAlertSearchEl = document.getElementById("admin-alert-search");
 const githubSyncBadgeEl = document.getElementById("github-sync-badge");
 const adminSyncButtonEl = document.getElementById("admin-sync-button");
@@ -807,6 +807,144 @@ function normalizeCompactText(value) {
   return normalizeText(value).replace(/[_ -]+/g, "");
 }
 
+
+const CLIENT_TRATATIVA_OBSERVATION_RULES = [
+  {
+    label: "Revisão de P.O",
+    aliases: ["Revisão de P.O", "Revisao de P.O", "Revisão de PO", "Revisao de PO", "Revisão PO", "Revisao PO"],
+  },
+  {
+    label: "Aguardando liberação para envio",
+    aliases: ["Aguardando liberação para envio", "Aguardando liberacao para envio", "Aguardando liberação p/ envio", "Aguardando liberacao p envio", "Aguardando liberação envio", "Aguardando liberacao envio"],
+  },
+  {
+    label: "Entrega parcial",
+    aliases: ["Entrega parcial"],
+  },
+];
+
+function textMatchesAliasRule(text, aliases = []) {
+  const normalized = normalizeText(text || "");
+  const compact = normalizeCompactText(text || "");
+  if (!normalized && !compact) return false;
+  return aliases.some((alias) => {
+    const normalizedAlias = normalizeText(alias || "");
+    const compactAlias = normalizeCompactText(alias || "");
+    return Boolean(
+      (normalizedAlias && normalized.includes(normalizedAlias))
+      || (compactAlias && compact.includes(compactAlias))
+    );
+  });
+}
+
+function getProjectObservationContexts(project) {
+  if (!project) return [];
+  const contexts = [];
+  const add = (source, text) => {
+    const value = String(text || "").trim();
+    if (value) contexts.push({ source, text: value });
+  };
+
+  add("BSP", project.observations);
+  add("BSP", project.OBSERVATIONS);
+  add("BSP", project.observation);
+  add("BSP", project.note);
+  add("BSP", project.notes);
+  add("BSP", project.comments);
+
+  if (Array.isArray(project.spools)) {
+    project.spools.forEach((spool, index) => {
+      const tag = spool?.iso || spool?.drawing || spool?.description || `Tag ${index + 1}`;
+      add(`Tag ${tag}`, spool?.observations);
+      add(`Tag ${tag}`, spool?.OBSERVATIONS);
+      add(`Tag ${tag}`, spool?.observation);
+      add(`Tag ${tag}`, spool?.note);
+      add(`Tag ${tag}`, spool?.notes);
+      add(`Tag ${tag}`, spool?.comments);
+    });
+  }
+
+  return contexts;
+}
+
+function getProjectTratativaObservationMatches(project) {
+  const matches = [];
+  const seen = new Set();
+  const seenLabelText = new Set();
+  const addMatch = (match) => {
+    const label = String(match?.label || "").trim();
+    const source = String(match?.source || "BSP").trim() || "BSP";
+    const text = String(match?.text || "").trim();
+    if (!label || !text) return;
+    const key = `${label}|${source}|${text}`;
+    const labelTextKey = `${label}|${normalizeText(text)}`;
+    if (seen.has(key) || seenLabelText.has(labelTextKey)) return;
+    seen.add(key);
+    seenLabelText.add(labelTextKey);
+    matches.push({ label, source, text });
+  };
+
+  if (Array.isArray(project?.tratativaObservationMatches)) {
+    project.tratativaObservationMatches.forEach(addMatch);
+  }
+
+  if (Array.isArray(project?.spools)) {
+    project.spools.forEach((spool) => {
+      if (Array.isArray(spool?.tratativaObservationMatches)) {
+        spool.tratativaObservationMatches.forEach(addMatch);
+      }
+    });
+  }
+
+  for (const context of getProjectObservationContexts(project)) {
+    for (const rule of CLIENT_TRATATIVA_OBSERVATION_RULES) {
+      if (!textMatchesAliasRule(context.text, rule.aliases)) continue;
+      addMatch({ label: rule.label, source: context.source, text: context.text });
+    }
+  }
+  return matches;
+}
+
+function projectHasTratativaObservation(project) {
+  return getProjectTratativaObservationMatches(project).length > 0;
+}
+
+function getProjectTratativaReason(project) {
+  const matches = getProjectTratativaObservationMatches(project);
+  if (!matches.length) return "";
+  return matches.map((match) => `${match.label} • ${match.source}: ${match.text}`).join(" | ");
+}
+
+function renderClientTratativaNotice(project) {
+  const matches = getProjectTratativaObservationMatches(project);
+  if (!matches.length) return "";
+  return `
+    <section class="client-observation-notice client-observation-notice--tratativa">
+      <div>
+        <span>Em tratativa</span>
+        <strong>Observação crítica ativa</strong>
+      </div>
+      <ul>
+        ${matches.map((match) => `<li><strong>${escapeHtml(match.label)}</strong> — ${escapeHtml(match.source)}: ${escapeHtml(match.text)}</li>`).join("")}
+      </ul>
+    </section>
+  `;
+}
+
+function renderClientOnHoldNotice(project) {
+  if (!isProjectOnHold(project)) return "";
+  const reason = getProjectHoldReason(project);
+  return `
+    <section class="client-observation-notice client-observation-notice--hold">
+      <div>
+        <span>ON HOLD</span>
+        <strong>BSP EM ON HOLD — em espera operacional</strong>
+      </div>
+      <p>${escapeHtml(reason || "On Hold identificado")}</p>
+    </section>
+  `;
+}
+
 function buildSearchIndex(parts) {
   const values = (parts || []).filter(Boolean).map((item) => String(item));
   const expanded = [];
@@ -1251,6 +1389,39 @@ function parseDateObject(value) {
   }
 
   return null;
+}
+
+
+function parseClientSafeDateObject(value, options = {}) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const parsedDate = parseDateObject(value);
+    const year = parsedDate?.getUTCFullYear?.();
+    const minYear = Number(options.minYear) || 2020;
+    const maxYear = Number(options.maxYear) || 2055;
+    return year >= minYear && year <= maxYear ? parsedDate : null;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  // Evita que valores de percentual, booleanos, IDs ou números soltos virem datas
+  // por acidente. Ex.: new Date('0') = 01/01/2000, o que achatava a Curva S.
+  if (/^-?\d+(?:[.,]\d+)?$/.test(raw)) return null;
+  if (/%/.test(raw)) return null;
+  if (/^(sim|não|nao|yes|no|true|false|concluido|concluído|completed|n\/a|na)$/i.test(raw)) return null;
+
+  const hasDateShape = /\b\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}\b/.test(raw)
+    || /\b\d{4}-\d{2}-\d{2}\b/.test(raw);
+  if (!hasDateShape) return null;
+
+  const parsedDate = parseDateObject(raw);
+  if (!parsedDate) return null;
+  const year = parsedDate.getUTCFullYear();
+  const minYear = Number(options.minYear) || 2020;
+  const maxYear = Number(options.maxYear) || 2055;
+  if (year < minYear || year > maxYear) return null;
+  return parsedDate;
 }
 
 function compareProjectsByPlannedFinishDate(a, b) {
@@ -1783,8 +1954,9 @@ function getSpoolQualityCompetence(project, spool) {
   const finalDimensional = getStageWorkspacePercent(stageValues, 'Final Dimensional Inpection/3D (QC)');
   const initialDimensional = getStageWorkspacePercent(stageValues, 'Initial Dimensional Inspection/3D');
   const finalInspection = getStageWorkspacePercent(stageValues, 'Final Inspection');
+  const includeHydro = shouldClientShowHydro({ ...(project || {}), projectType: spool?.projectType || project?.projectType, spools: spool ? [spool] : project?.spools });
 
-  if (text.includes('hydro') || text.includes('teste hidrostatico') || /\bth\b/.test(text) || text.includes('aguardando em th') || (th > 0 && th < 100)) return 'th';
+  if (includeHydro && (text.includes('hydro') || text.includes('teste hidrostatico') || /\bth\b/.test(text) || text.includes('aguardando em th') || (th > 0 && th < 100))) return 'th';
   if (text.includes('nde') || /\bend\b/.test(text) || text.includes('non destructive') || (nde != null && nde > 0 && nde < 100)) return 'nde';
   if (text.includes('final dimensional') || text.includes('final dimensional inspection') || text.includes('final dimensional inpection') || finalDimensional > 0) return 'dimensional_final';
   if (text.includes('initial dimensional') || text.includes('inspecao dimensional inicial') || initialDimensional > 0) return 'dimensional_inicial';
@@ -1852,12 +2024,13 @@ function getSpoolCompetenceSector(project, spool) {
   const fabricationStarted = Boolean(spool?.fabricationStartDate || hasStageWorkspaceValue(stageValues, 'Fabrication Start Date'));
   const boilermakerDone = hasStageWorkspaceValue(stageValues, 'Boilermaker Finish Date');
   const projectFinishDate = hasStageWorkspaceValue(stageValues, 'Project Finish Date');
+  const includeHydro = shouldClientShowHydro({ ...(project || {}), projectType: spool?.projectType || project?.projectType, spools: spool ? [spool] : project?.spools });
 
   if (projectFinishDate || packageDelivered >= 100) return '';
   if (coating >= 100) return 'pendente_envio';
-  if (coating > 0 || th >= 100) return 'pintura';
+  if (coating > 0 || (includeHydro && th >= 100) || (!includeHydro && finalDimensional >= 100)) return 'pintura';
   if (fullWelding > 0 && fullWelding < 100) return 'solda';
-  if (th > 0 || (nde != null && nde > 0) || finalDimensional >= 100 || finalDimensional > 0 || fullWelding >= 100 || initialDimensional > 0 || boilermakerDone || spoolAssemble >= 100) {
+  if ((includeHydro && th > 0) || (nde != null && nde > 0) || finalDimensional > 0 || (includeHydro && finalDimensional >= 100) || fullWelding >= 100 || initialDimensional > 0 || boilermakerDone || spoolAssemble >= 100) {
     if (initialDimensional >= 100 && fullWelding <= 0) return 'solda';
     return 'inspecao';
   }
@@ -2301,6 +2474,10 @@ function getAwaitingShipmentTags(project) {
 }
 
 function getProjectStatusPresentation(project) {
+  if (projectHasTratativaObservation(project)) {
+    return { text: 'Em tratativa', state: 'in_progress', reason: getProjectTratativaReason(project) };
+  }
+
   if (hasClientIncompleteProductionEvidence(project)) {
     const openStage = getClientFirstIncompleteProductionStage(project);
     if (openStage?.key === 'package') return { text: 'Aguardando envio', state: 'awaiting_shipment' };
@@ -2647,6 +2824,7 @@ function toggleStatusFilterMenu() {
 }
 
 function getProjectStatusFilterLabel(project) {
+  if (projectHasTratativaObservation(project)) return 'Em tratativa';
   const presentationText = normalizeText(getProjectStatusPresentation(project)?.text || '');
   const projectStatusText = normalizeText(project?.projectStatus || '');
   const currentStageText = normalizeText(project?.currentStage || '');
@@ -3448,6 +3626,166 @@ function projectBelongsToUser(project, user = state.user) {
   return false;
 }
 
+
+
+
+function resetClientBspOverridesState() {
+  state.clientBspOverrides = { items: [], byProjectRowId: {}, byProjectNumber: {}, loading: false, loaded: false, feedback: '', editingProjectId: null, activeExecutiveProjectId: null };
+}
+
+function canManageClientBspPanel(project = null, user = state.user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  if (!userHasProjectsScope(user)) return false;
+  return project ? projectBelongsToUser(project, user) : true;
+}
+
+function canOpenClientBspPanel(project = null, user = state.user) {
+  return isClientUser(user) || canManageClientBspPanel(project, user);
+}
+
+function getClientBspOverrideProjectRowId(project) {
+  return String(project?.rowId ?? project?.rowNumber ?? '').trim();
+}
+
+function getClientBspOverrideProjectNumber(project) {
+  return String(project?.projectNumber || project?.projectDisplay || '').trim();
+}
+
+function normalizeClientBspOverride(row = {}) {
+  if (!row || typeof row !== 'object') return null;
+  const projectRowId = String(row.projectRowId ?? row.project_row_id ?? '').trim();
+  const projectNumber = String(row.projectNumber ?? row.project_number ?? '').trim();
+  const customFields = row.customFields && typeof row.customFields === 'object'
+    ? row.customFields
+    : (row.custom_fields && typeof row.custom_fields === 'object' ? row.custom_fields : {});
+  return {
+    id: row.id || '',
+    region: row.region || '',
+    projectRowId,
+    projectNumber,
+    projectDisplay: row.projectDisplay ?? row.project_display ?? '',
+    clientKey: row.clientKey ?? row.client_key ?? '',
+    clientName: row.clientName ?? row.client_name ?? '',
+    vessel: row.vessel || '',
+    pm: row.pm || '',
+    fabricationStartOverride: row.fabricationStartOverride ?? row.fabrication_start_override ?? '',
+    boilermakerFinishOverride: row.boilermakerFinishOverride ?? row.boilermaker_finish_override ?? '',
+    weldingFinishOverride: row.weldingFinishOverride ?? row.welding_finish_override ?? '',
+    inspectionFinishOverride: row.inspectionFinishOverride ?? row.inspection_finish_override ?? '',
+    thFinishOverride: row.thFinishOverride ?? row.th_finish_override ?? '',
+    coatingFinishOverride: row.coatingFinishOverride ?? row.coating_finish_override ?? '',
+    projectFinishOverride: row.projectFinishOverride ?? row.project_finish_override ?? '',
+    executiveStatus: row.executiveStatus ?? row.executive_status ?? '',
+    executiveNote: row.executiveNote ?? row.executive_note ?? '',
+    delayReason: row.delayReason ?? row.delay_reason ?? '',
+    customFields,
+    visibleToClient: row.visibleToClient ?? row.visible_to_client ?? true,
+    createdBy: row.createdBy ?? row.created_by ?? '',
+    createdByName: row.createdByName ?? row.created_by_name ?? '',
+    createdAt: row.createdAt ?? row.created_at ?? null,
+    updatedBy: row.updatedBy ?? row.updated_by ?? '',
+    updatedByName: row.updatedByName ?? row.updated_by_name ?? '',
+    updatedAt: row.updatedAt ?? row.updated_at ?? null,
+  };
+}
+
+function setClientBspOverrides(items = []) {
+  const normalized = (Array.isArray(items) ? items : []).map(normalizeClientBspOverride).filter(Boolean);
+  const byProjectRowId = {};
+  const byProjectNumber = {};
+  for (const item of normalized) {
+    if (item.projectRowId) byProjectRowId[item.projectRowId] = item;
+    if (item.projectNumber) byProjectNumber[normalizeText(item.projectNumber)] = item;
+  }
+  state.clientBspOverrides.items = normalized;
+  state.clientBspOverrides.byProjectRowId = byProjectRowId;
+  state.clientBspOverrides.byProjectNumber = byProjectNumber;
+  state.clientBspOverrides.loaded = true;
+}
+
+function getClientBspOverride(project) {
+  const rowId = getClientBspOverrideProjectRowId(project);
+  if (rowId && state.clientBspOverrides.byProjectRowId[rowId]) return state.clientBspOverrides.byProjectRowId[rowId];
+  const numberKey = normalizeText(getClientBspOverrideProjectNumber(project));
+  if (numberKey && state.clientBspOverrides.byProjectNumber[numberKey]) return state.clientBspOverrides.byProjectNumber[numberKey];
+  return null;
+}
+
+function hasClientBspOverrideContent(override) {
+  if (!override) return false;
+  const values = [
+    override.fabricationStartOverride,
+    override.boilermakerFinishOverride,
+    override.weldingFinishOverride,
+    override.inspectionFinishOverride,
+    override.thFinishOverride,
+    override.coatingFinishOverride,
+    override.projectFinishOverride,
+    override.executiveStatus,
+    override.executiveNote,
+    override.delayReason,
+  ];
+  const custom = override.customFields && typeof override.customFields === 'object'
+    ? Object.values(override.customFields).filter((value) => String(value || '').trim())
+    : [];
+  return values.some((value) => String(value || '').trim()) || custom.length > 0;
+}
+
+function clientDateInputValue(value) {
+  const date = parseClientSafeDateObject(value) || parseDateObject(value);
+  if (!date) return '';
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(date.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function clientOverrideDateObject(value) {
+  return parseClientSafeDateObject(value) || parseDateObject(value);
+}
+
+function clientOverrideCustomFieldsArray(override) {
+  const fields = override?.customFields && typeof override.customFields === 'object' ? override.customFields : {};
+  return Object.entries(fields)
+    .map(([label, value]) => ({ label: String(label || '').trim(), value: String(value || '').trim() }))
+    .filter((item) => item.label || item.value);
+}
+
+async function loadClientBspOverrides(options = {}) {
+  if (!state.user || state.clientBspOverrides.loading) return;
+  state.clientBspOverrides.loading = true;
+  if (!options.silent) state.clientBspOverrides.feedback = 'Carregando ajustes executivos...';
+  try {
+    const response = await fetch('/api/client-bsp-overrides', { credentials: 'same-origin', cache: 'no-store' });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao carregar ajustes executivos.');
+    setClientBspOverrides(data.overrides || []);
+    state.clientBspOverrides.feedback = '';
+    renderClientDashboard();
+    if (modalEl && !modalEl.classList.contains('hidden')) {
+      const selected = getSelectedProject();
+      if (selected) renderModal(selected);
+    }
+    const activeId = state.clientBspOverrides.activeExecutiveProjectId;
+    const execModal = document.getElementById('client-bsp-executive-modal');
+    if (activeId && execModal && !execModal.classList.contains('hidden')) {
+      const project = state.projects.find((item) => String(item.rowId) === String(activeId));
+      if (project) openClientBspExecutive(project, { keepEditing: true });
+    }
+  } catch (error) {
+    state.clientBspOverrides.feedback = error?.message || 'Falha ao carregar ajustes executivos.';
+    console.warn('Ajustes executivos não carregados:', state.clientBspOverrides.feedback);
+  } finally {
+    state.clientBspOverrides.loading = false;
+  }
+}
+
+function scheduleClientBspOverridesLoad() {
+  if (!state.user || state.clientBspOverrides.loading || state.clientBspOverrides.loaded) return;
+  window.setTimeout(() => loadClientBspOverrides({ silent: true }), 0);
+}
+
 function getVisibleProjectsSource() {
   if (state.projectView === 'mine' && userHasProjectsScope()) {
     return state.projects.filter((project) => projectBelongsToUser(project));
@@ -3525,86 +3863,63 @@ function isClientUser(user = state.user) {
   return Boolean(user && user.role === 'client');
 }
 
-
-function getOperationRegion(user = null) {
-  const fromAdminSelect = adminUserOperationRegionEl?.value;
-  const raw = String(
-    fromAdminSelect
-    || user?.operationRegion
-    || user?.region
-    || user?.environment
-    || window.localStorage.getItem('step_operation_region')
-    || 'PT'
-  ).trim().toUpperCase();
-
-  return ['BR', 'BRASIL', 'BRAZIL'].includes(raw) ? 'BR' : 'PT';
+function normalizeOperationRegionValue(value = 'BR') {
+  // Painel Brasil: sistema separado do painel Portugal.
+  // A base Supabase é compartilhada, mas esta build nunca deve trocar para PT.
+  return 'BR';
 }
 
+function getOperationRegion(user = null) {
+  return 'BR';
+}
 
-function syncOperationRegionButtons(value = 'PT') {
-  const normalized = String(value || 'PT').trim().toUpperCase() === 'BR' ? 'BR' : 'PT';
-
-  if (adminUserOperationRegionEl) {
-    adminUserOperationRegionEl.value = normalized;
-  }
-
+function syncOperationRegionButtons(value = 'BR') {
+  const normalized = normalizeOperationRegionValue(value);
+  if (adminUserOperationRegionEl) adminUserOperationRegionEl.value = normalized;
   document.querySelectorAll('[data-operation-region-option]').forEach((button) => {
     button.classList.toggle(
       'is-active',
-      String(button.dataset.operationRegionOption || '').toUpperCase() === normalized
+      normalizeOperationRegionValue(button.dataset.operationRegionOption || 'BR') === normalized
     );
   });
+  try { window.localStorage.setItem('step_operation_region', 'BR'); } catch {}
+}
 
-  try {
-    window.localStorage.setItem('step_operation_region', normalized);
-  } catch {}
+function buildClientKey(clientName, region = getOperationRegion()) {
+  const base = String(clientName || '')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (!base) return '';
+  const clean = base.replace(/_(BR|PT)$/i, '');
+  return `${clean}_${normalizeOperationRegionValue(region)}`;
 }
 
 document.addEventListener('click', (event) => {
   const button = event.target.closest('[data-operation-region-option]');
   if (!button) return;
-
-  const nextRegion = String(button.dataset.operationRegionOption || 'PT').toUpperCase() === 'BR' ? 'BR' : 'PT';
+  const nextRegion = 'BR';
   syncOperationRegionButtons(nextRegion);
-
-  if (adminUserClientNameEl && adminUserClientKeyEl) {
+  if (adminUserClientNameEl && adminUserClientKeyEl && document.getElementById('admin-user-role')?.value === 'client') {
     const cleanCurrent = String(adminUserClientKeyEl.value || '').replace(/_(BR|PT)$/i, '');
     const source = adminUserClientNameEl.value || cleanCurrent;
-    adminUserClientKeyEl.value = buildClientKey(source, nextRegion);
+    if (source) adminUserClientKeyEl.value = buildClientKey(source, nextRegion);
   }
 });
 
 if (adminUserOperationRegionEl) {
   adminUserOperationRegionEl.addEventListener('change', () => {
-    syncOperationRegionButtons(adminUserOperationRegionEl.value || 'PT');
-    if (adminUserClientNameEl && adminUserClientKeyEl) {
+    const nextRegion = 'BR';
+    syncOperationRegionButtons(nextRegion);
+    if (adminUserClientNameEl && adminUserClientKeyEl && document.getElementById('admin-user-role')?.value === 'client') {
       const cleanCurrent = String(adminUserClientKeyEl.value || '').replace(/_(BR|PT)$/i, '');
       const source = adminUserClientNameEl.value || cleanCurrent;
-      adminUserClientKeyEl.value = buildClientKey(source, getOperationRegion());
+      if (source) adminUserClientKeyEl.value = buildClientKey(source, nextRegion);
     }
   });
-}
-
-
-function buildProjectsApiUrl(params = {}) {
-  const query = new URLSearchParams();
-  query.set('region', getOperationRegion());
-  Object.entries(params || {}).forEach(([key, value]) => {
-    if (value === undefined || value === null || value === false || value === '') return;
-    query.set(key, String(value));
-  });
-  return `/api/projects?${query.toString()}`;
-}
-
-function buildClientKey(clientName, region = 'PT') {
-  const base = String(clientName || '')
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-
-  if (!base) return '';
-  return `${base}_${region}`;
 }
 
 function getClientPortalName(user = state.user) {
@@ -3995,11 +4310,12 @@ function compareClientSpoolsByPriority(a, b) {
 
 function renderClientSpoolRows(spools, limit = 120) {
   const items = (Array.isArray(spools) ? [...spools] : []).sort(compareClientSpoolsByPriority).slice(0, limit);
-  if (!items.length) return '<tr><td colspan="6" class="loading-cell">Nenhuma tag detalhada encontrada para esta BSP.</td></tr>';
+  if (!items.length) return '<tr><td colspan="7" class="loading-cell">Nenhuma tag detalhada encontrada para esta BSP.</td></tr>';
   return items.map((spool) => {
     const state = getClientSpoolVisualState(spool);
     const statusText = spool?.currentStatus || spool?.stage || uiStateLabel(spool?.uiState);
-    return `<tr class="client-spool-row client-spool-row--${state}"><td><strong>${escapeHtml(spool.iso || '—')}</strong></td><td>${escapeHtml(spool.description || '—')}</td><td><span class="client-spool-chip client-spool-chip--${state}">${escapeHtml(statusText)}</span></td><td>${escapeHtml(spool.currentSector || spool.operationalSector || '—')}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(spool.overallProgress)}</span></td><td>${formatNumber(spool.kilos, 2)} kg</td></tr>`;
+    const observationText = spool?.observations ? String(spool.observations).trim() : '—';
+    return `<tr class="client-spool-row client-spool-row--${state}"><td><strong>${escapeHtml(spool.iso || '—')}</strong></td><td>${escapeHtml(spool.description || '—')}</td><td>${escapeHtml(observationText)}</td><td><span class="client-spool-chip client-spool-chip--${state}">${escapeHtml(statusText)}</span></td><td>${escapeHtml(spool.currentSector || spool.operationalSector || '—')}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(spool.overallProgress)}</span></td><td>${formatNumber(spool.kilos, 2)} kg</td></tr>`;
   }).join('');
 }
 
@@ -4028,15 +4344,18 @@ function renderClientProjectDetail(project) {
       <article><span>Status</span><strong>${escapeHtml(status.text)}</strong></article>
       <article><span>Progresso geral</span><strong>${formatPercent(project.overallProgress)}</strong></article>
     </div>
+    ${renderClientTratativaNotice(project)}
+    ${renderClientOnHoldNotice(project)}
+
     <div class="client-stage-strip">
-      ${['Drawing Execution Advance%', 'Procuremnt Status %', 'Material Separation', 'Full welding execution', 'Non Destructive Examination (QC)', 'Hydro Test Pressure (QC)', 'Surface preparation and/or coating', 'Final Inspection', 'Package and Delivered'].map((key) => {
+      ${getClientDetailStageKeys(project).map((key) => {
         const label = (state.meta?.stageOrder || []).find((stage) => stage.key === key)?.label || key;
         const value = stageValues[key];
         return renderClientStageStripCard(label, value);
       }).join('')}
     </div>
     <div class="client-table-wrap client-table-wrap--compact">
-      <table class="client-bsp-table"><thead><tr><th>Tag/ISO</th><th>Descrição</th><th>Status</th><th>Etapa</th><th>%</th><th>Peso</th></tr></thead><tbody>
+      <table class="client-bsp-table"><thead><tr><th>Tag/ISO</th><th>Descrição</th><th>Observação</th><th>Status</th><th>Etapa</th><th>%</th><th>Peso</th></tr></thead><tbody>
         ${renderClientSpoolRows(spools, 80)}
       </tbody></table>
     </div>
@@ -4079,6 +4398,381 @@ function getClientStageValue(project, keys) {
     if (value != null && value !== '' && value !== 'N/A') return clientPercentValue(value);
   }
   return 0;
+}
+
+function isClientSpoolMaterial(project) {
+  const explicitType = normalizeText([project?.projectType, project?.type, project?.project_type].filter(Boolean).join(' '));
+  if (explicitType) {
+    if (explicitType.includes('spool')) return true;
+    if (explicitType.includes('support') || explicitType.includes('suporte') || explicitType === 'sup' || explicitType.includes('structure') || explicitType.includes('estrutura') || explicitType.includes('frame')) return false;
+  }
+
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  const evidence = normalizeText([
+    project?.summaryDrawing,
+    project?.drawing,
+    ...spools.flatMap((spool) => [spool?.iso, spool?.drawing, spool?.description]),
+  ].filter(Boolean).join(' '));
+
+  if (/\bspl\b/.test(evidence) || evidence.includes('spool')) return true;
+  if (/\bsup\b/.test(evidence) || evidence.includes('support') || evidence.includes('suporte') || evidence.includes('structure') || evidence.includes('estrutura') || evidence.includes('frame')) return false;
+  return false;
+}
+
+
+function clientProjectHasNoHydroObservation(project) {
+  const chunks = [];
+  const collect = (value) => {
+    if (value == null) return;
+    const text = String(value).trim();
+    if (text) chunks.push(text);
+  };
+  collect(project?.observations);
+  collect(project?.observation);
+  collect(project?.OBSERVATIONS);
+  collect(project?.comments);
+  collect(project?.notes);
+  if (project?.stageValues && typeof project.stageValues === 'object') {
+    collect(project.stageValues.OBSERVATIONS);
+    collect(project.stageValues.Observations);
+    collect(project.stageValues.observations);
+    collect(project.stageValues['Observation']);
+    collect(project.stageValues['OBSERVATION']);
+    collect(project.stageValues['Comments']);
+  }
+  for (const milestone of Array.isArray(project?.milestones) ? project.milestones : []) {
+    collect(milestone?.key);
+    collect(milestone?.label);
+    collect(milestone?.value);
+  }
+  for (const spool of Array.isArray(project?.spools) ? project.spools : []) {
+    collect(spool?.observations);
+    collect(spool?.observation);
+    collect(spool?.OBSERVATIONS);
+    collect(spool?.comments);
+    collect(spool?.notes);
+    collect(spool?.description);
+    if (spool?.stageValues && typeof spool.stageValues === 'object') {
+      collect(spool.stageValues.OBSERVATIONS);
+      collect(spool.stageValues.Observations);
+      collect(spool.stageValues.observations);
+      collect(spool.stageValues['Observation']);
+      collect(spool.stageValues['OBSERVATION']);
+      collect(spool.stageValues['Comments']);
+    }
+    for (const milestone of Array.isArray(spool?.milestones) ? spool.milestones : []) {
+      collect(milestone?.key);
+      collect(milestone?.label);
+      collect(milestone?.value);
+    }
+  }
+  const text = normalizeText(chunks.join(' | '));
+  if (!text) return false;
+  return /solda\s+(de|em)\s+campo/.test(text)
+    || /soldagem\s+(de|em)\s+campo/.test(text)
+    || /field\s*weld(ing)?/.test(text)
+    || /\bf\.?w\.?\b/.test(text)
+    || /sem\s+(th|hydro|teste\s+hidrostatico)/.test(text)
+    || /nao\s+(requer|aplica|necessita)\s+(th|hydro|teste\s+hidrostatico)/.test(text)
+    || /th\s+(nao\s+aplicavel|n\/a|na|dispensado)/.test(text);
+}
+
+function shouldClientShowHydro(project) {
+  return isClientSpoolMaterial(project) && !clientProjectHasNoHydroObservation(project);
+}
+
+function normalizeClientTrackingKey(value) {
+  return normalizeText(value).replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function clientTrackingKeyMatches(sourceKey, wantedKeys) {
+  const source = normalizeClientTrackingKey(sourceKey);
+  if (!source) return false;
+  return wantedKeys.some((key) => {
+    const wanted = normalizeClientTrackingKey(key);
+    return wanted && (source === wanted || source.includes(wanted) || wanted.includes(source));
+  });
+}
+
+function clientReadDateCandidatesFromSource(source, wantedKeys, candidates) {
+  if (!source || typeof source !== 'object') return;
+  for (const key of wantedKeys) {
+    const direct = source[key];
+    const parsedDirect = parseClientSafeDateObject(direct);
+    if (parsedDirect) candidates.push(parsedDirect);
+  }
+  for (const [key, value] of Object.entries(source)) {
+    if (!clientTrackingKeyMatches(key, wantedKeys)) continue;
+    const parsed = parseClientSafeDateObject(value);
+    if (parsed) candidates.push(parsed);
+  }
+}
+
+function clientReadDateCandidatesFromMilestones(milestones, wantedKeys, candidates) {
+  for (const item of Array.isArray(milestones) ? milestones : []) {
+    if (!item || typeof item !== 'object') continue;
+    if (!clientTrackingKeyMatches([item.key, item.label, item.name].filter(Boolean).join(' '), wantedKeys)) continue;
+    const parsed = parseClientSafeDateObject(item.value ?? item.date ?? item.finishDate ?? item.startDate);
+    if (parsed) candidates.push(parsed);
+  }
+}
+
+function getClientTrackingDate(project, wantedKeys, mode = 'last') {
+  const candidates = [];
+  clientReadDateCandidatesFromSource(project, wantedKeys, candidates);
+  clientReadDateCandidatesFromSource(project?.stageValues, wantedKeys, candidates);
+  clientReadDateCandidatesFromMilestones(project?.milestones, wantedKeys, candidates);
+  for (const spool of Array.isArray(project?.spools) ? project.spools : []) {
+    clientReadDateCandidatesFromSource(spool, wantedKeys, candidates);
+    clientReadDateCandidatesFromSource(spool?.stageValues, wantedKeys, candidates);
+    clientReadDateCandidatesFromMilestones(spool?.milestones, wantedKeys, candidates);
+  }
+  const unique = Array.from(new Map(candidates.filter(Boolean).map((date) => [date.getTime(), date])).values()).sort((a, b) => a - b);
+  if (!unique.length) return null;
+  return mode === 'first' ? unique[0] : unique[unique.length - 1];
+}
+
+function getClientTrackingDates(project, options = {}) {
+  const hydro = shouldClientShowHydro(project);
+  const trackingDates = {
+    fabricationStart: getClientTrackingDate(project, ['Fabrication Start Date', 'Fab. Início', 'FAB INICIO', 'Fab Inicio'], 'first'),
+    boilermakerFinish: getClientTrackingDate(project, ['Boilermaker Finish Date', 'Caldeiraria', 'Calderaria Finish Date'], 'last'),
+    weldingFinish: getClientTrackingDate(project, ['Welding Finish Date', 'Solda', 'Weld Finish Date', 'Full Welding Finish Date'], 'last'),
+    inspectionFinish: getClientTrackingDate(project, ['Inspection Finish Date (QC)', 'Final Dimensional Inspection Finish Date', 'Inspection Finish'], 'last'),
+    thFinish: hydro ? getClientTrackingDate(project, ['TH Finish Date', 'Hydro Finish Date', 'Hydro Testing Finish Date'], 'last') : null,
+    coatingFinish: getClientTrackingDate(project, ['Coating Finish Date', 'Painting Finish Date', 'HDG / FBE DATE RETORNO (PAINT)'], 'last'),
+    projectFinish: getClientTrackingDate(project, ['Project Finish Date', 'Data de Envio', 'Shipment Date', 'Delivery Date'], 'last'),
+    sources: {},
+  };
+  if (options.ignoreOverrides) return trackingDates;
+
+  const override = getClientBspOverride(project);
+  if (!hasClientBspOverrideContent(override)) return trackingDates;
+
+  const withOverrides = { ...trackingDates, sources: { ...trackingDates.sources } };
+  const applyDate = (targetKey, overrideKey) => {
+    const value = clientOverrideDateObject(override?.[overrideKey]);
+    if (value) {
+      withOverrides[targetKey] = value;
+      withOverrides.sources[targetKey] = 'PM';
+    }
+  };
+  applyDate('fabricationStart', 'fabricationStartOverride');
+  applyDate('boilermakerFinish', 'boilermakerFinishOverride');
+  applyDate('weldingFinish', 'weldingFinishOverride');
+  applyDate('inspectionFinish', 'inspectionFinishOverride');
+  if (hydro) applyDate('thFinish', 'thFinishOverride');
+  applyDate('coatingFinish', 'coatingFinishOverride');
+  applyDate('projectFinish', 'projectFinishOverride');
+  return withOverrides;
+}
+
+function clientNextBusinessDay(dateValue) {
+  const date = parseDateObject(dateValue);
+  if (!date) return null;
+  return addBusinessDaysUtc(date, 1) || date;
+}
+
+function clientLatestDate(...values) {
+  const dates = values.map(parseDateObject).filter(Boolean).sort((a, b) => a - b);
+  return dates.length ? dates[dates.length - 1] : null;
+}
+
+function clientApplyRowDates(row, start, finish, sourceLabel = '') {
+  const next = { ...row };
+  const parsedStart = parseDateObject(start);
+  const parsedFinish = parseDateObject(finish);
+  if (parsedStart) {
+    next.plannedStart = next.plannedStart || next.start;
+    next.start = parsedStart;
+    next.dateSource = sourceLabel || next.dateSource || 'tracking';
+  }
+  if (parsedFinish) {
+    next.plannedFinish = next.plannedFinish || next.finish;
+    next.finish = parsedFinish;
+    next.dateSource = sourceLabel || next.dateSource || 'tracking';
+  }
+  if (parseDateObject(next.start) && parseDateObject(next.finish) && parseDateObject(next.start) > parseDateObject(next.finish)) {
+    next.start = new Date(parseDateObject(next.finish).getTime());
+  }
+  next.duration = Math.max(1, countBusinessDaysInclusive(next.start, next.finish) || next.duration || 1);
+  if (next.plannedFinish && next.finish) {
+    next.deviationDays = Math.round((parseDateObject(next.finish) - parseDateObject(next.plannedFinish)) / 86400000);
+  }
+  return next;
+}
+
+function getClientSCurveActualMilestones(project) {
+  const real = getClientTrackingDates(project);
+  const hydro = shouldClientShowHydro(project);
+  // A Curva S precisa ser acumulada e sempre crescente.
+  // Não usar o percentual atual das etapas antigas aqui, porque uma etapa anterior
+  // já concluída em 100% fazia a linha realizada nascer em 100% e depois cair.
+  const inspectionPercent = hydro ? 72 : 82;
+  const points = [
+    { date: real.fabricationStart, actual: 30, label: 'Fabrication Start' },
+    { date: real.boilermakerFinish, actual: 42, label: 'Boilermaker Finish' },
+    { date: real.weldingFinish, actual: 58, label: 'Welding Finish' },
+    { date: real.inspectionFinish, actual: inspectionPercent, label: 'Inspection Finish' },
+    { date: real.thFinish, actual: 84, label: 'TH Finish' },
+    { date: real.coatingFinish, actual: 92, label: 'Coating Finish' },
+    { date: real.projectFinish, actual: 100, label: 'Project Finish' },
+  ].filter((item) => item.date && (hydro || item.label !== 'TH Finish'));
+
+  const byDate = new Map();
+  for (const item of points) {
+    const key = item.date.getTime();
+    const previous = byDate.get(key);
+    if (!previous || item.actual > previous.actual) byDate.set(key, item);
+  }
+
+  let runningMax = 0;
+  return Array.from(byDate.values())
+    .sort((a, b) => a.date - b.date)
+    .map((item) => {
+      runningMax = Math.max(runningMax, clampClientPercent(item.actual));
+      return { ...item, actual: runningMax };
+    });
+}
+
+function clientInterpolateDate(start, finish, ratio) {
+  const a = parseDateObject(start);
+  const b = parseDateObject(finish);
+  if (!a || !b) return null;
+  const safeRatio = Math.max(0, Math.min(1, Number(ratio) || 0));
+  const time = a.getTime() + (b.getTime() - a.getTime()) * safeRatio;
+  return new Date(time);
+}
+
+function normalizeClientSCurveActualMilestones(project, scheduleStart, milestones, scheduleFinish = null) {
+  const start = parseDateObject(scheduleStart);
+  const finish = parseDateObject(scheduleFinish) || null;
+  const list = Array.isArray(milestones) ? milestones.filter((item) => item?.date) : [];
+  if (!start || !list.length) return list;
+
+  const real = getClientTrackingDates(project);
+  const fabricationStart = parseDateObject(real.fabricationStart) || list[0]?.date;
+  const synthetic = [{ date: start, actual: 0, label: 'Início planejado' }];
+
+  // Quando a fabricação real começa muito depois da data inicial da BSP,
+  // criamos marcos executivos intermediários para a Curva S nascer no começo
+  // do cronograma e subir de forma controlada até o início real da fabricação.
+  if (fabricationStart && fabricationStart > start) {
+    const preFabricationSpan = fabricationStart.getTime() - start.getTime();
+    if (preFabricationSpan > 86400000) {
+      synthetic.push(
+        { date: clientInterpolateDate(start, fabricationStart, 0.40), actual: 10, label: 'Pré-fabricação | avanço inicial' },
+        { date: clientInterpolateDate(start, fabricationStart, 0.70), actual: 20, label: 'Pré-fabricação | avanço intermediário' },
+      );
+    }
+  }
+
+  const plannedDays = finish ? clientDaysBetween(start, finish) : 120;
+  const minGapDays = Math.max(1, Math.min(7, Math.ceil(plannedDays * 0.025)));
+  const usedTimes = new Set();
+  let startCollisionIndex = 0;
+  const normalizedItems = [];
+
+  const ordered = synthetic.concat(list)
+    .map((item) => ({ ...item, date: parseDateObject(item.date), actual: clampClientPercent(item.actual) }))
+    .filter((item) => item.date)
+    .sort((a, b) => (a.date - b.date) || (a.actual - b.actual));
+
+  for (const item of ordered) {
+    let date = parseDateObject(item.date);
+    const actual = clampClientPercent(item.actual);
+    if (!date) continue;
+
+    // Se o Tracking traz vários marcos no mesmo dia do início planejado,
+    // a linha realizada nascia já em 40%, 60% ou 90% e parecia quebrada.
+    // Mantemos o início em 0% e espaçamos visualmente esses marcos para
+    // preservar uma curva crescente e fluida, sem alterar os dados originais.
+    if (actual > 0 && date.getTime() <= start.getTime()) {
+      startCollisionIndex += 1;
+      date = addUtcDays(start, startCollisionIndex * minGapDays);
+    }
+
+    let guard = 0;
+    while (actual > 0 && usedTimes.has(date.getTime()) && guard < 20) {
+      date = addUtcDays(date, minGapDays);
+      guard += 1;
+    }
+
+    const key = date.getTime();
+    usedTimes.add(key);
+    normalizedItems.push({ ...item, date, actual });
+  }
+
+  let runningMax = 0;
+  return normalizedItems
+    .sort((a, b) => (a.date - b.date) || (a.actual - b.actual))
+    .map((item) => {
+      runningMax = Math.max(runningMax, clampClientPercent(item.actual));
+      return { ...item, actual: runningMax };
+    });
+}
+
+function clientDateForPlannedPercent(startValue, finishValue, percentValue) {
+  const start = parseDateObject(startValue);
+  const finish = parseDateObject(finishValue);
+  const target = clampClientPercent(percentValue);
+  if (!start || !finish || finish <= start) return null;
+  let low = 0;
+  let high = 1;
+  for (let i = 0; i < 32; i += 1) {
+    const mid = (low + high) / 2;
+    const planned = clientSchedulePlannedPercent(mid);
+    if (planned < target) low = mid;
+    else high = mid;
+  }
+  return clientInterpolateDate(start, finish, high);
+}
+
+function clientGetCurrentActualPointDate(start, plannedFinish, today, plannedToday, lastMilestone, actualNow) {
+  const safeToday = parseDateObject(today);
+  const safeStart = parseDateObject(start);
+  const safeFinish = parseDateObject(plannedFinish);
+  if (!safeToday || !safeStart || !safeFinish || !lastMilestone) return { date: safeToday, label: 'Atual' };
+
+  const duration = Math.max(1, safeFinish - safeStart);
+  const elapsedRatio = Math.max(0, Math.min(1, (safeToday - safeStart) / duration));
+  const progressJump = clampClientPercent(actualNow) - clampClientPercent(lastMilestone.actual);
+  const isCrushedAtStart = elapsedRatio < 0.10 && progressJump > 25 && clampClientPercent(actualNow) > clampClientPercent(plannedToday) + 25;
+
+  if (!isCrushedAtStart) return { date: safeToday, label: 'Atual' };
+
+  const equivalentDate = clientDateForPlannedPercent(safeStart, safeFinish, actualNow);
+  const minDate = addUtcDays(parseDateObject(lastMilestone.date) || safeStart, Math.max(2, Math.ceil(clientDaysBetween(safeStart, safeFinish) * 0.04)));
+  const date = clientDateMax(equivalentDate, minDate, safeToday) || safeToday;
+  return { date, label: 'Atual estimado pelo progresso' };
+}
+
+function getClientDetailStageKeys(project) {
+  const keys = [
+    'Drawing Execution Advance%',
+    'Procuremnt Status %',
+    'Material Separation',
+    'Full welding execution',
+    'Non Destructive Examination (QC)',
+    'Hydro Test Pressure (QC)',
+    'Surface preparation and/or coating',
+    'Final Inspection',
+    'Package and Delivered',
+  ];
+  return shouldClientShowHydro(project) ? keys : keys.filter((key) => key !== 'Hydro Test Pressure (QC)');
+}
+
+function getClientFabricationStageItems(project) {
+  const items = [
+    { keys: ['Welding Preparation', 'Spool Assemble and tack weld'], weight: 10 },
+    { keys: ['Initial Dimensional Inspection/3D'], weight: 8 },
+    { keys: ['Full welding execution'], weight: 25 },
+    { keys: ['Non Destructive Examination (QC)'], weight: 12 },
+    { keys: ['Final Dimensional Inpection/3D (QC)'], weight: 8 },
+    { keys: ['Hydro Test Pressure (QC)'], weight: 7, spoolOnly: true },
+    { keys: ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)'], weight: 15 },
+  ];
+  return items.filter((item) => !item.spoolOnly || shouldClientShowHydro(project));
 }
 
 const CLIENT_PRODUCTION_STAGE_EVIDENCE_KEYS = [
@@ -4133,17 +4827,11 @@ function getClientProductionStageSnapshots(project) {
     if (!best.hasEvidence || item.percent > best.percent) return item;
     return best;
   }, { hasEvidence: false, percent: 0 });
-  const fabrication = { hasEvidence: hasClientStageEvidence(project, [
-    'Welding Preparation',
-    'Spool Assemble and tack weld',
-    'Initial Dimensional Inspection/3D',
-    'Full welding execution',
-    'Non Destructive Examination (QC)',
-    'Final Dimensional Inpection/3D (QC)',
-    'Hydro Test Pressure (QC)',
-    'Surface preparation and/or coating',
-    'HDG / FBE.  (PAINT)',
-  ]), percent: getClientFabricationProgress(project) };
+  const fabricationEvidenceKeys = getClientFabricationStageItems(project).flatMap((item) => item.keys);
+  const fabrication = {
+    hasEvidence: hasClientStageEvidence(project, fabricationEvidenceKeys),
+    percent: getClientFabricationProgress(project),
+  };
   const packageDelivery = getClientStageEvidenceValue(project, ['Package and Delivered', 'Final Inspection']);
   return [
     { key: 'engineering', label: 'Engineering / Drawing', percent: engineering.percent, weight: 15, hasEvidence: engineering.hasEvidence },
@@ -4172,15 +4860,7 @@ function getClientFabricationProgress(project) {
   const painting = getClientStageValue(project, ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)']);
   if (painting >= 99.9) return 100;
 
-  const stages = [
-    { keys: ['Welding Preparation', 'Spool Assemble and tack weld'], weight: 10 },
-    { keys: ['Initial Dimensional Inspection/3D'], weight: 8 },
-    { keys: ['Full welding execution'], weight: 25 },
-    { keys: ['Non Destructive Examination (QC)'], weight: 12 },
-    { keys: ['Final Dimensional Inpection/3D (QC)'], weight: 8 },
-    { keys: ['Hydro Test Pressure (QC)'], weight: 7 },
-    { keys: ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)'], weight: 15 },
-  ];
+  const stages = getClientFabricationStageItems(project);
   const totalWeight = stages.reduce((sum, item) => sum + item.weight, 0);
   if (!totalWeight) return 0;
   return clampClientPercent(stages.reduce((sum, item) => sum + getClientStageValue(project, item.keys) * item.weight, 0) / totalWeight);
@@ -4235,7 +4915,7 @@ function getClientAnalyticStartDate(project) {
     project?.stageValues?.['Drawing Start Date'],
   ];
   for (const value of candidates) {
-    const parsed = parseDateObject(value);
+    const parsed = parseClientSafeDateObject(value);
     if (parsed) return parsed;
   }
   const today = getCurrentBrazilDate();
@@ -4252,7 +4932,7 @@ function getClientAnalyticFinishDate(project) {
     getProjectShipmentDate(project),
   ];
   for (const value of candidates) {
-    const parsed = parseDateObject(value);
+    const parsed = parseClientSafeDateObject(value);
     if (parsed) return parsed;
   }
   const start = getClientAnalyticStartDate(project);
@@ -4305,52 +4985,256 @@ function getClientPlannedToday(project) {
   return clientSchedulePlannedPercent((today - start) / Math.max(1, finish - start));
 }
 
+
+function getClientSCurvePlannedFinishDate(project) {
+  const candidates = [
+    project?.plannedFinishDate,
+    project?.plannedEndDate,
+    project?.baselineFinishDate,
+    project?.stageValues?.['Planned Finish Date'],
+    project?.stageValues?.['Planned Finish'],
+    project?.stageValues?.['Baseline Finish Date'],
+  ];
+  for (const value of candidates) {
+    const parsed = parseClientSafeDateObject(value);
+    if (parsed) return parsed;
+  }
+  return getClientAnalyticFinishDate(project);
+}
+
+function getClientSCurveShipmentDate(project) {
+  const realDates = getClientTrackingDates(project);
+  return parseClientSafeDateObject(realDates.projectFinish) || parseClientSafeDateObject(getProjectShipmentDate(project));
+}
+
+function getClientSCurveDelayInfo(project) {
+  const plannedFinish = parseDateObject(getClientSCurvePlannedFinishDate(project));
+  if (!plannedFinish) return null;
+  const shipmentDate = getClientSCurveShipmentDate(project);
+  const today = getCurrentBrazilDate();
+  const actualNow = getClientOverallProgress(project);
+  let end = null;
+  let status = '';
+  let endLabel = '';
+  let completed = false;
+
+  if (shipmentDate && shipmentDate > plannedFinish) {
+    end = shipmentDate;
+    status = 'Finalizado com atraso';
+    endLabel = 'Envio real';
+    completed = true;
+  } else if (!shipmentDate && actualNow < 100 && today > plannedFinish) {
+    end = today;
+    status = 'Em atraso';
+    endLabel = 'Hoje';
+  }
+
+  if (!end || end <= plannedFinish) return null;
+  const days = Math.max(1, Math.round((end.getTime() - plannedFinish.getTime()) / 86400000));
+  return {
+    start: plannedFinish,
+    end,
+    days,
+    status,
+    endLabel,
+    completed,
+    tooltip: [
+      'Desvio de prazo',
+      `Status: ${status}`,
+      `Término planejado: ${clientFormatDateValue(plannedFinish)}`,
+      `${endLabel}: ${clientFormatDateValue(end)}`,
+      `Atraso: +${days} dia(s)`,
+    ].join('\n'),
+  };
+}
+
+function clientDateMax(...values) {
+  const dates = values.map(parseDateObject).filter(Boolean).sort((a, b) => a - b);
+  return dates.length ? dates[dates.length - 1] : null;
+}
+
 function buildClientSCurveData(project) {
   const start = getClientAnalyticStartDate(project);
-  let finish = getClientAnalyticFinishDate(project);
-  if (finish <= start) finish = addUtcDays(start, 30);
-  const duration = clientDaysBetween(start, finish);
-  const step = Math.max(1, Math.ceil(duration / 14));
+  let plannedFinish = getClientSCurvePlannedFinishDate(project);
+  if (plannedFinish <= start) plannedFinish = addUtcDays(start, 30);
   const today = getCurrentBrazilDate();
   const actualNow = getClientOverallProgress(project);
   const plannedToday = getClientPlannedToday(project);
-  const points = [];
-  for (let day = 0; day <= duration; day += step) {
+  const delayInfo = getClientSCurveDelayInfo(project);
+  let trackingMilestones = normalizeClientSCurveActualMilestones(project, start, getClientSCurveActualMilestones(project), plannedFinish);
+  const lastTrackingMilestone = trackingMilestones[trackingMilestones.length - 1];
+  if (lastTrackingMilestone && today >= lastTrackingMilestone.date && actualNow > lastTrackingMilestone.actual) {
+    const currentPoint = clientGetCurrentActualPointDate(start, plannedFinish, today, plannedToday, lastTrackingMilestone, actualNow);
+    trackingMilestones = trackingMilestones.concat([{
+      date: currentPoint.date || today,
+      planned: getClientPlannedToday(project),
+      actual: clampClientPercent(actualNow),
+      trackingLabel: currentPoint.label || 'Atual',
+      label: currentPoint.label || 'Atual',
+    }]);
+  }
+
+  const lastMilestoneDate = trackingMilestones.length ? trackingMilestones[trackingMilestones.length - 1].date : null;
+  const chartFinish = clientDateMax(plannedFinish, delayInfo?.end, lastMilestoneDate) || plannedFinish;
+  const plannedDuration = Math.max(1, clientDaysBetween(start, plannedFinish));
+  const step = Math.max(1, Math.ceil(plannedDuration / 14));
+  const rawPoints = [];
+
+  for (let day = 0; day <= plannedDuration; day += step) {
     const date = addUtcDays(start, day);
-    const ratio = day / duration;
+    const ratio = day / plannedDuration;
     const planned = clientSchedulePlannedPercent(ratio);
+    rawPoints.push({ date, planned, actual: null });
+  }
+  if (rawPoints[rawPoints.length - 1]?.date < plannedFinish) {
+    rawPoints.push({ date: plannedFinish, planned: 100, actual: null, trackingLabel: 'Término planejado' });
+  }
+  if (delayInfo?.end && delayInfo.end > plannedFinish) {
+    rawPoints.push({ date: delayInfo.end, planned: 100, actual: null, trackingLabel: delayInfo.endLabel || 'Desvio de prazo', delayInfo });
+  }
+  if (chartFinish > plannedFinish && (!delayInfo || chartFinish.getTime() !== delayInfo.end.getTime())) {
+    rawPoints.push({ date: chartFinish, planned: 100, actual: null });
+  }
+
+  for (const milestone of trackingMilestones) {
+    const ratio = Math.max(0, Math.min(1, (milestone.date - start) / Math.max(1, plannedFinish - start)));
+    rawPoints.push({ date: milestone.date, planned: clientSchedulePlannedPercent(ratio), actual: milestone.actual, trackingLabel: milestone.label });
+  }
+
+  const sorted = rawPoints
+    .filter((point) => point.date instanceof Date && !Number.isNaN(point.date.getTime()))
+    .sort((a, b) => a.date - b.date);
+
+  let lastActual = null;
+  return sorted.map((point) => {
+    const sameDayMilestones = trackingMilestones.filter((milestone) => milestone.date.getTime() <= point.date.getTime());
+    if (sameDayMilestones.length) {
+      lastActual = sameDayMilestones[sameDayMilestones.length - 1].actual;
+    }
     let actual = null;
-    if (date <= today) {
+    if (trackingMilestones.length) {
+      actual = point.date <= today && lastActual != null ? lastActual : null;
+    } else if (point.date <= today) {
       if (plannedToday > 0) {
-        actual = clampClientPercent((planned / plannedToday) * actualNow);
+        actual = clampClientPercent((point.planned / plannedToday) * actualNow);
       } else {
         actual = actualNow > 0 ? actualNow : 0;
       }
     }
-    points.push({ date, planned, actual });
-  }
-  if (points[points.length - 1]?.date < finish) {
-    points.push({ date: finish, planned: 100, actual: finish <= today ? actualNow : null });
-  }
-  return points;
+    return { ...point, actual, delayInfo: point.delayInfo || delayInfo || null };
+  });
+}
+
+function clientChartDateBounds(points) {
+  const dates = (Array.isArray(points) ? points : [])
+    .map((point) => parseDateObject(point?.date))
+    .filter(Boolean)
+    .sort((a, b) => a - b);
+  const start = dates[0] || getCurrentBrazilDate();
+  const finish = dates[dates.length - 1] || addUtcDays(start, 1);
+  return { start, finish: finish > start ? finish : addUtcDays(start, 1) };
+}
+
+function clientChartX(point, points, width, pad) {
+  const { start, finish } = clientChartDateBounds(points);
+  const date = parseDateObject(point?.date) || start;
+  const innerW = width - pad.left - pad.right;
+  const ratio = Math.max(0, Math.min(1, (date - start) / Math.max(1, finish - start)));
+  return pad.left + ratio * innerW;
+}
+
+function clientChartY(value, height, pad) {
+  const innerH = height - pad.top - pad.bottom;
+  return pad.top + (1 - clampClientPercent(value) / 100) * innerH;
 }
 
 function clientSvgPolyline(points, width, height, getValue) {
   const pad = { left: 42, right: 16, top: 18, bottom: 38 };
-  const innerW = width - pad.left - pad.right;
-  const innerH = height - pad.top - pad.bottom;
   const usable = points.filter((point) => getValue(point) != null);
   if (!usable.length) return '';
   return usable.map((point, index) => {
-    const x = pad.left + (points.indexOf(point) / Math.max(1, points.length - 1)) * innerW;
-    const y = pad.top + (1 - clampClientPercent(getValue(point)) / 100) * innerH;
+    const x = clientChartX(point, points, width, pad);
+    const y = clientChartY(getValue(point), height, pad);
     return `${index ? 'L' : 'M'} ${x.toFixed(1)} ${y.toFixed(1)}`;
   }).join(' ');
 }
 
+function buildClientChartHoverTargets(points, width, height) {
+  const pad = { left: 42, right: 16, top: 18, bottom: 38 };
+  const byDate = new Map();
+  for (const point of Array.isArray(points) ? points : []) {
+    const date = parseDateObject(point?.date);
+    if (!date) continue;
+    const key = date.toISOString().slice(0, 10);
+    const previous = byDate.get(key) || { date, planned: null, actual: null, labels: [] };
+    previous.planned = point.planned != null ? clampClientPercent(point.planned) : previous.planned;
+    previous.actual = point.actual != null ? clampClientPercent(point.actual) : previous.actual;
+    if (point.trackingLabel && !previous.labels.includes(point.trackingLabel)) previous.labels.push(point.trackingLabel);
+    byDate.set(key, previous);
+  }
+  return Array.from(byDate.values()).sort((a, b) => a.date - b.date).map((point) => {
+    const valueForY = point.actual != null ? point.actual : point.planned;
+    const x = clientChartX(point, points, width, pad);
+    const y = clientChartY(valueForY ?? 0, height, pad);
+    const tooltipLines = [
+      `Data: ${clientFormatDateValue(point.date)}`,
+      `Planejado: ${point.planned == null ? '--' : formatPercent(point.planned)}`,
+      `Realizado: ${point.actual == null ? '--' : formatPercent(point.actual)}`,
+    ];
+    if (point.labels.length) tooltipLines.push(`Marco: ${point.labels.join(' / ')}`);
+    const tooltipText = tooltipLines.join('\n');
+    return `<circle class="client-chart-hover-target" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="12" data-client-chart-tooltip="${escapeHtml(tooltipText)}"><title>${escapeHtml(tooltipText)}</title></circle>`;
+  }).join('');
+}
+
+
+function renderClientSCurveDelayOverlay(project, points, width, height, pad) {
+  const delayInfo = getClientSCurveDelayInfo(project);
+  if (!delayInfo) return '';
+  const x1 = clientChartX({ date: delayInfo.start }, points, width, pad);
+  const x2 = clientChartX({ date: delayInfo.end }, points, width, pad);
+  if (!Number.isFinite(x1) || !Number.isFinite(x2) || x2 <= x1) return '';
+  const top = pad.top;
+  const bottom = height - pad.bottom;
+  const y100 = clientChartY(100, height, pad);
+  const tooltip = escapeHtml(delayInfo.tooltip);
+  const labelX = Math.min(width - pad.right - 90, Math.max(pad.left + 6, x1 + 8));
+  const labelY = Math.max(pad.top + 12, y100 - 10);
+  return `
+    <rect x="${x1.toFixed(1)}" y="${top}" width="${(x2 - x1).toFixed(1)}" height="${(bottom - top)}" class="client-chart-delay-band" />
+    <line x1="${x1.toFixed(1)}" y1="${top}" x2="${x1.toFixed(1)}" y2="${bottom}" class="client-chart-delay-boundary" />
+    <line x1="${x2.toFixed(1)}" y1="${top}" x2="${x2.toFixed(1)}" y2="${bottom}" class="client-chart-delay-boundary client-chart-delay-boundary--end" />
+    <line x1="${x1.toFixed(1)}" y1="${y100.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y100.toFixed(1)}" class="client-chart-delay-line" />
+    <text x="${labelX.toFixed(1)}" y="${labelY.toFixed(1)}" class="client-chart-delay-label">+${delayInfo.days}d</text>
+    <rect x="${x1.toFixed(1)}" y="${top}" width="${(x2 - x1).toFixed(1)}" height="${(bottom - top)}" class="client-chart-hover-target client-chart-delay-hover" data-client-chart-tooltip="${tooltip}"><title>${tooltip}</title></rect>
+  `;
+}
+
+function getClientSCurveSvgWidth(points) {
+  const baseWidth = 760;
+  if (!Array.isArray(points) || points.length < 2) return baseWidth;
+  const { start, finish } = clientChartDateBounds(points);
+  const totalDays = clientDaysBetween(start, finish);
+  // Até aproximadamente 70 dias o gráfico cabe no card.
+  // Acima disso, o SVG ganha largura extra e o card mostra barra de rolagem,
+  // mantendo a Curva S fluida sem achatar prazos longos.
+  const expandedWidth = baseWidth + Math.max(0, totalDays - 70) * 8;
+  return Math.min(2200, Math.max(baseWidth, Math.round(expandedWidth)));
+}
+
+function wrapClientSCurveSvg(svgMarkup, width) {
+  return `
+    <div class="client-scurve-scroll" role="region" aria-label="Curva S com rolagem horizontal" tabindex="0">
+      <div class="client-scurve-canvas" style="min-width:${Number(width) || 760}px">
+        ${svgMarkup}
+      </div>
+    </div>
+  `;
+}
+
 function renderClientSCurveSvg(project) {
   const points = buildClientSCurveData(project);
-  const width = 760;
+  const width = getClientSCurveSvgWidth(points);
   const height = 260;
   const pad = { left: 42, right: 16, top: 18, bottom: 38 };
   const innerW = width - pad.left - pad.right;
@@ -4365,24 +5249,28 @@ function renderClientSCurveSvg(project) {
   const mid = points[Math.floor(points.length / 2)]?.date ? clientFormatDateValue(points[Math.floor(points.length / 2)].date) : '';
   const last = points[points.length - 1]?.date ? clientFormatDateValue(points[points.length - 1].date) : '';
   const actualCircle = (() => {
-    const lastActualIndex = points.map((point, index) => ({ point, index })).filter((item) => item.point.actual != null).pop();
-    if (!lastActualIndex) return '';
-    const x = pad.left + (lastActualIndex.index / Math.max(1, points.length - 1)) * innerW;
-    const y = pad.top + (1 - clampClientPercent(lastActualIndex.point.actual) / 100) * innerH;
+    const lastActual = points.filter((point) => point.actual != null).pop();
+    if (!lastActual) return '';
+    const x = clientChartX(lastActual, points, width, pad);
+    const y = clientChartY(lastActual.actual, height, pad);
     return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="client-chart-dot" />`;
   })();
-  return `
+  const delayOverlay = renderClientSCurveDelayOverlay(project, points, width, height, pad);
+  const hoverTargets = buildClientChartHoverTargets(points, width, height);
+  return wrapClientSCurveSvg(`
     <svg class="client-scurve-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Curva S planejado versus realizado">
       ${grid}
+      ${delayOverlay}
       <line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" class="client-chart-axis" />
       <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" class="client-chart-axis" />
       <path d="${plannedPath}" class="client-chart-planned" />
       ${actualPath ? `<path d="${actualPath}" class="client-chart-actual" />${actualCircle}` : ''}
+      ${hoverTargets}
       <text x="${pad.left}" y="${height - 12}" class="client-chart-date">${escapeHtml(first)}</text>
       <text x="${pad.left + innerW / 2 - 38}" y="${height - 12}" class="client-chart-date">${escapeHtml(mid)}</text>
       <text x="${width - pad.right - 72}" y="${height - 12}" class="client-chart-date">${escapeHtml(last)}</text>
     </svg>
-  `;
+  `, width);
 }
 
 function renderClientGauge(percent, label, plannedPercent = null, options = {}) {
@@ -4499,6 +5387,8 @@ function buildClientExecutiveSchedule(project) {
   const start = getClientAnalyticStartDate(project);
   const finish = getClientAnalyticFinishDate(project) || getProjectShipmentDate(project);
   const totalBusinessDays = Math.max(5, countBusinessDaysInclusive(start, finish) || 116);
+  const realDates = getClientTrackingDates(project);
+  const hasRealFabricationDates = Boolean(realDates.fabricationStart || realDates.boilermakerFinish || realDates.weldingFinish || realDates.inspectionFinish || realDates.thFinish || realDates.coatingFinish);
 
   const groupTemplate = [
     { key: 'engineering', label: 'ENGINEERING', base: 15, percent: getClientStageValue(project, ['Drawing Execution Advance%', 'Drawing']) },
@@ -4514,9 +5404,9 @@ function buildClientExecutiveSchedule(project) {
     { key: 'weld', label: 'Weld', base: 10, percent: getClientStageValue(project, ['Full welding execution']) },
     { key: 'nde', label: 'Non Destructive Examination', base: 8, percent: getClientStageValue(project, ['Non Destructive Examination (QC)']) },
     { key: 'final-dimensional', label: 'Final Dimensional Inspection', base: 8, percent: getClientStageValue(project, ['Final Dimensional Inpection/3D (QC)']) },
-    { key: 'hydro', label: 'Hydro Testing', base: 6, percent: getClientStageValue(project, ['Hydro Test Pressure (QC)']) },
+    { key: 'hydro', label: 'Hydro Testing', base: 6, percent: getClientStageValue(project, ['Hydro Test Pressure (QC)']), spoolOnly: true },
     { key: 'painting', label: 'Painting', base: 14, percent: getClientStageValue(project, ['Surface preparation and/or coating', 'HDG / FBE.  (PAINT)']) },
-  ];
+  ].filter((item) => !item.spoolOnly || shouldClientShowHydro(project));
   const logisticsTemplate = [
     { key: 'packing', label: 'Packing', base: 1, percent: getClientStageValue(project, ['Package and Delivered']) },
     { key: 'final-inspection', label: 'Final Inspection', base: 1, percent: getClientStageValue(project, ['Final Inspection']) },
@@ -4532,29 +5422,48 @@ function buildClientExecutiveSchedule(project) {
   for (const group of groupDurations) {
     const groupStart = new Date(cursor.getTime());
     const groupFinish = addBusinessDaysUtc(groupStart, Math.max(0, (group.duration || 1) - 1)) || groupStart;
-    rows.push({ type: 'group', label: group.label, progress: group.percent, duration: group.duration, start: groupStart, finish: groupFinish });
+    rows.push({ type: 'group', key: group.key, label: group.label, progress: group.percent, duration: group.duration, start: groupStart, finish: groupFinish });
     let children = [];
     if (group.key === 'engineering') {
-      children = [{ label: 'Drawings', progress: group.percent, duration: group.duration }];
+      children = [{ key: 'drawings', label: 'Drawings', progress: group.percent, duration: group.duration }];
     } else if (group.key === 'procurement') {
-      children = [{ label: 'Materials for Application Acquisition', progress: group.percent, duration: group.duration }];
+      children = [{ key: 'materials', label: 'Materials for Application Acquisition', progress: group.percent, duration: group.duration }];
     } else if (group.key === 'fabrication') {
-      children = fabricationDurations.map((item) => ({ label: item.label, progress: item.percent, duration: item.duration }));
+      children = fabricationDurations.map((item) => ({ key: item.key, label: item.label, progress: item.percent, duration: item.duration }));
     } else if (group.key === 'delivery') {
-      children = logisticsDurations.map((item) => ({ label: item.label, progress: item.percent, duration: item.duration }));
+      children = logisticsDurations.map((item) => ({ key: item.key, label: item.label, progress: item.percent, duration: item.duration }));
     }
 
     let childCursor = new Date(groupStart.getTime());
     for (const child of children) {
       const childStart = new Date(childCursor.getTime());
       const childFinish = addBusinessDaysUtc(childStart, Math.max(0, (child.duration || 1) - 1)) || childStart;
-      rows.push({ type: 'child', label: child.label, progress: child.progress, duration: child.duration, start: childStart, finish: childFinish });
+      rows.push({ type: 'child', key: child.key, label: child.label, progress: child.progress, duration: child.duration, start: childStart, finish: childFinish });
       childCursor = addBusinessDaysUtc(childFinish, 1) || childFinish;
     }
 
     cursor = addBusinessDaysUtc(groupFinish, 1) || groupFinish;
   }
-  return rows;
+
+  if (!hasRealFabricationDates) return rows;
+
+  return rows.map((row) => {
+    if (row.key === 'fabrication') {
+      const fabFinish = clientLatestDate(realDates.coatingFinish, realDates.thFinish, realDates.inspectionFinish, realDates.weldingFinish, realDates.boilermakerFinish);
+      return clientApplyRowDates(row, realDates.fabricationStart, fabFinish, realDates.sources?.fabricationStart || realDates.sources?.coatingFinish || realDates.sources?.thFinish || realDates.sources?.inspectionFinish || realDates.sources?.weldingFinish || realDates.sources?.boilermakerFinish || 'Tracking');
+    }
+    if (row.key === 'fitup') return clientApplyRowDates(row, realDates.fabricationStart, realDates.boilermakerFinish, realDates.sources?.fabricationStart || realDates.sources?.boilermakerFinish || 'Tracking');
+    if (row.key === 'weld') return clientApplyRowDates(row, realDates.boilermakerFinish ? clientNextBusinessDay(realDates.boilermakerFinish) : null, realDates.weldingFinish, realDates.sources?.weldingFinish || 'Tracking');
+    if (row.key === 'final-dimensional') return clientApplyRowDates(row, realDates.weldingFinish ? clientNextBusinessDay(realDates.weldingFinish) : null, realDates.inspectionFinish, realDates.sources?.inspectionFinish || 'Tracking');
+    if (row.key === 'hydro' && realDates.thFinish) return clientApplyRowDates(row, realDates.inspectionFinish ? clientNextBusinessDay(realDates.inspectionFinish) : null, realDates.thFinish, realDates.sources?.thFinish || 'Tracking');
+    if (row.key === 'painting') {
+      const paintStartBase = shouldClientShowHydro(project) ? realDates.thFinish : realDates.inspectionFinish;
+      if (realDates.coatingFinish) return clientApplyRowDates(row, paintStartBase ? clientNextBusinessDay(paintStartBase) : null, realDates.coatingFinish, realDates.sources?.coatingFinish || 'Tracking');
+      return row;
+    }
+    if (row.key === 'delivery' && row.type === 'group') return clientApplyRowDates(row, null, realDates.projectFinish, realDates.sources?.projectFinish || 'Tracking');
+    return row;
+  });
 }
 
 function getClientScheduleVisualState(progress) {
@@ -4575,7 +5484,11 @@ function renderClientExecutiveSchedule(project) {
           ${rows.map((row) => {
             const state = getClientScheduleVisualState(row.progress);
             const label = row.type === 'group' ? `<strong>${escapeHtml(row.label)}</strong>` : `<span class="client-schedule-child">${escapeHtml(row.label)}</span>`;
-            return `<tr class="client-schedule-row client-schedule-row--${state} client-schedule-row--${row.type}"><td>${label}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(row.progress)}</span></td><td>${formatNumber(row.duration, 0)}d</td><td>${formatClientDateShort(row.start)}</td><td>${formatClientDateShort(row.finish)}</td><td><span class="client-spool-chip client-spool-chip--${state}">${state === 'completed' ? 'Concluído' : state === 'in-progress' ? 'Em andamento' : 'Não iniciado'}</span></td></tr>`;
+            const sourceBadge = row.dateSource ? ` <small class="client-date-source">${escapeHtml(row.dateSource)}</small>` : '';
+            const startCell = `${formatClientDateShort(row.start)}${row.plannedStart ? `<small class="client-planned-date">Plan.: ${formatClientDateShort(row.plannedStart)}</small>` : ''}`;
+            const finishCell = `${formatClientDateShort(row.finish)}${row.plannedFinish ? `<small class="client-planned-date">Plan.: ${formatClientDateShort(row.plannedFinish)}</small>` : ''}`;
+            const deviationText = Number.isFinite(row.deviationDays) && row.deviationDays !== 0 ? ` • ${row.deviationDays > 0 ? '+' : ''}${row.deviationDays}d` : '';
+            return `<tr class="client-schedule-row client-schedule-row--${state} client-schedule-row--${row.type}"><td>${label}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(row.progress)}</span></td><td>${formatNumber(row.duration, 0)}d</td><td>${startCell}</td><td>${finishCell}</td><td><span class="client-spool-chip client-spool-chip--${state}">${row.dateSource || (state === 'completed' ? 'Concluído' : state === 'in-progress' ? 'Em andamento' : 'Não iniciado')}${deviationText}</span>${sourceBadge}</td></tr>`;
           }).join('')}
         </tbody>
       </table>
@@ -4589,6 +5502,158 @@ function getClientStageTimeline(project) {
     ...stage,
     state: stage.percent >= 100 ? 'done' : stage.percent > 0 ? 'active' : 'future',
   }));
+}
+
+
+function renderClientBspOverrideNotice(project) {
+  const override = getClientBspOverride(project);
+  if (!hasClientBspOverrideContent(override)) return '';
+  const custom = clientOverrideCustomFieldsArray(override);
+  const updated = override.updatedAt ? new Date(override.updatedAt).toLocaleString('pt-BR') : '';
+  const meta = [override.updatedByName || override.updatedBy, updated].filter(Boolean).join(' • ');
+  return `
+    <section class="client-pm-override-notice">
+      <div>
+        <span class="client-pm-override-badge">Informação executiva PM</span>
+        <h3>${escapeHtml(override.executiveStatus || 'Ajuste executivo aplicado')}</h3>
+        ${override.executiveNote ? `<p>${escapeHtml(override.executiveNote)}</p>` : ''}
+        ${override.delayReason ? `<small>Motivo / desvio: ${escapeHtml(override.delayReason)}</small>` : ''}
+        ${custom.length ? `<div class="client-pm-custom-fields">${custom.map((item) => `<span><strong>${escapeHtml(item.label || 'Campo')}:</strong> ${escapeHtml(item.value || '—')}</span>`).join('')}</div>` : ''}
+      </div>
+      ${meta ? `<small class="client-pm-override-meta">Última atualização: ${escapeHtml(meta)}</small>` : ''}
+    </section>
+  `;
+}
+
+function renderClientBspOverrideEditor(project) {
+  if (!canManageClientBspPanel(project)) return '';
+  if (String(state.clientBspOverrides.editingProjectId || '') !== String(project?.rowId || '')) return '';
+  const override = getClientBspOverride(project) || {};
+  const tracking = getClientTrackingDates(project, { ignoreOverrides: true });
+  const field = (name, label, trackingValue, overrideValue) => `
+    <label class="client-pm-date-field">
+      <span>${escapeHtml(label)}</span>
+      <input type="date" name="${escapeHtml(name)}" value="${escapeHtml(clientDateInputValue(overrideValue))}" />
+      <small>Tracking: ${escapeHtml(formatClientDateShort(trackingValue))}</small>
+    </label>
+  `;
+  const custom = clientOverrideCustomFieldsArray(override)[0] || { label: '', value: '' };
+  return `
+    <section class="client-pm-editor" data-client-pm-editor="${escapeHtml(project.rowId)}">
+      <div class="client-exec-card-head">
+        <h3>Editar informações do cliente</h3>
+        <span>Os dados ficam salvos no Supabase e não alteram o Tracking/Smartsheet.</span>
+      </div>
+      <form class="client-pm-editor-form" data-client-bsp-override-form="${escapeHtml(project.rowId)}">
+        <div class="client-pm-date-grid">
+          ${field('fabricationStartOverride', 'Fabrication Start Date', tracking.fabricationStart, override.fabricationStartOverride)}
+          ${field('boilermakerFinishOverride', 'Boilermaker Finish Date', tracking.boilermakerFinish, override.boilermakerFinishOverride)}
+          ${field('weldingFinishOverride', 'Welding Finish Date', tracking.weldingFinish, override.weldingFinishOverride)}
+          ${field('inspectionFinishOverride', 'Inspection Finish Date (QC)', tracking.inspectionFinish, override.inspectionFinishOverride)}
+          ${shouldClientShowHydro(project) ? field('thFinishOverride', 'TH Finish Date', tracking.thFinish, override.thFinishOverride) : ''}
+          ${field('coatingFinishOverride', 'Coating Finish Date', tracking.coatingFinish, override.coatingFinishOverride)}
+          ${field('projectFinishOverride', 'Project Finish / Envio', tracking.projectFinish, override.projectFinishOverride)}
+        </div>
+        <div class="client-pm-text-grid">
+          <label><span>Status executivo</span><input type="text" name="executiveStatus" maxlength="160" value="${escapeHtml(override.executiveStatus || '')}" placeholder="Ex.: Em tratativa / Prazo revisado" /></label>
+          <label><span>Motivo do desvio</span><input type="text" name="delayReason" maxlength="220" value="${escapeHtml(override.delayReason || '')}" placeholder="Ex.: Aguardando liberação do cliente" /></label>
+          <label class="client-pm-editor-wide"><span>Observação para o cliente</span><textarea name="executiveNote" rows="3" maxlength="1000" placeholder="Resumo executivo visível no painel do cliente">${escapeHtml(override.executiveNote || '')}</textarea></label>
+          <label><span>Campo adicional</span><input type="text" name="customFieldLabel" maxlength="80" value="${escapeHtml(custom.label || '')}" placeholder="Ex.: Pendência" /></label>
+          <label><span>Valor do campo adicional</span><input type="text" name="customFieldValue" maxlength="220" value="${escapeHtml(custom.value || '')}" placeholder="Ex.: PO em revisão" /></label>
+        </div>
+        <div id="client-pm-editor-feedback" class="client-pm-editor-feedback">${escapeHtml(state.clientBspOverrides.feedback || '')}</div>
+        <div class="client-pm-editor-actions">
+          <button class="primary-button" type="submit">Salvar ajustes</button>
+          <button class="ghost-button" type="button" data-client-bsp-edit-cancel>Cancelar</button>
+          ${override.id ? '<button class="ghost-button ghost-button--danger" type="button" data-client-bsp-clear-override>Limpar ajuste</button>' : ''}
+        </div>
+      </form>
+    </section>
+  `;
+}
+
+function collectClientBspOverrideForm(form) {
+  const fd = new FormData(form);
+  const customLabel = String(fd.get('customFieldLabel') || '').trim();
+  const customValue = String(fd.get('customFieldValue') || '').trim();
+  const customFields = customLabel || customValue ? { [customLabel || 'Campo adicional']: customValue } : {};
+  const val = (key) => String(fd.get(key) || '').trim();
+  return {
+    fabricationStartOverride: val('fabricationStartOverride'),
+    boilermakerFinishOverride: val('boilermakerFinishOverride'),
+    weldingFinishOverride: val('weldingFinishOverride'),
+    inspectionFinishOverride: val('inspectionFinishOverride'),
+    thFinishOverride: val('thFinishOverride'),
+    coatingFinishOverride: val('coatingFinishOverride'),
+    projectFinishOverride: val('projectFinishOverride'),
+    executiveStatus: val('executiveStatus'),
+    executiveNote: val('executiveNote'),
+    delayReason: val('delayReason'),
+    customFields,
+  };
+}
+
+async function saveClientBspOverride(project, form) {
+  if (!project || !form || !canManageClientBspPanel(project)) return;
+  state.clientBspOverrides.feedback = 'Salvando ajustes executivos...';
+  const feedbackEl = document.getElementById('client-pm-editor-feedback');
+  if (feedbackEl) feedbackEl.textContent = state.clientBspOverrides.feedback;
+  try {
+    const response = await fetch('/api/client-bsp-overrides', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectRowId: getClientBspOverrideProjectRowId(project),
+        projectNumber: getClientBspOverrideProjectNumber(project),
+        projectDisplay: project.projectDisplay || '',
+        clientName: getProjectClientLabel(project),
+        vessel: getProjectVesselLabel(project),
+        pm: project.pm || '',
+        ...collectClientBspOverrideForm(form),
+      }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao salvar ajustes.');
+    const next = normalizeClientBspOverride(data.override);
+    const items = state.clientBspOverrides.items.filter((item) => String(item.projectRowId) !== String(next.projectRowId));
+    items.unshift(next);
+    setClientBspOverrides(items);
+    state.clientBspOverrides.feedback = 'Ajustes salvos com sucesso.';
+    state.clientBspOverrides.editingProjectId = null;
+    openClientBspExecutive(project);
+    renderClientDashboard();
+    if (modalEl && !modalEl.classList.contains('hidden')) renderModal(project);
+  } catch (error) {
+    state.clientBspOverrides.feedback = error?.message || 'Falha ao salvar ajustes.';
+    if (feedbackEl) feedbackEl.textContent = state.clientBspOverrides.feedback;
+  }
+}
+
+async function clearClientBspOverride(project) {
+  const override = getClientBspOverride(project);
+  if (!project || !override?.id || !canManageClientBspPanel(project)) return;
+  state.clientBspOverrides.feedback = 'Removendo ajuste executivo...';
+  const feedbackEl = document.getElementById('client-pm-editor-feedback');
+  if (feedbackEl) feedbackEl.textContent = state.clientBspOverrides.feedback;
+  try {
+    const response = await fetch(`/api/client-bsp-overrides?id=${encodeURIComponent(override.id)}&projectRowId=${encodeURIComponent(getClientBspOverrideProjectRowId(project))}`, {
+      method: 'DELETE',
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao remover ajuste.');
+    setClientBspOverrides(state.clientBspOverrides.items.filter((item) => String(item.id) !== String(override.id)));
+    state.clientBspOverrides.feedback = '';
+    state.clientBspOverrides.editingProjectId = null;
+    openClientBspExecutive(project);
+    renderClientDashboard();
+    if (modalEl && !modalEl.classList.contains('hidden')) renderModal(project);
+  } catch (error) {
+    state.clientBspOverrides.feedback = error?.message || 'Falha ao remover ajuste.';
+    if (feedbackEl) feedbackEl.textContent = state.clientBspOverrides.feedback;
+  }
 }
 
 function ensureClientBspExecutiveModalEl() {
@@ -4613,7 +5678,34 @@ function ensureClientBspExecutiveModalEl() {
       handleClientExecutivePdfDownload(pdfButton);
       return;
     }
+    const editButton = event.target.closest('[data-client-bsp-edit]');
+    if (editButton) {
+      const project = state.projects.find((item) => String(item.rowId) === String(editButton.dataset.clientBspEdit));
+      if (project && canManageClientBspPanel(project)) {
+        state.clientBspOverrides.editingProjectId = project.rowId;
+        openClientBspExecutive(project, { keepEditing: true });
+      }
+      return;
+    }
+    if (event.target.closest('[data-client-bsp-edit-cancel]')) {
+      const project = state.projects.find((item) => String(item.rowId) === String(state.clientBspOverrides.activeExecutiveProjectId));
+      state.clientBspOverrides.editingProjectId = null;
+      if (project) openClientBspExecutive(project);
+      return;
+    }
+    if (event.target.closest('[data-client-bsp-clear-override]')) {
+      const project = state.projects.find((item) => String(item.rowId) === String(state.clientBspOverrides.activeExecutiveProjectId));
+      if (project) clearClientBspOverride(project);
+      return;
+    }
     if (event.target.closest('[data-client-exec-close]')) closeClientBspExecutive();
+  });
+  modal.addEventListener('submit', (event) => {
+    const form = event.target.closest('[data-client-bsp-override-form]');
+    if (!form) return;
+    event.preventDefault();
+    const project = state.projects.find((item) => String(item.rowId) === String(form.dataset.clientBspOverrideForm));
+    if (project) saveClientBspOverride(project, form);
   });
   return modal;
 }
@@ -4622,6 +5714,8 @@ function closeClientBspExecutive() {
   const modal = document.getElementById('client-bsp-executive-modal');
   if (modal) modal.classList.add('hidden');
   document.body.classList.remove('client-exec-open');
+  state.clientBspOverrides.activeExecutiveProjectId = null;
+  state.clientBspOverrides.editingProjectId = null;
 }
 
 function getClientMacroProjects(projects = state.projects) {
@@ -4726,7 +5820,7 @@ function buildClientMacroSCurveData(projects = state.projects) {
 
 function renderClientMacroSCurveSvg(projects = state.projects) {
   const points = buildClientMacroSCurveData(projects);
-  const width = 760;
+  const width = getClientSCurveSvgWidth(points);
   const height = 260;
   const pad = { left: 42, right: 16, top: 18, bottom: 38 };
   const innerW = width - pad.left - pad.right;
@@ -4741,24 +5835,26 @@ function renderClientMacroSCurveSvg(projects = state.projects) {
   const mid = points[Math.floor(points.length / 2)]?.date ? clientFormatDateValue(points[Math.floor(points.length / 2)].date) : '';
   const last = points[points.length - 1]?.date ? clientFormatDateValue(points[points.length - 1].date) : '';
   const actualCircle = (() => {
-    const lastActualIndex = points.map((point, index) => ({ point, index })).filter((item) => item.point.actual != null).pop();
-    if (!lastActualIndex) return '';
-    const x = pad.left + (lastActualIndex.index / Math.max(1, points.length - 1)) * innerW;
-    const y = pad.top + (1 - clampClientPercent(lastActualIndex.point.actual) / 100) * innerH;
+    const lastActual = points.filter((point) => point.actual != null).pop();
+    if (!lastActual) return '';
+    const x = clientChartX(lastActual, points, width, pad);
+    const y = clientChartY(lastActual.actual, height, pad);
     return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="client-chart-dot" />`;
   })();
-  return `
+  const hoverTargets = buildClientChartHoverTargets(points, width, height);
+  return wrapClientSCurveSvg(`
     <svg class="client-scurve-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Curva S macro planejado versus realizado">
       ${grid}
       <line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" class="client-chart-axis" />
       <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" class="client-chart-axis" />
       <path d="${plannedPath}" class="client-chart-planned" />
       ${actualPath ? `<path d="${actualPath}" class="client-chart-actual" />${actualCircle}` : ''}
+      ${hoverTargets}
       <text x="${pad.left}" y="${height - 12}" class="client-chart-date">${escapeHtml(first)}</text>
       <text x="${pad.left + innerW / 2 - 38}" y="${height - 12}" class="client-chart-date">${escapeHtml(mid)}</text>
       <text x="${width - pad.right - 72}" y="${height - 12}" class="client-chart-date">${escapeHtml(last)}</text>
     </svg>
-  `;
+  `, width);
 }
 
 function getClientMacroAttentionPoints(projects = state.projects) {
@@ -5087,7 +6183,7 @@ async function downloadClientBspExecutivePdf(project) {
   doc.addPage('a4', 'portrait');
   await drawClientPdfHeader(doc, 'Relatório Operacional STEP', subtitle, metaLine);
   drawClientPdfSectionTitle(doc, 'Processos da BSP por etapa', contentX, 42);
-  const detailStageKeys = ['Drawing Execution Advance%', 'Procuremnt Status %', 'Material Separation', 'Full welding execution', 'Non Destructive Examination (QC)', 'Hydro Test Pressure (QC)', 'Surface preparation and/or coating', 'Final Inspection', 'Package and Delivered'];
+  const detailStageKeys = getClientDetailStageKeys(project);
   const stageRows = detailStageKeys.map((key) => [clientReportStageLabel(key), formatPercent(getClientStageValue(project, [key]))]);
   doc.autoTable({
     startY: 48,
@@ -5363,8 +6459,10 @@ function openClientMacroExecutive(projects = state.projects, options = {}) {
   document.body.classList.add('client-exec-open');
 }
 
-function openClientBspExecutive(project) {
-  if (!project || !isClientUser()) return;
+function openClientBspExecutive(project, options = {}) {
+  if (!project || !canOpenClientBspPanel(project)) return;
+  state.clientBspOverrides.activeExecutiveProjectId = project.rowId;
+  if (!options.keepEditing && String(state.clientBspOverrides.editingProjectId || '') !== String(project.rowId || '')) state.clientBspOverrides.editingProjectId = null;
   const modal = ensureClientBspExecutiveModalEl();
   const content = modal.querySelector('#client-bsp-executive-content');
   if (!content) return;
@@ -5388,7 +6486,7 @@ function openClientBspExecutive(project) {
   const deviationPercent = Math.max(0, plannedToday - overall);
   const stageValues = project.stageValues || {};
   const spools = Array.isArray(project.spools) ? project.spools : [];
-  const detailStageKeys = ['Drawing Execution Advance%', 'Procuremnt Status %', 'Material Separation', 'Full welding execution', 'Non Destructive Examination (QC)', 'Hydro Test Pressure (QC)', 'Surface preparation and/or coating', 'Final Inspection', 'Package and Delivered'];
+  const detailStageKeys = getClientDetailStageKeys(project);
 
   content.innerHTML = `
     <header class="client-exec-header">
@@ -5396,7 +6494,10 @@ function openClientBspExecutive(project) {
         <p class="client-kicker">Visão Executiva da BSP</p>
         <h2>${escapeHtml(getClientProjectDisplayCode(project))}</h2>
         <p>${escapeHtml(getProjectClientLabel(project))} • ${escapeHtml(getProjectVesselLabel(project))} • <span class="cell-status cell-status--${status.state}">${escapeHtml(status.text)}</span></p>
-        <div class="client-exec-header-actions"><button class="client-exec-pdf-button" type="button" data-client-download-pdf data-client-report-type="project" data-client-report-project-id="${escapeHtml(project.rowId)}">Baixar PDF</button></div>
+        <div class="client-exec-header-actions">
+          <button class="client-exec-pdf-button" type="button" data-client-download-pdf data-client-report-type="project" data-client-report-project-id="${escapeHtml(project.rowId)}">Baixar PDF</button>
+          ${canManageClientBspPanel(project) ? `<button class="client-exec-pdf-button client-exec-edit-button" type="button" data-client-bsp-edit="${escapeHtml(project.rowId)}">Editar informações do cliente</button>` : ''}
+        </div>
       </div>
       <div class="client-exec-dates">
         <span>Início: <strong>${escapeHtml(startDate || '—')}</strong></span>
@@ -5406,6 +6507,11 @@ function openClientBspExecutive(project) {
         <span>Envio efetivo: <strong>${escapeHtml(shipmentDate || '—')}</strong></span>
       </div>
     </header>
+
+    ${renderClientBspOverrideEditor(project)}
+    ${renderClientBspOverrideNotice(project)}
+    ${renderClientOnHoldNotice(project)}
+    ${renderClientTratativaNotice(project)}
 
     <div class="client-exec-kpis">
       <article><span>Progresso geral</span><strong>${formatPercent(overall)}</strong></article>
@@ -5438,7 +6544,7 @@ function openClientBspExecutive(project) {
     <div class="client-exec-grid client-exec-grid--main">
       <section class="client-exec-card client-exec-card--curve">
         <div class="client-exec-card-head"><h3>Curva S | Planejado x Realizado</h3><span>Baseada na data inicial e final da BSP</span></div>
-        <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span></div>
+        <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span><span><i class="delay"></i> Desvio</span></div>
         ${renderClientSCurveSvg(project)}
       </section>
       <aside class="client-exec-side">
@@ -5468,7 +6574,7 @@ function openClientBspExecutive(project) {
     </section>
 
     <section class="client-exec-card client-exec-schedule-card">
-      <div class="client-exec-card-head"><h3>Schedule Executivo da BSP</h3><span>Prazos médios por etapa com base na data inicial e final</span></div>
+      <div class="client-exec-card-head"><h3>Schedule Executivo da BSP</h3><span>Planejado + datas reais do Tracking quando preenchidas</span></div>
       ${renderClientExecutiveSchedule(project)}
     </section>
 
@@ -5487,7 +6593,7 @@ function openClientBspExecutive(project) {
         }).join('')}
       </div>
       <div class="client-table-wrap client-table-wrap--compact client-exec-process-table">
-        <table class="client-bsp-table"><thead><tr><th>Tag/ISO</th><th>Descrição</th><th>Status</th><th>Etapa</th><th>%</th><th>Peso</th></tr></thead><tbody>
+        <table class="client-bsp-table"><thead><tr><th>Tag/ISO</th><th>Descrição</th><th>Observação</th><th>Status</th><th>Etapa</th><th>%</th><th>Peso</th></tr></thead><tbody>
           ${renderClientSpoolRows(spools, 120)}
         </tbody></table>
       </div>
@@ -5511,7 +6617,7 @@ function ensureClientApiModal() {
         <div>
           <p class="client-kicker">Integração</p>
           <h2 id="client-api-title">API do Portal do Cliente</h2>
-          <p>Gere uma chave somente leitura para consultar as informações que já aparecem neste painel. Esta API não edita, não altera e não exclui dados.</p>
+          <p>Gere uma chave para consumir, de forma controlada, as informações que já aparecem neste painel.</p>
         </div>
         <button class="client-api-close" type="button" data-client-api-close aria-label="Fechar">×</button>
       </div>
@@ -5519,16 +6625,16 @@ function ensureClientApiModal() {
         <section class="client-api-card">
           <div class="client-api-card-head">
             <div>
-              <h3>Nova chave de leitura</h3>
-              <p>O token completo aparece somente uma vez. Copie e guarde em local seguro. Permissão: somente consulta.</p>
+              <h3>Nova chave</h3>
+              <p>O token completo aparece somente uma vez. Copie e guarde em local seguro.</p>
             </div>
           </div>
           <div class="client-api-form-row">
             <label>
               <span>Nome da integração</span>
-              <input id="client-api-key-name" type="text" value="API de leitura do Portal do Cliente" maxlength="120" />
+              <input id="client-api-key-name" type="text" value="API do Portal do Cliente" maxlength="120" />
             </label>
-            <button class="mini-action-button" type="button" data-client-api-create>Criar API somente leitura</button>
+            <button class="mini-action-button" type="button" data-client-api-create>Criar API</button>
           </div>
           <div id="client-api-new-token" class="client-api-token-box hidden"></div>
         </section>
@@ -5536,12 +6642,11 @@ function ensureClientApiModal() {
           <div class="client-api-card-head">
             <div>
               <h3>Como consumir</h3>
-              <p>Use o endpoint abaixo com o header Authorization. Método permitido: GET.</p>
+              <p>Use o endpoint abaixo com o header Authorization.</p>
             </div>
           </div>
           <pre class="client-api-code" id="client-api-example"></pre>
           <div class="client-api-help-grid">
-            <span><strong>Somente leitura:</strong> não aceita POST, PUT, PATCH ou DELETE</span>
             <span><strong>Resumo:</strong> /api/client-data?format=summary</span>
             <span><strong>Completo:</strong> /api/client-data?format=full</span>
             <span><strong>Com spools:</strong> /api/client-data?includeSpools=1</span>
@@ -5587,7 +6692,7 @@ function renderClientApiKeys() {
     if (state.clientApi.newToken) {
       tokenEl.classList.remove('hidden');
       tokenEl.innerHTML = `
-        <span>Copie sua chave somente leitura agora:</span>
+        <span>Copie sua chave agora:</span>
         <code>${escapeHtml(state.clientApi.newToken)}</code>
         <div class="client-api-token-actions">
           <button class="mini-action-button" type="button" data-client-api-copy-token>Copiar token</button>
@@ -5604,10 +6709,10 @@ function renderClientApiKeys() {
   const tokenNotice = rawToken ? `
     <article class="client-api-key-item client-api-key-item--new-token">
       <div>
-        <strong>Token somente leitura criado agora</strong>
+        <strong>Token criado agora</strong>
         <span>Copie este token completo. Ele não será exibido novamente depois que fechar esta janela.</span>
         <code>${escapeHtml(rawToken)}</code>
-        <small>Use em Authorization: Bearer ${escapeHtml(rawToken)} • Método permitido: GET</small>
+        <small>Use em Authorization: Bearer ${escapeHtml(rawToken)}</small>
       </div>
       <button class="mini-action-button" type="button" data-client-api-copy-token>Copiar token</button>
     </article>
@@ -5631,13 +6736,11 @@ function renderClientApiKeys() {
         <div>
           <strong>${escapeHtml(key.name || 'API do cliente')}</strong>
           <span>${escapeHtml(key.tokenPreview || 'step_••••')}</span>
-          <small>Criada: ${escapeHtml(created)} • Último uso: ${escapeHtml(used)} • ${escapeHtml(status)} • Somente leitura</small>
+          <small>Criada: ${escapeHtml(created)} • Último uso: ${escapeHtml(used)} • ${escapeHtml(status)}</small>
         </div>
         <div class="client-api-key-actions">
           ${isNewKey ? '<button class="mini-action-button" type="button" data-client-api-copy-token>Copiar token</button>' : ''}
-          ${key.active === false
-            ? `<button class="mini-action-button mini-action-button--danger" type="button" data-client-api-delete="${escapeHtml(key.id)}">Excluir</button>`
-            : `<button class="mini-action-button mini-action-button--danger" type="button" data-client-api-revoke="${escapeHtml(key.id)}">Revogar</button>`}
+          ${key.active === false ? '' : `<button class="mini-action-button mini-action-button--danger" type="button" data-client-api-revoke="${escapeHtml(key.id)}">Revogar</button>`}
         </div>
       </article>
     `;
@@ -5684,7 +6787,7 @@ function closeClientApiModal() {
 
 async function createClientApiKeyFromModal() {
   const input = document.getElementById('client-api-key-name');
-  const name = input?.value || 'API de leitura do Portal do Cliente';
+  const name = input?.value || 'API do Portal do Cliente';
   state.clientApi.loading = true;
   state.clientApi.feedback = 'Criando chave...';
   state.clientApi.newToken = '';
@@ -5702,10 +6805,10 @@ async function createClientApiKeyFromModal() {
     if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao criar API.');
     state.clientApi.newToken = data.key?.token || '';
     state.clientApi.newTokenKeyId = data.key?.id || '';
-    state.clientApi.feedback = 'API somente leitura criada com sucesso. Copie o token agora.';
+    state.clientApi.feedback = 'API criada com sucesso. Copie o token agora.';
     renderClientApiExample(state.clientApi.newToken || '<SUA_API_KEY>');
     await loadClientApiKeys();
-    state.clientApi.feedback = 'API somente leitura criada com sucesso. Copie o token agora.';
+    state.clientApi.feedback = 'API criada com sucesso. Copie o token agora.';
     renderClientApiKeys();
     setTimeout(() => {
       const tokenBox = document.getElementById('client-api-new-token') || document.querySelector('.client-api-key-item--new-token');
@@ -5737,30 +6840,6 @@ async function revokeClientApiKeyFromModal(id) {
     await loadClientApiKeys();
   } catch (error) {
     state.clientApi.feedback = error?.message || 'Falha ao revogar API.';
-    renderClientApiKeys();
-  }
-}
-
-async function deleteClientApiKeyFromModal(id) {
-  if (!id) return;
-  const confirmed = window.confirm('Excluir definitivamente esta chave revogada da lista?');
-  if (!confirmed) return;
-  state.clientApi.feedback = 'Excluindo chave revogada...';
-  renderClientApiKeys();
-  try {
-    const response = await fetch('/api/client-api-keys', {
-      method: 'DELETE',
-      credentials: 'same-origin',
-      cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, action: 'delete' }),
-    });
-    const data = await response.json().catch(() => null);
-    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao excluir API.');
-    state.clientApi.feedback = 'Chave excluída da lista.';
-    await loadClientApiKeys();
-  } catch (error) {
-    state.clientApi.feedback = error?.message || 'Falha ao excluir API.';
     renderClientApiKeys();
   }
 }
@@ -5827,11 +6906,6 @@ function handleClientApiModalClick(event) {
   const revokeButton = event.target.closest('[data-client-api-revoke]');
   if (revokeButton) {
     revokeClientApiKeyFromModal(revokeButton.dataset.clientApiRevoke || '');
-    return;
-  }
-  const deleteButton = event.target.closest('[data-client-api-delete]');
-  if (deleteButton) {
-    deleteClientApiKeyFromModal(deleteButton.dataset.clientApiDelete || '');
   }
 }
 
@@ -7138,6 +8212,7 @@ function renderSelectedProjectCard() {
 
       <div class="detail-actions">
         <button class="primary-button" type="button" id="open-selected-project">Abrir detalhamento completo</button>
+        ${canManageClientBspPanel(project) ? '<button class="ghost-button" type="button" id="open-selected-client-panel">Painel do Cliente</button>' : ''}
       </div>
     </div>
   `;
@@ -7145,6 +8220,11 @@ function renderSelectedProjectCard() {
   const button = document.getElementById("open-selected-project");
   if (button) {
     button.addEventListener("click", () => openProjectModal(project));
+  }
+
+  const clientPanelButton = document.getElementById("open-selected-client-panel");
+  if (clientPanelButton) {
+    clientPanelButton.addEventListener("click", () => openClientBspExecutive(project));
   }
 
   const backlogButton = document.getElementById("open-backlog-project");
@@ -7235,7 +8315,11 @@ function renderModal(project) {
       ${milestoneList || '<div class="empty-inline">Nenhum marco de data disponível.</div>'}
     </section>
 
+    ${canManageClientBspPanel(project) ? `<section class="modal-client-panel-action"><button class="primary-button" type="button" data-open-client-panel="${escapeHtml(project.rowId)}">Painel do Cliente</button><span>Visualize a mesma tela do cliente e ajuste datas/informações executivas.</span></section>` : ''}
+
     ${renderProjectSignals(project)}
+    ${renderClientTratativaNotice(project)}
+    ${renderClientOnHoldNotice(project)}
 
     <section class="modal-iso-toolbar" aria-label="Ordenação dos ISOs">
       <div>
@@ -7644,6 +8728,7 @@ function applyProjectsPayload(data, options = {}) {
   updateMeta();
   renderAlertModal();
   renderClientDashboard();
+  scheduleClientBspOverridesLoad();
   if (state.user && sectorAlertsModalEl && !sectorAlertsModalEl.classList.contains('hidden')) {
     renderManualAlerts();
   }
@@ -7860,7 +8945,54 @@ function startPolling() {
   }, 15000);
 }
 
+
+let clientChartTooltipEl = null;
+
+function getClientChartTooltipEl() {
+  if (clientChartTooltipEl) return clientChartTooltipEl;
+  clientChartTooltipEl = document.createElement('div');
+  clientChartTooltipEl.className = 'client-chart-tooltip';
+  clientChartTooltipEl.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(clientChartTooltipEl);
+  return clientChartTooltipEl;
+}
+
+function showClientChartTooltip(event, text) {
+  if (!text) return;
+  const tooltip = getClientChartTooltipEl();
+  tooltip.innerHTML = escapeHtml(text).replace(/\n/g, '<br>');
+  tooltip.style.left = `${Math.min(window.innerWidth - 220, Math.max(12, event.clientX + 14))}px`;
+  tooltip.style.top = `${Math.max(12, event.clientY - 18)}px`;
+  tooltip.classList.add('visible');
+  tooltip.setAttribute('aria-hidden', 'false');
+}
+
+function hideClientChartTooltip() {
+  if (!clientChartTooltipEl) return;
+  clientChartTooltipEl.classList.remove('visible');
+  clientChartTooltipEl.setAttribute('aria-hidden', 'true');
+}
+
+function bindClientChartTooltips() {
+  document.addEventListener('mousemove', (event) => {
+    const target = event.target?.closest?.('[data-client-chart-tooltip]');
+    if (!target) return;
+    showClientChartTooltip(event, target.getAttribute('data-client-chart-tooltip') || '');
+  });
+  document.addEventListener('mouseover', (event) => {
+    const target = event.target?.closest?.('[data-client-chart-tooltip]');
+    if (!target) return;
+    showClientChartTooltip(event, target.getAttribute('data-client-chart-tooltip') || '');
+  });
+  document.addEventListener('mouseout', (event) => {
+    const target = event.target?.closest?.('[data-client-chart-tooltip]');
+    if (!target) return;
+    hideClientChartTooltip();
+  });
+}
+
 function bindEvents() {
+  bindClientChartTooltips();
   if (attentionPopupCloseEl) {
     attentionPopupCloseEl.addEventListener('click', () => closeAttentionPopup());
   }
@@ -8872,6 +10004,13 @@ if (adminUsersListEl) {
       return;
     }
 
+    const clientPanelButton = event.target.closest('[data-open-client-panel]');
+    if (clientPanelButton) {
+      const project = state.projects.find((item) => String(item.rowId) === String(clientPanelButton.dataset.openClientPanel));
+      if (project && canManageClientBspPanel(project)) openClientBspExecutive(project);
+      return;
+    }
+
     const backlogCard = event.target.closest("#modal-open-backlog");
     if (backlogCard) {
       const project = getSelectedProject();
@@ -9250,6 +10389,7 @@ function resetDashboardForLoggedOutState() {
   state.meta = null;
   state.alerts = [];
   state.selectedProjectId = null;
+  resetClientBspOverridesState();
   if (bodyEl) bodyEl.innerHTML = `<tr><td colspan="21" class="loading-cell">Faça login para visualizar os projetos.</td></tr>`;
   if (detailCardEl) detailCardEl.innerHTML = `<div class="detail-placeholder">Painel protegido. Entre com seu usuário e senha para visualizar as informações.</div>`;
   if (searchCountEl) searchCountEl.textContent = '0 resultado(s)';
@@ -10168,7 +11308,7 @@ function resetAdminUserForm() {
   if (adminUserIdEl) adminUserIdEl.value = "";
   if (adminUserCancelEditEl) adminUserCancelEditEl.classList.add("hidden");
   if (adminUserSubmitLabelEl) adminUserSubmitLabelEl.textContent = "Criar usuário";
-  syncOperationRegionButtons('PT');
+  syncOperationRegionButtons('BR');
   setSelectedAdminAlertSectors([document.getElementById("admin-user-sector")?.value || "pintura"]);
   state.adminProjectPmSearchQuery = "";
   const projectPmSearchEl = document.getElementById("admin-user-project-pms-search");
@@ -10177,7 +11317,6 @@ function resetAdminUserForm() {
   setAdminQualityCompetencies([]);
   if (adminUserClientKeyEl) adminUserClientKeyEl.value = '';
   if (adminUserClientNameEl) adminUserClientNameEl.value = '';
-  if (adminUserClientKeyEl) adminUserClientKeyEl.value = '';
   if (adminUserClientLogoUrlEl) adminUserClientLogoUrlEl.value = '';
   resetAdminLogoEditor('');
   if (adminUserClientLogoFileEl) adminUserClientLogoFileEl.value = '';
@@ -10198,7 +11337,7 @@ function startEditUser(userId) {
   document.getElementById("admin-user-username").value = user.username || "";
   document.getElementById("admin-user-password").value = "";
   document.getElementById("admin-user-role").value = user.role === "admin" ? "admin" : (user.role === "client" ? "client" : "sector");
-  syncOperationRegionButtons(user?.operationRegion || user?.siteKey || user?.portalSite || 'PT');
+  syncOperationRegionButtons(user?.operationRegion || user?.siteKey || user?.portalSite || 'BR');
   document.getElementById("admin-user-sector").value = user.role === "client" ? "all" : (user.sector || "all");
   setSelectedAdminAlertSectors(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]);
   state.adminProjectPmSearchQuery = "";
@@ -10206,9 +11345,8 @@ function startEditUser(userId) {
   if (projectPmSearchEl) projectPmSearchEl.value = "";
   setAdminProjectPmAliases(user.projectPmAliases || []);
   setAdminQualityCompetencies(user.qualityCompetencies || []);
-  if (adminUserClientKeyEl) adminUserClientKeyEl.value = user.clientKey || '';
-  if (adminUserClientNameEl) adminUserClientNameEl.value = user.clientName || '';
   if (adminUserClientKeyEl) adminUserClientKeyEl.value = user.clientKey || buildClientKey(user.clientName || '', getOperationRegion(user));
+  if (adminUserClientNameEl) adminUserClientNameEl.value = user.clientName || '';
   if (adminUserClientLogoUrlEl) adminUserClientLogoUrlEl.value = user.clientLogoUrl || '';
   resetAdminLogoEditor(user.clientLogoUrl || '');
   if (adminUserClientLogoFileEl) adminUserClientLogoFileEl.value = '';
@@ -10256,7 +11394,6 @@ async function syncAdminDataToGithub() {
 function renderAdminUsersList(users = []) {
   if (!adminUsersListEl) return;
   adminUsersListEl._cachedUsers = users;
-  renderAdminAutoLoginList(users);
   if (!users.length) {
     adminUsersListEl.innerHTML = '<div class="empty-state">Nenhum usuário cadastrado.</div>';
     return;
@@ -10284,6 +11421,7 @@ function renderAdminUsersList(users = []) {
           <span>Setor principal: ${escapeHtml(sectorLabel(user.sector))}</span>
           <span>Recebe alertas de: ${escapeHtml(formatSectorList(Array.isArray(user.alertSectors) ? user.alertSectors : [user.sector]))}</span>
           ${user.role === 'client' ? `<span>Cliente: ${escapeHtml(user.clientName || user.clientKey || '—')}</span>` : ''}
+          <span>Ambiente: <strong>${escapeHtml(user.operationRegion || user.siteKey || user.portalSite || 'BR')}</strong></span>
           ${(userHasProjectsScope(user) && Array.isArray(user.projectPmAliases) && user.projectPmAliases.length) ? `<span>PMs adicionais: ${escapeHtml(user.projectPmAliases.join(', '))}</span>` : ''}
           ${userHasQualityScope(user) ? `<span>Competências da Qualidade: ${escapeHtml(formatQualityCompetencies(user.qualityCompetencies || []))}</span>` : ''}
           <span>${user.active ? "Ativo" : "Inativo"}</span>
@@ -10301,62 +11439,6 @@ function renderAdminUsersList(users = []) {
     `;
   }).join("");
 }
-function getAutoLoginRegion() {
-  const active = document.querySelector('[data-auto-login-region].is-active');
-  const raw = String(active?.dataset?.autoLoginRegion || adminUserOperationRegionEl?.value || getOperationRegion()).toUpperCase();
-  return raw === 'BR' ? 'BR' : 'PT';
-}
-
-function buildAutoLoginUrl(user, region = getAutoLoginRegion()) {
-  const url = new URL(window.location.href);
-  url.searchParams.set('login', String(user?.username || '').replace(/__(BR|PT)$/i, ''));
-  url.searchParams.set('region', region === 'BR' ? 'BR' : 'PT');
-  url.searchParams.set('autoLogin', '1');
-  return url.toString();
-}
-
-function renderAdminAutoLoginList(users = adminUsersListEl?._cachedUsers || []) {
-  if (!adminAutoLoginListEl) return;
-  const region = getAutoLoginRegion();
-  const filtered = (Array.isArray(users) ? users : [])
-    .filter((user) => user && user.active !== false)
-    .filter((user) => {
-      if (user.role === 'admin') return true;
-      const sector = normalizeSectorValue(user.sector);
-      if (sector === 'pcp') return true;
-      const userRegion = String(user.operationRegion || user.siteKey || user.portalSite || 'PT').toUpperCase();
-      return userRegion === region;
-    });
-
-  if (!filtered.length) {
-    adminAutoLoginListEl.innerHTML = `<div class="empty-state">Nenhum usuário encontrado para ${region}.</div>`;
-    return;
-  }
-
-  adminAutoLoginListEl.innerHTML = filtered.map((user) => {
-    const visibleLogin = String(user.username || '').replace(/__(BR|PT)$/i, '');
-    const url = buildAutoLoginUrl(user, region);
-    return `
-      <article class="admin-list-item">
-        <div class="admin-user-title-row">
-          <strong>${escapeHtml(user.name || visibleLogin)}</strong>
-          <span class="admin-badge">${escapeHtml(region)}</span>
-        </div>
-        <div class="admin-list-item-meta">
-          <span>Login visível: ${escapeHtml(visibleLogin)}</span>
-          <span>Perfil: ${escapeHtml(user.role === 'client' ? 'Cliente' : (user.role === 'admin' ? 'Admin' : sectorLabel(user.sector)))}</span>
-          ${user.clientKey ? `<span>Client Key: ${escapeHtml(user.clientKey)}</span>` : ''}
-        </div>
-        <div class="manual-alert-actions">
-          <button class="ghost-button ghost-button--compact" type="button" data-copy-auto-login="${escapeHtml(url)}">Copiar link</button>
-          <a class="ghost-button ghost-button--compact" href="${escapeHtml(url)}" target="_blank" rel="noopener">Abrir</a>
-        </div>
-      </article>
-    `;
-  }).join('');
-}
-
-
 
 function getFilteredAdminAlerts() {
   const baseAlerts = Array.isArray(state.manualAlerts) ? state.manualAlerts : [];
@@ -10588,8 +11670,8 @@ async function handleLoginSubmit(event) {
       body: JSON.stringify({
         username: String(loginUsernameEl.value || "").trim(),
         password: String(loginPasswordEl.value || "").trim(),
-        operationRegion: getOperationRegion(),
-        siteKey: getOperationRegion(),
+        operationRegion: 'BR',
+        siteKey: 'BR',
       }),
     });
     const data = await response.json().catch(() => null);
@@ -10602,6 +11684,7 @@ async function handleLoginSubmit(event) {
       detail: 'Sessão validada.',
     });
     state.user = data.user;
+    resetClientBspOverridesState();
     if (shouldUseSectorScopedToggle(state.user)) {
       state.sectorScopedView = loadSectorScopedViewPreference(state.user);
       state.alertSectorFilter = state.sectorScopedView ? normalizeAlertSectorFilterValue(getPrimaryUserSector(state.user)) || 'all' : 'all';
@@ -10665,6 +11748,7 @@ async function handleLoginSubmit(event) {
 async function handleLogout() {
   await fetch("/api/auth-logout", { credentials: "same-origin" });
   state.user = null;
+  resetClientBspOverridesState();
   // Mantém o cache local de projetos entre logout e novo login.
   // A chave já é escopada por papel/usuário/cliente; apagá-la aqui fazia o próximo login
   // perder o carregamento imediato e voltar a depender do Smartsheet/Supabase.
@@ -11626,9 +12710,9 @@ async function handleAdminUserSubmit(event) {
       username: String(document.getElementById("admin-user-username").value || "").trim(),
       password: String(document.getElementById("admin-user-password").value || "").trim(),
       role: document.getElementById("admin-user-role").value,
-      operationRegion: String(adminUserOperationRegionEl?.value || 'PT').toUpperCase() === 'BR' ? 'BR' : 'PT',
-      siteKey: String(adminUserOperationRegionEl?.value || 'PT').toUpperCase() === 'BR' ? 'BR' : 'PT',
-      portalSite: String(adminUserOperationRegionEl?.value || 'PT').toUpperCase() === 'BR' ? 'BR' : 'PT',
+      operationRegion: 'BR',
+      siteKey: 'BR',
+      portalSite: 'BR',
       sector: document.getElementById("admin-user-role").value === 'client' ? 'all' : document.getElementById("admin-user-sector").value,
       alertSectors: document.getElementById("admin-user-role").value === 'client' ? [] : getSelectedAdminAlertSectors(),
       projectPmAliases: adminUserFormHasProjectsScope() ? getAdminProjectPmAliases() : [],
@@ -11654,7 +12738,6 @@ async function handleAdminUserSubmit(event) {
       name: payload.name,
       username: payload.username,
       role: payload.role,
-      operationRegion: payload.operationRegion || 'BR',
       sector: payload.role === "admin" ? "all" : payload.sector,
       alertSectors: payload.role === "admin" ? [] : payload.alertSectors,
       projectPmAliases: payload.role === "admin" ? [] : payload.projectPmAliases,

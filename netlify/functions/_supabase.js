@@ -79,14 +79,13 @@ async function supabaseWriteWithClientPlatformFallback(path, options, payload, f
   }
 }
 
-
 function stripHiddenRegionSuffix(username = '') {
   return String(username || '').replace(/__(BR|PT)$/i, '');
 }
 
-function buildHiddenRegionUsername(username = '', region = 'PT') {
+function buildHiddenRegionUsername(username = '', region = 'BR') {
   const clean = stripHiddenRegionSuffix(username).trim();
-  const reg = String(region || 'PT').trim().toUpperCase() === 'BR' ? 'BR' : 'PT';
+  const reg = String(region || 'BR').trim().toUpperCase() === 'BR' ? 'BR' : 'PT';
   return clean ? `${clean}__${reg}` : '';
 }
 
@@ -108,9 +107,9 @@ function mapUser(row) {
     projectPmAliases: Array.isArray(row.project_pm_aliases) ? row.project_pm_aliases.filter(Boolean) : [],
     qualityCompetencies: Array.isArray(row.quality_competencies) ? row.quality_competencies.filter(Boolean) : [],
     clientKey: row.client_key || '',
-    operationRegion: ['BR','PT'].includes(String(row.operation_region || '').toUpperCase()) ? String(row.operation_region).toUpperCase() : 'PT',
-    siteKey: ['BR','PT'].includes(String(row.site_key || row.operation_region || '').toUpperCase()) ? String(row.site_key || row.operation_region).toUpperCase() : 'PT',
-    portalSite: ['BR','PT'].includes(String(row.portal_site || row.operation_region || '').toUpperCase()) ? String(row.portal_site || row.operation_region).toUpperCase() : 'PT',
+    operationRegion: ['BR','PT'].includes(String(row.operation_region || '').toUpperCase()) ? String(row.operation_region).toUpperCase() : 'BR',
+    siteKey: ['BR','PT'].includes(String(row.site_key || row.operation_region || '').toUpperCase()) ? String(row.site_key || row.operation_region).toUpperCase() : 'BR',
+    portalSite: ['BR','PT'].includes(String(row.portal_site || row.operation_region || '').toUpperCase()) ? String(row.portal_site || row.operation_region).toUpperCase() : 'BR',
     clientName: row.client_name || row.client_key || '',
     clientLogoUrl: row.client_logo_url || '',
     clientPlatformImageUrl: platformImageUrl,
@@ -299,9 +298,9 @@ async function insertUser(input) {
     project_pm_aliases: Array.isArray(input.projectPmAliases) ? input.projectPmAliases : [],
     quality_competencies: Array.isArray(input.qualityCompetencies) ? input.qualityCompetencies : [],
     client_key: input.clientKey || '',
-    operation_region: String(input.operationRegion || 'PT').toUpperCase() === 'BR' ? 'BR' : 'PT',
-    site_key: String(input.siteKey || input.operationRegion || 'PT').toUpperCase() === 'BR' ? 'BR' : 'PT',
-    portal_site: String(input.portalSite || input.siteKey || input.operationRegion || 'PT').toUpperCase() === 'BR' ? 'BR' : 'PT',
+    operation_region: String(input.operationRegion || 'BR').toUpperCase() === 'BR' ? 'BR' : 'BR',
+    site_key: String(input.siteKey || input.operationRegion || 'BR').toUpperCase() === 'BR' ? 'BR' : 'BR',
+    portal_site: String(input.portalSite || input.siteKey || input.operationRegion || 'BR').toUpperCase() === 'BR' ? 'BR' : 'BR',
     client_name: input.clientName || input.clientKey || '',
     client_logo_url: input.clientLogoUrl || '',
     client_platform_image_url: input.clientPlatformImageUrl || '',
@@ -329,9 +328,9 @@ async function updateUser(userId, updates) {
   if ('projectPmAliases' in updates) payload.project_pm_aliases = Array.isArray(updates.projectPmAliases) ? updates.projectPmAliases : [];
   if ('qualityCompetencies' in updates) payload.quality_competencies = Array.isArray(updates.qualityCompetencies) ? updates.qualityCompetencies : [];
   if ('clientKey' in updates) payload.client_key = updates.clientKey || '';
-  if ('operationRegion' in updates) payload.operation_region = String(updates.operationRegion || 'PT').toUpperCase() === 'BR' ? 'BR' : 'PT';
-  if ('siteKey' in updates) payload.site_key = String(updates.siteKey || updates.operationRegion || 'PT').toUpperCase() === 'BR' ? 'BR' : 'PT';
-  if ('portalSite' in updates || 'operationRegion' in updates || 'siteKey' in updates) payload.portal_site = String(updates.portalSite || updates.siteKey || updates.operationRegion || 'PT').toUpperCase() === 'BR' ? 'BR' : 'PT';
+  if ('operationRegion' in updates) payload.operation_region = String(updates.operationRegion || 'BR').toUpperCase() === 'BR' ? 'BR' : 'BR';
+  if ('siteKey' in updates) payload.site_key = String(updates.siteKey || updates.operationRegion || 'BR').toUpperCase() === 'BR' ? 'BR' : 'BR';
+  if ('portalSite' in updates || 'operationRegion' in updates || 'siteKey' in updates) payload.portal_site = String(updates.portalSite || updates.siteKey || updates.operationRegion || 'BR').toUpperCase() === 'BR' ? 'BR' : 'BR';
   if ('clientName' in updates) payload.client_name = updates.clientName || updates.clientKey || '';
   if ('clientLogoUrl' in updates) payload.client_logo_url = updates.clientLogoUrl || '';
   if ('clientPlatformImageUrl' in updates) payload.client_platform_image_url = updates.clientPlatformImageUrl || '';
@@ -638,6 +637,7 @@ async function updateStageUpdate(updateId, updates) {
 }
 
 
+
 function mapClientApiKey(row) {
   if (!row) return null;
   return {
@@ -649,7 +649,7 @@ function mapClientApiKey(row) {
     tokenPrefix: row.token_prefix || '',
     tokenLast4: row.token_last4 || '',
     name: row.name || 'API do cliente',
-    scopes: ['read:projects'],
+    scopes: Array.isArray(row.scopes) ? row.scopes.filter(Boolean) : ['read:projects'],
     allowedClients: Array.isArray(row.allowed_clients) ? row.allowed_clients.filter(Boolean) : [],
     active: row.active !== false,
     expiresAt: row.expires_at || null,
@@ -684,7 +684,7 @@ async function createClientApiKey(input = {}) {
     token_prefix: input.tokenPrefix || '',
     token_last4: input.tokenLast4 || '',
     name: input.name || 'API do cliente',
-    scopes: ['read:projects'],
+    scopes: Array.isArray(input.scopes) && input.scopes.length ? input.scopes : ['read:projects'],
     active: input.active !== false,
     expires_at: input.expiresAt || null,
     created_by: input.createdBy || input.username || '',
@@ -708,23 +708,6 @@ async function revokeClientApiKey(id, userId) {
     body: JSON.stringify({ active: false, revoked_at: new Date().toISOString() }),
   });
   return mapClientApiKey(Array.isArray(rows) ? rows[0] : null);
-}
-
-async function deleteRevokedClientApiKey(id, userId) {
-  const keyId = encodeURIComponent(String(id || '').trim());
-  const owner = encodeURIComponent(String(userId || '').trim());
-  if (!keyId || !owner) return null;
-  const existingRows = await supabaseFetch(`/rest/v1/client_api_keys?id=eq.${keyId}&user_id=eq.${owner}&select=*`);
-  const existing = mapClientApiKey(Array.isArray(existingRows) ? existingRows[0] : null);
-  if (!existing) return null;
-  if (existing.active !== false) {
-    throw new Error('Só é possível excluir uma chave depois de revogar.');
-  }
-  await supabaseFetch(`/rest/v1/client_api_keys?id=eq.${keyId}&user_id=eq.${owner}`, {
-    method: 'DELETE',
-    headers: getSupabaseHeaders('return=minimal'),
-  });
-  return existing;
 }
 
 async function findClientApiKeyByHash(tokenHash) {
@@ -755,6 +738,110 @@ async function markClientApiKeyUsed(id) {
   }
 }
 
+
+function mapClientBspOverride(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    region: row.region || '',
+    projectRowId: String(row.project_row_id || ''),
+    projectNumber: row.project_number || '',
+    projectDisplay: row.project_display || '',
+    clientKey: row.client_key || '',
+    clientName: row.client_name || '',
+    vessel: row.vessel || '',
+    pm: row.pm || '',
+    fabricationStartOverride: row.fabrication_start_override || '',
+    boilermakerFinishOverride: row.boilermaker_finish_override || '',
+    weldingFinishOverride: row.welding_finish_override || '',
+    inspectionFinishOverride: row.inspection_finish_override || '',
+    thFinishOverride: row.th_finish_override || '',
+    coatingFinishOverride: row.coating_finish_override || '',
+    projectFinishOverride: row.project_finish_override || '',
+    executiveStatus: row.executive_status || '',
+    executiveNote: row.executive_note || '',
+    delayReason: row.delay_reason || '',
+    customFields: row.custom_fields && typeof row.custom_fields === 'object' ? row.custom_fields : {},
+    visibleToClient: row.visible_to_client !== false,
+    createdBy: row.created_by || '',
+    createdByName: row.created_by_name || '',
+    createdAt: row.created_at || null,
+    updatedBy: row.updated_by || '',
+    updatedByName: row.updated_by_name || '',
+    updatedAt: row.updated_at || null,
+  };
+}
+
+async function listClientBspOverrides() {
+  try {
+    const rows = await supabaseFetch('/rest/v1/client_bsp_overrides?select=*&order=updated_at.desc');
+    return (Array.isArray(rows) ? rows : [])
+      .map(mapClientBspOverride)
+      .filter(Boolean)
+      .filter((item) => {
+        const region = String(item.region || '').trim().toUpperCase();
+        return !region || region === 'BR';
+      });
+  } catch (error) {
+    if (String(error.message || '').includes('client_bsp_overrides')) return [];
+    throw error;
+  }
+}
+
+function normalizeDateForSupabase(value) {
+  const text = String(value || '').trim();
+  return text || null;
+}
+
+async function upsertClientBspOverride(input = {}) {
+  const now = new Date().toISOString();
+  const payload = {
+    region: 'BR',
+    project_row_id: String(input.projectRowId || '').trim(),
+    project_number: input.projectNumber || '',
+    project_display: input.projectDisplay || '',
+    client_key: input.clientKey || '',
+    client_name: input.clientName || '',
+    vessel: input.vessel || '',
+    pm: input.pm || '',
+    fabrication_start_override: normalizeDateForSupabase(input.fabricationStartOverride),
+    boilermaker_finish_override: normalizeDateForSupabase(input.boilermakerFinishOverride),
+    welding_finish_override: normalizeDateForSupabase(input.weldingFinishOverride),
+    inspection_finish_override: normalizeDateForSupabase(input.inspectionFinishOverride),
+    th_finish_override: normalizeDateForSupabase(input.thFinishOverride),
+    coating_finish_override: normalizeDateForSupabase(input.coatingFinishOverride),
+    project_finish_override: normalizeDateForSupabase(input.projectFinishOverride),
+    executive_status: input.executiveStatus || '',
+    executive_note: input.executiveNote || '',
+    delay_reason: input.delayReason || '',
+    custom_fields: input.customFields && typeof input.customFields === 'object' ? input.customFields : {},
+    visible_to_client: input.visibleToClient !== false,
+    updated_by: input.updatedBy || '',
+    updated_by_name: input.updatedByName || '',
+    updated_at: now,
+  };
+  if (!payload.project_row_id) throw new Error('BSP sem identificador de linha.');
+  if (input.createdBy) payload.created_by = input.createdBy;
+  if (input.createdByName) payload.created_by_name = input.createdByName;
+  const rows = await supabaseFetch('/rest/v1/client_bsp_overrides?on_conflict=project_row_id&select=*', {
+    method: 'POST',
+    headers: getSupabaseHeaders('resolution=merge-duplicates,return=representation'),
+    body: JSON.stringify(payload),
+  });
+  return mapClientBspOverride(Array.isArray(rows) ? rows[0] : null);
+}
+
+async function deleteClientBspOverride(id) {
+  const q = encodeURIComponent(String(id || '').trim());
+  if (!q) return true;
+  await supabaseFetch(`/rest/v1/client_bsp_overrides?id=eq.${q}`, {
+    method: 'DELETE',
+    headers: getSupabaseHeaders(),
+  });
+  return true;
+}
+
+
 module.exports = {
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
@@ -783,10 +870,13 @@ module.exports = {
   mapStageUpdate,
   mapPresence,
   mapClientApiKey,
+  mapClientBspOverride,
+  listClientBspOverrides,
+  upsertClientBspOverride,
+  deleteClientBspOverride,
   listClientApiKeysForUser,
   createClientApiKey,
   revokeClientApiKey,
-  deleteRevokedClientApiKey,
   findClientApiKeyByHash,
   markClientApiKeyUsed,
   hashPassword,
