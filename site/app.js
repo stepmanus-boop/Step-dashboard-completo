@@ -4696,6 +4696,143 @@ function clientApplyRowDates(row, start, finish, sourceLabel = '') {
   return next;
 }
 
+function clientHasExecutedStart(row) {
+  return Boolean(row?.plannedStart && parseDateObject(row?.start));
+}
+
+function clientHasExecutedFinish(row) {
+  return Boolean(row?.plannedFinish && parseDateObject(row?.finish));
+}
+
+function clientIsTrackingOrEstimatedRow(row) {
+  return Boolean(row?.dateSource || clientHasExecutedStart(row) || clientHasExecutedFinish(row));
+}
+
+function clientFillMissingActualRowsBetweenAnchors(rows, childIndexes, startBoundary, finishBoundary) {
+  const parsedStart = parseDateObject(startBoundary);
+  const parsedFinish = parseDateObject(finishBoundary);
+  if (!parsedStart || !parsedFinish || !Array.isArray(childIndexes) || !childIndexes.length) return;
+
+  const orderedStart = parsedStart <= parsedFinish ? parsedStart : parsedFinish;
+  const orderedFinish = parsedStart <= parsedFinish ? parsedFinish : parsedStart;
+  const totalDays = Math.max(
+    childIndexes.length,
+    countBusinessDaysInclusive(orderedStart, orderedFinish) || childIndexes.length,
+  );
+  const scaled = scaleDurationVector(
+    childIndexes.map((index) => ({ key: `row-${index}`, base: Math.max(1, Number(rows[index]?.duration || 1)) })),
+    totalDays,
+  );
+
+  let cursor = new Date(orderedStart.getTime());
+  childIndexes.forEach((index, position) => {
+    const row = rows[index];
+    if (!row || row.type !== 'child') return;
+    const isLast = position === childIndexes.length - 1;
+    const scaledItem = scaled.find((item) => item.key === `row-${index}`);
+    const duration = Math.max(1, Number(scaledItem?.duration || row.duration || 1));
+    let finish = addBusinessDaysUtc(cursor, duration - 1) || cursor;
+    if (isLast || finish > orderedFinish) finish = new Date(orderedFinish.getTime());
+
+    const filled = clientApplyRowDates(row, cursor, finish, 'Estimado');
+    filled.inferredActualDate = true;
+    rows[index] = filled;
+
+    cursor = addBusinessDaysUtc(finish, 1) || finish;
+    if (cursor > orderedFinish) cursor = new Date(orderedFinish.getTime());
+  });
+}
+
+function clientInferMissingExecutiveActualDates(rows) {
+  if (!Array.isArray(rows) || !rows.length) return rows;
+  const nextRows = rows.map((row) => ({ ...row }));
+  const groupIndexes = [];
+  for (let i = 0; i < nextRows.length; i += 1) {
+    if (nextRows[i]?.type === 'group') groupIndexes.push(i);
+  }
+
+  for (let g = 0; g < groupIndexes.length; g += 1) {
+    const groupIndex = groupIndexes[g];
+    const nextGroupIndex = groupIndexes[g + 1] ?? nextRows.length;
+    const childIndexes = [];
+    for (let i = groupIndex + 1; i < nextGroupIndex; i += 1) {
+      if (nextRows[i]?.type === 'child') childIndexes.push(i);
+    }
+    if (!childIndexes.length) continue;
+
+    const hasAnyActualDate = childIndexes.some((index) => clientIsTrackingOrEstimatedRow(nextRows[index]));
+    if (!hasAnyActualDate) continue;
+
+    for (let c = 0; c < childIndexes.length; c += 1) {
+      const currentIndex = childIndexes[c];
+      const currentRow = nextRows[currentIndex];
+      if (clientIsTrackingOrEstimatedRow(currentRow)) continue;
+
+      let previousIndex = null;
+      for (let p = c - 1; p >= 0; p -= 1) {
+        const candidateIndex = childIndexes[p];
+        if (clientHasExecutedFinish(nextRows[candidateIndex])) {
+          previousIndex = candidateIndex;
+          break;
+        }
+      }
+
+      let nextIndex = null;
+      for (let n = c + 1; n < childIndexes.length; n += 1) {
+        const candidateIndex = childIndexes[n];
+        if (clientHasExecutedStart(nextRows[candidateIndex]) || clientHasExecutedFinish(nextRows[candidateIndex])) {
+          nextIndex = candidateIndex;
+          break;
+        }
+      }
+
+      const missingBlock = [];
+      let cursor = c;
+      while (cursor < childIndexes.length && !clientIsTrackingOrEstimatedRow(nextRows[childIndexes[cursor]])) {
+        missingBlock.push(childIndexes[cursor]);
+        cursor += 1;
+      }
+      if (!missingBlock.length) continue;
+
+      const prevFinish = previousIndex != null ? parseDateObject(nextRows[previousIndex]?.finish) : null;
+      let nextStart = null;
+      if (nextIndex != null) {
+        const nextRow = nextRows[nextIndex];
+        nextStart = clientHasExecutedStart(nextRow) ? parseDateObject(nextRow.start) : null;
+        if (!nextStart && clientHasExecutedFinish(nextRow)) {
+          // Quando a próxima etapa só possui data de término no Tracking, usamos
+          // essa data como limite para estimar o bloco anterior, sem alterar o planejado.
+          nextStart = parseDateObject(nextRow.finish);
+        }
+      }
+
+      if (prevFinish && nextStart) {
+        clientFillMissingActualRowsBetweenAnchors(nextRows, missingBlock, prevFinish, nextStart);
+        c = cursor - 1;
+      }
+    }
+
+    const childrenWithExecutedDates = childIndexes.map((index) => nextRows[index]).filter(clientIsTrackingOrEstimatedRow);
+    if (childrenWithExecutedDates.length) {
+      const firstStart = clientEarliestDate(...childrenWithExecutedDates.map((row) => row.start));
+      const lastFinish = clientLatestDate(...childrenWithExecutedDates.map((row) => row.finish));
+      if (firstStart || lastFinish) {
+        const group = nextRows[groupIndex];
+        const updatedGroup = clientApplyRowDates(
+          group,
+          firstStart || group.start,
+          lastFinish || group.finish,
+          childrenWithExecutedDates.some((row) => row.dateSource === 'Tracking' || row.dateSource === 'PM') ? 'Tracking' : 'Estimado',
+        );
+        updatedGroup.inferredActualDate = childrenWithExecutedDates.some((row) => row.inferredActualDate);
+        nextRows[groupIndex] = updatedGroup;
+      }
+    }
+  }
+
+  return nextRows;
+}
+
 function getClientSCurveActualMilestones(project) {
   const real = getClientTrackingDates(project);
   const hydro = shouldClientShowHydro(project);
@@ -5713,7 +5850,8 @@ function buildClientExecutiveSchedule(project) {
     return row;
   });
 
-  return applyClientExecutiveScheduleReplan(project, rowsWithTracking);
+  const rowsWithEstimatedActuals = clientInferMissingExecutiveActualDates(rowsWithTracking);
+  return applyClientExecutiveScheduleReplan(project, rowsWithEstimatedActuals);
 }
 
 function getClientScheduleVisualState(progress) {
