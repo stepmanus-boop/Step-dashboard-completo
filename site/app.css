@@ -5422,7 +5422,7 @@ body.client-exec-open {
   border: 1px solid rgba(28, 126, 91, .14);
 }
 
-body:not(.client-mode) .client-exec-modal {
+body:not(.client-mode):not(.client-exec-open) .client-exec-modal {
   display: none !important;
 }
 
@@ -7648,22 +7648,40 @@ body.client-mode .client-logo-box img,
   border-color: rgba(47, 216, 166, .35) !important;
 }
 
-/* v36.30 - Edição executiva da BSP no Painel do Cliente */
+/* v36.35 - Botão discreto e abertura do Painel do Cliente para PM/Admin */
 .modal-client-panel-action {
-  margin: 14px 0;
-  padding: 14px 16px;
-  border: 1px solid rgba(39, 88, 132, 0.16);
-  border-radius: 18px;
-  background: linear-gradient(135deg, rgba(237, 246, 255, 0.96), rgba(255, 255, 255, 0.98));
+  margin: 10px 0 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  justify-content: flex-start;
+  gap: 10px;
+  box-shadow: none;
 }
 .modal-client-panel-action span {
-  color: #5b6b7d;
-  font-size: 0.86rem;
+  color: #9bb2c8;
+  font-size: 0.78rem;
+}
+.modal-client-panel-button {
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 0 12px !important;
+  border-radius: 999px !important;
+  font-size: 0.78rem !important;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  background: rgba(9, 37, 65, .82) !important;
+  color: #d8f1ff !important;
+  border: 1px solid rgba(90, 179, 237, .34) !important;
+  box-shadow: none !important;
+}
+.modal-client-panel-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(90, 179, 237, .72) !important;
+  background: rgba(12, 54, 92, .96) !important;
 }
 .client-exec-edit-button {
   background: #0f172a !important;

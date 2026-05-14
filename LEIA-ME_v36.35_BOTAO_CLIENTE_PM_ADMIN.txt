@@ -1,0 +1,10 @@
+v36.35 - Correção do botão Painel do Cliente para PM/Admin
+
+Base: Brasil v36.34 final.
+
+Correções:
+- O modal da visão executiva do cliente agora abre também para PM/Admin.
+- Antes, o CSS ocultava .client-exec-modal fora do modo cliente, mesmo quando o PM/Admin clicava no botão.
+- Ajustado para permitir a abertura quando body tiver client-exec-open.
+- Botão Painel do Cliente dentro do detalhamento ficou discreto, em formato pill pequeno.
+- Mantidas as regras do Brasil separado de Portugal.

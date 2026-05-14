@@ -8315,7 +8315,7 @@ function renderModal(project) {
       ${milestoneList || '<div class="empty-inline">Nenhum marco de data disponível.</div>'}
     </section>
 
-    ${canManageClientBspPanel(project) ? `<section class="modal-client-panel-action"><button class="primary-button" type="button" data-open-client-panel="${escapeHtml(project.rowId)}">Painel do Cliente</button><span>Visualize a mesma tela do cliente e ajuste datas/informações executivas.</span></section>` : ''}
+    ${canManageClientBspPanel(project) ? `<section class="modal-client-panel-action"><button class="ghost-button ghost-button--compact modal-client-panel-button" type="button" data-open-client-panel="${escapeHtml(project.rowId)}">Painel do Cliente</button><span>Abre a visão executiva do cliente para consulta e ajuste.</span></section>` : ''}
 
     ${renderProjectSignals(project)}
     ${renderClientTratativaNotice(project)}
