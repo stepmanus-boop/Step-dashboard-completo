@@ -5621,7 +5621,10 @@ function renderClientSCurveSvg(project) {
   const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
   const plannedPath = clientSvgPolyline(points, width, height, (point) => point.planned);
-  const delayInfo = getClientSCurveDelayInfo(project);
+  // v36.43: curva macro/carteira/unidade não possui uma única BSP para calcular desvio.
+  // A versão anterior chamava getClientSCurveDelayInfo(project), mas `project` não existe
+  // neste escopo e quebrava a abertura da visão executiva da carteira/unidade.
+  const delayInfo = null;
   const actualSegments = splitClientSCurveActualSegments(points, delayInfo);
   const actualPath = clientSvgPolyline(actualSegments.normal, width, height, (point) => point.actual, points);
   const delayActualPath = clientSvgPolyline(actualSegments.delayed, width, height, (point) => point.actual, points);
@@ -6218,7 +6221,10 @@ function renderClientMacroSCurveSvg(projects = state.projects) {
   const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
   const plannedPath = clientSvgPolyline(points, width, height, (point) => point.planned);
-  const delayInfo = getClientSCurveDelayInfo(project);
+  // v36.43: curva macro/carteira/unidade não possui uma única BSP para calcular desvio.
+  // A versão anterior chamava getClientSCurveDelayInfo(project), mas `project` não existe
+  // neste escopo e quebrava a abertura da visão executiva da carteira/unidade.
+  const delayInfo = null;
   const actualSegments = splitClientSCurveActualSegments(points, delayInfo);
   const actualPath = clientSvgPolyline(actualSegments.normal, width, height, (point) => point.actual, points);
   const delayActualPath = clientSvgPolyline(actualSegments.delayed, width, height, (point) => point.actual, points);
