@@ -1,0 +1,13 @@
+Versão v36.36 - Edição de datas no Painel do Cliente para PM/Admin
+
+Base: Brasil v36.35.
+
+Correções:
+- O botão "Painel do Cliente" no detalhamento da BSP agora abre a visão executiva já no modo de edição para PM/Admin.
+- O botão foi renomeado para "Painel do Cliente / Editar datas" para deixar claro que ali é possível ajustar as datas.
+- Dentro da visão executiva, o botão virou "Editar datas / informações".
+- O formulário de datas aparece automaticamente para PM/Admin autorizado.
+- As datas continuam sendo salvas no Supabase em client_bsp_overrides e não alteram o Smartsheet/Tracking.
+- Cliente continua sem botão de edição e apenas visualiza.
+
+Se o Supabase retornar erro ao salvar, confira se o SQL supabase/SQL-CRIAR-CLIENT-BSP-OVERRIDES.sql já foi executado.

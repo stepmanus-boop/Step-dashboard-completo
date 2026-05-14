@@ -3644,6 +3644,12 @@ function canOpenClientBspPanel(project = null, user = state.user) {
   return isClientUser(user) || canManageClientBspPanel(project, user);
 }
 
+function openClientBspExecutiveForPmEdit(project) {
+  if (!project || !canManageClientBspPanel(project)) return;
+  state.clientBspOverrides.editingProjectId = project.rowId;
+  openClientBspExecutive(project, { keepEditing: true, scrollToEditor: true });
+}
+
 function getClientBspOverrideProjectRowId(project) {
   return String(project?.rowId ?? project?.rowNumber ?? '').trim();
 }
@@ -4227,7 +4233,7 @@ function renderClientBspPanel() {
   if (!state.clientPortal.selectedProjectId && projects.length) state.clientPortal.selectedProjectId = projects[0].rowId;
   table.innerHTML = `
     <table class="client-bsp-table">
-      <thead><tr><th>BSP</th><th>Tags</th><th>Peso</th><th>Soldado</th><th>M²</th><th>Status</th><th>Etapa</th><th>% Geral</th><th>Término</th></tr></thead>
+      <thead><tr><th>BSP</th><th>Tags</th><th>Peso</th><th>Soldado</th><th>M²</th><th>Status</th><th>Etapa</th><th>% Geral</th><th>Término</th><th>Replanejado</th></tr></thead>
       <tbody>
         ${projects.map((project) => {
           const status = getProjectStatusPresentation(project);
@@ -5002,6 +5008,52 @@ function getClientSCurvePlannedFinishDate(project) {
   return getClientAnalyticFinishDate(project);
 }
 
+function getProjectReplannedFinishDate(project) {
+  const candidates = [
+    project?.replannedFinishDate,
+    project?.replannedFinish,
+    project?.replannedDate,
+    project?.deadlineDateAsAgreededWithClient,
+    project?.deadlineDateAsAgreedWithClient,
+    project?.stageValues?.['Deadline Date as Agreeded with Client*'],
+    project?.stageValues?.['Deadline Date as Agreeded with Client'],
+    project?.stageValues?.['Deadline Date as Agreed with Client*'],
+    project?.stageValues?.['Deadline Date as Agreed with Client'],
+    project?.stageValues?.['Data Replanejada'],
+    project?.stageValues?.['Replanejado'],
+  ];
+  for (const value of candidates) {
+    const parsed = parseClientSafeDateObject(value);
+    if (parsed) return clientFormatDateValue(parsed);
+  }
+  return '';
+}
+
+function getClientSCurveReplannedFinishDate(project) {
+  const parsed = parseClientSafeDateObject(getProjectReplannedFinishDate(project));
+  return parsed || null;
+}
+
+function getClientSCurveReplanInfo(project) {
+  const plannedFinish = parseDateObject(getClientSCurvePlannedFinishDate(project));
+  const replannedFinish = getClientSCurveReplannedFinishDate(project);
+  if (!plannedFinish || !replannedFinish || replannedFinish <= plannedFinish) return null;
+  const days = Math.max(1, Math.round((replannedFinish.getTime() - plannedFinish.getTime()) / 86400000));
+  return {
+    start: plannedFinish,
+    end: replannedFinish,
+    days,
+    label: 'Replanejado',
+    tooltip: [
+      'Replanejamento',
+      `Término planejado: ${clientFormatDateValue(plannedFinish)}`,
+      `Término replanejado: ${clientFormatDateValue(replannedFinish)}`,
+      `Extensão de prazo: +${days} dia(s)`,
+      project?.replannedFinishSource ? `Origem: ${project.replannedFinishSource}` : 'Origem: Work in Progress',
+    ].join('\n'),
+  };
+}
+
 function getClientSCurveShipmentDate(project) {
   const realDates = getClientTrackingDates(project);
   return parseClientSafeDateObject(realDates.projectFinish) || parseClientSafeDateObject(getProjectShipmentDate(project));
@@ -5010,6 +5062,8 @@ function getClientSCurveShipmentDate(project) {
 function getClientSCurveDelayInfo(project) {
   const plannedFinish = parseDateObject(getClientSCurvePlannedFinishDate(project));
   if (!plannedFinish) return null;
+  const replannedFinish = getClientSCurveReplannedFinishDate(project);
+  const effectiveDeadline = replannedFinish && replannedFinish > plannedFinish ? replannedFinish : plannedFinish;
   const shipmentDate = getClientSCurveShipmentDate(project);
   const today = getCurrentBrazilDate();
   const actualNow = getClientOverallProgress(project);
@@ -5018,21 +5072,21 @@ function getClientSCurveDelayInfo(project) {
   let endLabel = '';
   let completed = false;
 
-  if (shipmentDate && shipmentDate > plannedFinish) {
+  if (shipmentDate && shipmentDate > effectiveDeadline) {
     end = shipmentDate;
     status = 'Finalizado com atraso';
     endLabel = 'Envio real';
     completed = true;
-  } else if (!shipmentDate && actualNow < 100 && today > plannedFinish) {
+  } else if (!shipmentDate && actualNow < 100 && today > effectiveDeadline) {
     end = today;
     status = 'Em atraso';
     endLabel = 'Hoje';
   }
 
-  if (!end || end <= plannedFinish) return null;
-  const days = Math.max(1, Math.round((end.getTime() - plannedFinish.getTime()) / 86400000));
+  if (!end || end <= effectiveDeadline) return null;
+  const days = Math.max(1, Math.round((end.getTime() - effectiveDeadline.getTime()) / 86400000));
   return {
-    start: plannedFinish,
+    start: effectiveDeadline,
     end,
     days,
     status,
@@ -5041,7 +5095,7 @@ function getClientSCurveDelayInfo(project) {
     tooltip: [
       'Desvio de prazo',
       `Status: ${status}`,
-      `Término planejado: ${clientFormatDateValue(plannedFinish)}`,
+      `${replannedFinish && replannedFinish > plannedFinish ? 'Término replanejado' : 'Término planejado'}: ${clientFormatDateValue(effectiveDeadline)}`,
       `${endLabel}: ${clientFormatDateValue(end)}`,
       `Atraso: +${days} dia(s)`,
     ].join('\n'),
@@ -5060,6 +5114,7 @@ function buildClientSCurveData(project) {
   const today = getCurrentBrazilDate();
   const actualNow = getClientOverallProgress(project);
   const plannedToday = getClientPlannedToday(project);
+  const replanInfo = getClientSCurveReplanInfo(project);
   const delayInfo = getClientSCurveDelayInfo(project);
   let trackingMilestones = normalizeClientSCurveActualMilestones(project, start, getClientSCurveActualMilestones(project), plannedFinish);
   const lastTrackingMilestone = trackingMilestones[trackingMilestones.length - 1];
@@ -5075,7 +5130,7 @@ function buildClientSCurveData(project) {
   }
 
   const lastMilestoneDate = trackingMilestones.length ? trackingMilestones[trackingMilestones.length - 1].date : null;
-  const chartFinish = clientDateMax(plannedFinish, delayInfo?.end, lastMilestoneDate) || plannedFinish;
+  const chartFinish = clientDateMax(plannedFinish, replanInfo?.end, delayInfo?.end, lastMilestoneDate) || plannedFinish;
   const plannedDuration = Math.max(1, clientDaysBetween(start, plannedFinish));
   const step = Math.max(1, Math.ceil(plannedDuration / 14));
   const rawPoints = [];
@@ -5089,10 +5144,13 @@ function buildClientSCurveData(project) {
   if (rawPoints[rawPoints.length - 1]?.date < plannedFinish) {
     rawPoints.push({ date: plannedFinish, planned: 100, actual: null, trackingLabel: 'Término planejado' });
   }
-  if (delayInfo?.end && delayInfo.end > plannedFinish) {
+  if (replanInfo?.end && replanInfo.end > plannedFinish) {
+    rawPoints.push({ date: replanInfo.end, planned: 100, actual: null, trackingLabel: 'Término replanejado', replanInfo });
+  }
+  if (delayInfo?.end && delayInfo.end > (replanInfo?.end || plannedFinish)) {
     rawPoints.push({ date: delayInfo.end, planned: 100, actual: null, trackingLabel: delayInfo.endLabel || 'Desvio de prazo', delayInfo });
   }
-  if (chartFinish > plannedFinish && (!delayInfo || chartFinish.getTime() !== delayInfo.end.getTime())) {
+  if (chartFinish > plannedFinish && (!delayInfo || chartFinish.getTime() !== delayInfo.end.getTime()) && (!replanInfo || chartFinish.getTime() !== replanInfo.end.getTime())) {
     rawPoints.push({ date: chartFinish, planned: 100, actual: null });
   }
 
@@ -5121,7 +5179,7 @@ function buildClientSCurveData(project) {
         actual = actualNow > 0 ? actualNow : 0;
       }
     }
-    return { ...point, actual, delayInfo: point.delayInfo || delayInfo || null };
+    return { ...point, actual, replanInfo: point.replanInfo || replanInfo || null, delayInfo: point.delayInfo || delayInfo || null };
   });
 }
 
@@ -5185,6 +5243,27 @@ function buildClientChartHoverTargets(points, width, height) {
     const tooltipText = tooltipLines.join('\n');
     return `<circle class="client-chart-hover-target" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="12" data-client-chart-tooltip="${escapeHtml(tooltipText)}"><title>${escapeHtml(tooltipText)}</title></circle>`;
   }).join('');
+}
+
+
+function renderClientSCurveReplanOverlay(project, points, width, height, pad) {
+  const replanInfo = getClientSCurveReplanInfo(project);
+  if (!replanInfo) return '';
+  const x1 = clientChartX({ date: replanInfo.start }, points, width, pad);
+  const x2 = clientChartX({ date: replanInfo.end }, points, width, pad);
+  if (!Number.isFinite(x1) || !Number.isFinite(x2) || x2 <= x1) return '';
+  const y100 = clientChartY(100, height, pad);
+  const bottom = height - pad.bottom;
+  const tooltip = escapeHtml(replanInfo.tooltip);
+  const labelX = Math.min(width - pad.right - 120, Math.max(pad.left + 6, x1 + 8));
+  const labelY = Math.max(pad.top + 14, y100 + 16);
+  return `
+    <line x1="${x1.toFixed(1)}" y1="${bottom}" x2="${x1.toFixed(1)}" y2="${y100.toFixed(1)}" class="client-chart-replan-boundary" />
+    <line x1="${x2.toFixed(1)}" y1="${bottom}" x2="${x2.toFixed(1)}" y2="${y100.toFixed(1)}" class="client-chart-replan-boundary client-chart-replan-boundary--end" />
+    <line x1="${x1.toFixed(1)}" y1="${y100.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y100.toFixed(1)}" class="client-chart-replan-line" />
+    <text x="${labelX.toFixed(1)}" y="${labelY.toFixed(1)}" class="client-chart-replan-label">Replanejado +${replanInfo.days}d</text>
+    <rect x="${x1.toFixed(1)}" y="${pad.top}" width="${(x2 - x1).toFixed(1)}" height="${(bottom - pad.top)}" class="client-chart-hover-target client-chart-replan-hover" data-client-chart-tooltip="${tooltip}"><title>${tooltip}</title></rect>
+  `;
 }
 
 
@@ -5255,11 +5334,13 @@ function renderClientSCurveSvg(project) {
     const y = clientChartY(lastActual.actual, height, pad);
     return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="client-chart-dot" />`;
   })();
+  const replanOverlay = renderClientSCurveReplanOverlay(project, points, width, height, pad);
   const delayOverlay = renderClientSCurveDelayOverlay(project, points, width, height, pad);
   const hoverTargets = buildClientChartHoverTargets(points, width, height);
   return wrapClientSCurveSvg(`
     <svg class="client-scurve-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Curva S planejado versus realizado">
       ${grid}
+      ${replanOverlay}
       ${delayOverlay}
       <line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" class="client-chart-axis" />
       <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" class="client-chart-axis" />
@@ -5445,6 +5526,15 @@ function buildClientExecutiveSchedule(project) {
     cursor = addBusinessDaysUtc(groupFinish, 1) || groupFinish;
   }
 
+  const replanDate = getClientSCurveReplannedFinishDate(project);
+  if (replanDate) {
+    for (const row of rows) {
+      if ((row.key === 'delivery' && row.type === 'group') || (row.key === 'delivery' && row.type === 'child')) {
+        row.replannedFinish = replanDate;
+      }
+    }
+  }
+
   if (!hasRealFabricationDates) return rows;
 
   return rows.map((row) => {
@@ -5479,7 +5569,7 @@ function renderClientExecutiveSchedule(project) {
   return `
     <div class="client-table-wrap client-table-wrap--compact client-exec-schedule-table">
       <table class="client-bsp-table client-bsp-table--schedule">
-        <thead><tr><th>Etapa</th><th>%</th><th>Prazo médio</th><th>Início</th><th>Término</th><th>Status</th></tr></thead>
+        <thead><tr><th>Etapa</th><th>%</th><th>Prazo médio</th><th>Início</th><th>Término</th><th>Replanejado</th><th>Status</th></tr></thead>
         <tbody>
           ${rows.map((row) => {
             const state = getClientScheduleVisualState(row.progress);
@@ -5487,8 +5577,9 @@ function renderClientExecutiveSchedule(project) {
             const sourceBadge = row.dateSource ? ` <small class="client-date-source">${escapeHtml(row.dateSource)}</small>` : '';
             const startCell = `${formatClientDateShort(row.start)}${row.plannedStart ? `<small class="client-planned-date">Plan.: ${formatClientDateShort(row.plannedStart)}</small>` : ''}`;
             const finishCell = `${formatClientDateShort(row.finish)}${row.plannedFinish ? `<small class="client-planned-date">Plan.: ${formatClientDateShort(row.plannedFinish)}</small>` : ''}`;
+            const replannedCell = row.replannedFinish ? `<span class="client-replan-date">${formatClientDateShort(row.replannedFinish)}</span>` : '—';
             const deviationText = Number.isFinite(row.deviationDays) && row.deviationDays !== 0 ? ` • ${row.deviationDays > 0 ? '+' : ''}${row.deviationDays}d` : '';
-            return `<tr class="client-schedule-row client-schedule-row--${state} client-schedule-row--${row.type}"><td>${label}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(row.progress)}</span></td><td>${formatNumber(row.duration, 0)}d</td><td>${startCell}</td><td>${finishCell}</td><td><span class="client-spool-chip client-spool-chip--${state}">${row.dateSource || (state === 'completed' ? 'Concluído' : state === 'in-progress' ? 'Em andamento' : 'Não iniciado')}${deviationText}</span>${sourceBadge}</td></tr>`;
+            return `<tr class="client-schedule-row client-schedule-row--${state} client-schedule-row--${row.type}"><td>${label}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(row.progress)}</span></td><td>${formatNumber(row.duration, 0)}d</td><td>${startCell}</td><td>${finishCell}</td><td>${replannedCell}</td><td><span class="client-spool-chip client-spool-chip--${state}">${row.dateSource || (state === 'completed' ? 'Concluído' : state === 'in-progress' ? 'Em andamento' : 'Não iniciado')}${deviationText}</span>${sourceBadge}</td></tr>`;
           }).join('')}
         </tbody>
       </table>
@@ -5541,8 +5632,8 @@ function renderClientBspOverrideEditor(project) {
   return `
     <section class="client-pm-editor" data-client-pm-editor="${escapeHtml(project.rowId)}">
       <div class="client-exec-card-head">
-        <h3>Editar informações do cliente</h3>
-        <span>Os dados ficam salvos no Supabase e não alteram o Tracking/Smartsheet.</span>
+        <h3>Editar datas e informações do cliente</h3>
+        <span>Preencha somente o que deseja ajustar. Em branco, o painel continua usando Tracking/planejado. Os dados ficam salvos no Supabase e não alteram o Tracking/Smartsheet.</span>
       </div>
       <form class="client-pm-editor-form" data-client-bsp-override-form="${escapeHtml(project.rowId)}">
         <div class="client-pm-date-grid">
@@ -5616,6 +5707,7 @@ async function saveClientBspOverride(project, form) {
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao salvar ajustes.');
     const next = normalizeClientBspOverride(data.override);
+    if (!next) throw new Error('Ajuste salvo, mas a API não retornou os dados atualizados. Atualize a tela para conferir.');
     const items = state.clientBspOverrides.items.filter((item) => String(item.projectRowId) !== String(next.projectRowId));
     items.unshift(next);
     setClientBspOverrides(items);
@@ -5682,8 +5774,7 @@ function ensureClientBspExecutiveModalEl() {
     if (editButton) {
       const project = state.projects.find((item) => String(item.rowId) === String(editButton.dataset.clientBspEdit));
       if (project && canManageClientBspPanel(project)) {
-        state.clientBspOverrides.editingProjectId = project.rowId;
-        openClientBspExecutive(project, { keepEditing: true });
+        openClientBspExecutiveForPmEdit(project);
       }
       return;
     }
@@ -5890,11 +5981,11 @@ function renderClientMacroProjectRows(projects = state.projects) {
       return getClientOverallProgress(a) - getClientOverallProgress(b);
     })
     .slice(0, 180);
-  if (!list.length) return '<tr><td colspan="8" class="loading-cell">Nenhuma BSP encontrada para este cliente.</td></tr>';
+  if (!list.length) return '<tr><td colspan="9" class="loading-cell">Nenhuma BSP encontrada para este cliente.</td></tr>';
   return list.map((project) => {
     const status = getProjectStatusPresentation(project);
     const visualState = getClientProjectVisualState(project);
-    return `<tr class="client-spool-row client-spool-row--${visualState}"><td><strong>${escapeHtml(getClientProjectDisplayCode(project))}</strong></td><td>${escapeHtml(getProjectVesselLabel(project) || '—')}</td><td>${formatNumber(getProjectItemCount(project))}</td><td>${formatNumber(project.kilos, 0)} kg</td><td>${formatNumber(project.weldedWeightKg, 0)} kg</td><td><span class="client-spool-chip client-spool-chip--${visualState}">${escapeHtml(status.text)}</span></td><td><span class="client-spool-progress client-spool-progress--${visualState}">${formatPercent(getClientOverallProgress(project))}</span></td><td>${escapeHtml(project.plannedFinishDate || '—')}</td></tr>`;
+    return `<tr class="client-spool-row client-spool-row--${visualState}"><td><strong>${escapeHtml(getClientProjectDisplayCode(project))}</strong></td><td>${escapeHtml(getProjectVesselLabel(project) || '—')}</td><td>${formatNumber(getProjectItemCount(project))}</td><td>${formatNumber(project.kilos, 0)} kg</td><td>${formatNumber(project.weldedWeightKg, 0)} kg</td><td><span class="client-spool-chip client-spool-chip--${visualState}">${escapeHtml(status.text)}</span></td><td><span class="client-spool-progress client-spool-progress--${visualState}">${formatPercent(getClientOverallProgress(project))}</span></td><td>${escapeHtml(project.plannedFinishDate || '—')}</td><td>${escapeHtml(getProjectReplannedFinishDate(project) || '—')}</td></tr>`;
   }).join('');
 }
 
@@ -6316,15 +6407,16 @@ async function downloadClientMacroExecutivePdf(projects = state.projects, option
       status.text,
       formatPercent(getClientOverallProgress(project)),
       String(project.plannedFinishDate || '—'),
+      String(getProjectReplannedFinishDate(project) || '—'),
     ];
   });
   doc.autoTable({
     startY: 48,
-    head: [['BSP / PO', 'Unidade', 'Tags', 'Peso', 'Soldado', 'Status', '% Geral', 'Término']],
-    body: projectRows.length ? projectRows : [['—', '—', '—', '—', '—', 'Nenhuma BSP encontrada para este cliente.', '—', '—']],
+    head: [['BSP / PO', 'Unidade', 'Tags', 'Peso', 'Soldado', 'Status', '% Geral', 'Término', 'Replanejado']],
+    body: projectRows.length ? projectRows : [['—', '—', '—', '—', '—', 'Nenhuma BSP encontrada para este cliente.', '—', '—', '—']],
     styles: { font: 'helvetica', fontSize: 6.6, cellPadding: 1.35, overflow: 'linebreak', valign: 'middle', lineColor: [220, 228, 236], lineWidth: 0.1 },
     headStyles: { fillColor: [22, 83, 126], textColor: [255, 255, 255], fontStyle: 'bold' },
-    columnStyles: { 0: { cellWidth: 44 }, 1: { cellWidth: 24 }, 2: { cellWidth: 13, halign: 'center' }, 3: { cellWidth: 19, halign: 'right' }, 4: { cellWidth: 19, halign: 'right' }, 5: { cellWidth: 30 }, 6: { cellWidth: 16, halign: 'center' }, 7: { cellWidth: 21 } },
+    columnStyles: { 0: { cellWidth: 40 }, 1: { cellWidth: 22 }, 2: { cellWidth: 12, halign: 'center' }, 3: { cellWidth: 18, halign: 'right' }, 4: { cellWidth: 18, halign: 'right' }, 5: { cellWidth: 28 }, 6: { cellWidth: 15, halign: 'center' }, 7: { cellWidth: 19 }, 8: { cellWidth: 21 } },
     margin: { left: contentX, right: contentX },
     didDrawPage: () => drawClientPdfFooter(doc),
   });
@@ -6448,7 +6540,7 @@ function openClientMacroExecutive(projects = state.projects, options = {}) {
     <section class="client-exec-card client-exec-process-detail">
       <div class="client-exec-card-head"><h3>${isUnitScope ? 'Detalhamento da unidade' : 'Detalhamento macro das BSPs'}</h3><span>Menor progresso primeiro; finalizadas no final</span></div>
       <div class="client-table-wrap client-table-wrap--compact client-exec-process-table">
-        <table class="client-bsp-table"><thead><tr><th>BSP / PO</th><th>Unidade</th><th>Tags</th><th>Peso</th><th>Soldado</th><th>Status</th><th>% Geral</th><th>Término</th></tr></thead><tbody>
+        <table class="client-bsp-table"><thead><tr><th>BSP / PO</th><th>Unidade</th><th>Tags</th><th>Peso</th><th>Soldado</th><th>Status</th><th>% Geral</th><th>Término</th><th>Replanejado</th></tr></thead><tbody>
           ${renderClientMacroProjectRows(list)}
         </tbody></table>
       </div>
@@ -6457,6 +6549,12 @@ function openClientMacroExecutive(projects = state.projects, options = {}) {
 
   modal.classList.remove('hidden');
   document.body.classList.add('client-exec-open');
+  if (options.scrollToEditor && canManageClientBspPanel(project)) {
+    window.setTimeout(() => {
+      const editor = modal.querySelector(`[data-client-pm-editor="${CSS.escape(String(project.rowId || ''))}"]`);
+      if (editor) editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+  }
 }
 
 function openClientBspExecutive(project, options = {}) {
@@ -6482,6 +6580,7 @@ function openClientBspExecutive(project, options = {}) {
   const attention = getClientAttentionPoints(project);
   const startDate = clientFormatDateValue(getClientAnalyticStartDate(project));
   const finishDate = clientFormatDateValue(getClientAnalyticFinishDate(project));
+  const replannedFinishDate = getProjectReplannedFinishDate(project);
   const shipmentDate = clientFormatDateValue(getProjectShipmentDate(project));
   const deviationPercent = Math.max(0, plannedToday - overall);
   const stageValues = project.stageValues || {};
@@ -6496,12 +6595,13 @@ function openClientBspExecutive(project, options = {}) {
         <p>${escapeHtml(getProjectClientLabel(project))} • ${escapeHtml(getProjectVesselLabel(project))} • <span class="cell-status cell-status--${status.state}">${escapeHtml(status.text)}</span></p>
         <div class="client-exec-header-actions">
           <button class="client-exec-pdf-button" type="button" data-client-download-pdf data-client-report-type="project" data-client-report-project-id="${escapeHtml(project.rowId)}">Baixar PDF</button>
-          ${canManageClientBspPanel(project) ? `<button class="client-exec-pdf-button client-exec-edit-button" type="button" data-client-bsp-edit="${escapeHtml(project.rowId)}">Editar informações do cliente</button>` : ''}
+          ${canManageClientBspPanel(project) ? `<button class="client-exec-pdf-button client-exec-edit-button" type="button" data-client-bsp-edit="${escapeHtml(project.rowId)}">Editar datas / informações</button>` : ''}
         </div>
       </div>
       <div class="client-exec-dates">
         <span>Início: <strong>${escapeHtml(startDate || '—')}</strong></span>
         <span>Término planejado: <strong>${escapeHtml(finishDate || '—')}</strong></span>
+        <span>Replanejado: <strong>${escapeHtml(replannedFinishDate || '—')}</strong></span>
         <span>Planejado hoje: <strong>${formatPercent(plannedToday)}</strong></span>
         <span>Desvio: <strong>${formatPercent(deviationPercent)}</strong></span>
         <span>Envio efetivo: <strong>${escapeHtml(shipmentDate || '—')}</strong></span>
@@ -6544,7 +6644,7 @@ function openClientBspExecutive(project, options = {}) {
     <div class="client-exec-grid client-exec-grid--main">
       <section class="client-exec-card client-exec-card--curve">
         <div class="client-exec-card-head"><h3>Curva S | Planejado x Realizado</h3><span>Baseada na data inicial e final da BSP</span></div>
-        <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span><span><i class="delay"></i> Desvio</span></div>
+        <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span><span><i class="replan"></i> Replanejado</span><span><i class="delay"></i> Desvio</span></div>
         ${renderClientSCurveSvg(project)}
       </section>
       <aside class="client-exec-side">
@@ -7919,6 +8019,7 @@ function buildFilteredProjectsExportRows() {
     'Demanda atual',
     'Setor responsável',
     'Término planejado',
+    'Término replanejado',
     'Data de envio',
     'Qtd. itens do projeto',
     'Item / ISO / Spool',
@@ -7964,6 +8065,7 @@ function buildFilteredProjectsExportRows() {
         projectStage,
         projectSector,
         project.plannedFinishDate || '—',
+        getProjectReplannedFinishDate(project) || '—',
         getProjectShipmentDate(project),
         getProjectItemCount(project),
         spool ? (spool.iso || spool.drawing || '—') : 'Projeto sem itens internos detalhados',
@@ -8086,7 +8188,7 @@ function downloadFilteredProjectsExcel() {
 
 function renderTable() {
   if (!state.filteredProjects.length) {
-    bodyEl.innerHTML = '<tr><td colspan="21" class="loading-cell">Nenhum projeto encontrado para a busca informada.</td></tr>';
+    bodyEl.innerHTML = '<tr><td colspan="22" class="loading-cell">Nenhum projeto encontrado para a busca informada.</td></tr>';
     searchCountEl.textContent = "0 resultado(s)";
     updateExportFilteredProjectsButton();
     return;
@@ -8120,6 +8222,7 @@ function renderTable() {
           <td class="project-client-cell" title="${escapeHtml(getProjectClientLabel(project))}">${escapeHtml(getProjectClientLabel(project))}</td>
           <td class="project-vessel-cell" title="${escapeHtml(getProjectVesselLabel(project))}">${escapeHtml(getProjectVesselLabel(project))}</td>
           <td>${project.plannedFinishDate || "—"}</td>
+          <td>${getProjectReplannedFinishDate(project) || "—"}</td>
           <td>${formatNumber(getProjectItemCount(project))}</td>
           <td>${formatNumber(project.weldedWeightKg, 0)}</td>
           <td>${project.weldingWeek || "—"}</td>
@@ -8191,6 +8294,7 @@ function renderSelectedProjectCard() {
         <div class="metric-chip"><span>Semana finalizado</span><strong>${project.weldingWeek || "—"}</strong></div>
         <div class="metric-chip"><span>Início planejado</span><strong>${project.plannedStartDate || "—"}</strong></div>
         <div class="metric-chip"><span>Término planejado</span><strong>${project.plannedFinishDate || "—"}</strong></div>
+        <div class="metric-chip metric-chip--replanned"><span>Replanejado</span><strong>${getProjectReplannedFinishDate(project) || "—"}</strong></div>
         <div class="metric-chip"><span>Data de envio</span><strong>${getProjectShipmentDate(project)}</strong></div>
         <div class="metric-chip"><span>Peso total</span><strong>${formatNumber(project.kilos, 0)}kg</strong></div>
         <div class="metric-chip"><span>Área operacional</span><strong>${formatNumber(project.m2Painting, 3)}</strong></div>
@@ -8224,7 +8328,7 @@ function renderSelectedProjectCard() {
 
   const clientPanelButton = document.getElementById("open-selected-client-panel");
   if (clientPanelButton) {
-    clientPanelButton.addEventListener("click", () => openClientBspExecutive(project));
+    clientPanelButton.addEventListener("click", () => openClientBspExecutiveForPmEdit(project));
   }
 
   const backlogButton = document.getElementById("open-backlog-project");
@@ -8303,6 +8407,7 @@ function renderModal(project) {
       <article class="metric-chip"><span>Semana finalizado</span><strong>${project.weldingWeek || "—"}</strong></article>
       <article class="metric-chip"><span>Início planejado</span><strong>${project.plannedStartDate || "—"}</strong></article>
       <article class="metric-chip"><span>Término planejado</span><strong>${project.plannedFinishDate || "—"}</strong></article>
+      <article class="metric-chip metric-chip--replanned"><span>Replanejado</span><strong>${getProjectReplannedFinishDate(project) || "—"}</strong></article>
       <article class="metric-chip"><span>Peso total</span><strong>${formatNumber(project.kilos, 0)}kg</strong></article>
       <article class="metric-chip"><span>Área operacional total</span><strong>${formatNumber(project.m2Painting, 3)}</strong></article>
       <article class="metric-chip"><span>% Individual</span><strong>${formatPercent(project.individualProgress)}</strong></article>
@@ -8315,7 +8420,7 @@ function renderModal(project) {
       ${milestoneList || '<div class="empty-inline">Nenhum marco de data disponível.</div>'}
     </section>
 
-    ${canManageClientBspPanel(project) ? `<section class="modal-client-panel-action"><button class="ghost-button ghost-button--compact modal-client-panel-button" type="button" data-open-client-panel="${escapeHtml(project.rowId)}">Painel do Cliente</button><span>Abre a visão executiva do cliente para consulta e ajuste.</span></section>` : ''}
+    ${canManageClientBspPanel(project) ? `<section class="modal-client-panel-action"><button class="ghost-button ghost-button--compact modal-client-panel-button" type="button" data-open-client-panel="${escapeHtml(project.rowId)}">Painel do Cliente / Editar datas</button><span>Abre a visão executiva do cliente já no modo de ajuste.</span></section>` : ''}
 
     ${renderProjectSignals(project)}
     ${renderClientTratativaNotice(project)}
@@ -8614,7 +8719,7 @@ function shouldSkipBackgroundRequest(options = {}) {
 function setProjectsLoadingState(message = 'Carregando dados operacionais...') {
   if (!state.user) return;
   if (bodyEl && !state.projects.length) {
-    bodyEl.innerHTML = `<tr><td colspan="21" class="loading-cell">${escapeHtml(message)}</td></tr>`;
+    bodyEl.innerHTML = `<tr><td colspan="22" class="loading-cell">${escapeHtml(message)}</td></tr>`;
   }
   if (detailCardEl && !state.projects.length) {
     detailCardEl.innerHTML = `<div class="detail-placeholder">${escapeHtml(message)}</div>`;
@@ -8906,7 +9011,7 @@ async function loadProjects(options = {}) {
         return;
       }
 
-      bodyEl.innerHTML = `<tr><td colspan="21" class="loading-cell">${escapeHtml(fallbackMessage)}</td></tr>`;
+      bodyEl.innerHTML = `<tr><td colspan="22" class="loading-cell">${escapeHtml(fallbackMessage)}</td></tr>`;
       detailCardEl.innerHTML = `<div class="detail-placeholder">${escapeHtml(fallbackMessage)}</div>`;
     } finally {
       state.loadingProjectsRequest = null;
@@ -10007,7 +10112,7 @@ if (adminUsersListEl) {
     const clientPanelButton = event.target.closest('[data-open-client-panel]');
     if (clientPanelButton) {
       const project = state.projects.find((item) => String(item.rowId) === String(clientPanelButton.dataset.openClientPanel));
-      if (project && canManageClientBspPanel(project)) openClientBspExecutive(project);
+      if (project && canManageClientBspPanel(project)) openClientBspExecutiveForPmEdit(project);
       return;
     }
 
@@ -10390,7 +10495,7 @@ function resetDashboardForLoggedOutState() {
   state.alerts = [];
   state.selectedProjectId = null;
   resetClientBspOverridesState();
-  if (bodyEl) bodyEl.innerHTML = `<tr><td colspan="21" class="loading-cell">Faça login para visualizar os projetos.</td></tr>`;
+  if (bodyEl) bodyEl.innerHTML = `<tr><td colspan="22" class="loading-cell">Faça login para visualizar os projetos.</td></tr>`;
   if (detailCardEl) detailCardEl.innerHTML = `<div class="detail-placeholder">Painel protegido. Entre com seu usuário e senha para visualizar as informações.</div>`;
   if (searchCountEl) searchCountEl.textContent = '0 resultado(s)';
   updateExportFilteredProjectsButton();

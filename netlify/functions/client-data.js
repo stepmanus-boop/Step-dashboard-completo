@@ -143,6 +143,8 @@ function sanitizeProject(project = {}, includeSpools = false) {
     uiState: project.uiState || '',
     plannedStartDate: project.plannedStartDate || '',
     plannedFinishDate: project.plannedFinishDate || '',
+    replannedFinishDate: project.replannedFinishDate || '',
+    replannedFinishSource: project.replannedFinishSource || '',
     clientDisplayCode: project.clientDisplayCode || project.projectDisplay || '',
     milestones: sanitizeMilestones(project.milestones),
     spoolStats: project.spoolStats || {},

@@ -2116,6 +2116,36 @@ function getWipClientFocalPoint(row) {
   );
 }
 
+function getWipReplannedFinishDate(row) {
+  return findTextValueByNormalizedColumn(
+    row,
+    [
+      'Deadline Date as Agreeded with Client*',
+      'Deadline Date as Agreeded with Client',
+      'Deadline Date as Agreeded with Client *',
+      'Deadline Date as Agreed with Client*',
+      'Deadline Date as Agreed with Client',
+      'Deadline Date as Agreed with Client *',
+      'Deadline as Agreeded with Client',
+      'Deadline Agreed with Client',
+      'Data Replanejada',
+      'Data replanejada',
+      'Replanejado',
+      'Replanned Date',
+      'Replanned Finish Date',
+    ],
+    [
+      'Deadline Date as Agreeded',
+      'Deadline Date as Agreed',
+      'Agreeded with Client',
+      'Agreed with Client',
+      'Data Replanejada',
+      'Replanejado',
+      'Replanned',
+    ]
+  );
+}
+
 function collectWipNameValues(value) {
   const raw = String(value || '').trim();
   if (!raw || raw === 'N/A') return [];
@@ -2162,6 +2192,30 @@ function buildWipClientFocalMap(rows) {
   return focalMap;
 }
 
+function buildWipReplannedFinishMap(rows) {
+  const replannedMap = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const projectRef = getWipProjectRef(row);
+    const rawDeadline = getWipReplannedFinishDate(row);
+    const key = normalizeBspLookupKey(projectRef);
+    if (!key || !rawDeadline) continue;
+
+    const parsed = parseDateObject(rawDeadline);
+    if (!parsed) continue;
+    const formatted = formatDateValue(parsed);
+    const current = replannedMap.get(key);
+    if (!current || parsed > current.date) {
+      replannedMap.set(key, {
+        value: formatted,
+        raw: String(rawDeadline).trim(),
+        date: parsed,
+        source: 'Work in Progress - STEP | Deadline Date as Agreeded with Client*',
+      });
+    }
+  }
+  return replannedMap;
+}
+
 function getPoListForProject(project, poMap) {
   const keys = getProjectBspLookupKeys(project);
   for (const key of keys) {
@@ -2201,28 +2255,49 @@ function getFocalPointListForProject(project, focalMap) {
   return [];
 }
 
+function getReplannedFinishForProject(project, replannedMap) {
+  const keys = getProjectBspLookupKeys(project);
+  for (const key of keys) {
+    const direct = replannedMap.get(key);
+    if (direct?.value) return direct;
+  }
+
+  for (const key of keys) {
+    for (const [mapKey, item] of replannedMap.entries()) {
+      if (!item?.value) continue;
+      if (mapKey === key || (mapKey.length >= 6 && key.length >= 6 && (mapKey.endsWith(key) || key.endsWith(mapKey)))) {
+        return item;
+      }
+    }
+  }
+
+  return null;
+}
+
 async function fetchWipStepPoMap() {
   try {
     const sheetId = await resolveWipStepSheetId();
-    if (!sheetId) return { poMap: new Map(), version: null, sheetName: WIP_STEP_SHEET_NAME, available: false };
+    if (!sheetId) return { poMap: new Map(), focalMap: new Map(), replannedFinishMap: new Map(), version: null, sheetName: WIP_STEP_SHEET_NAME, available: false };
     const version = await fetchSheetVersion(sheetId);
     const sheet = await fetchFullSheet(sheetId);
     const rows = mapApiRows(sheet);
-    return { poMap: buildWipPoMap(rows), focalMap: buildWipClientFocalMap(rows), version, sheetName: sheet.name || cache.wipStepSheetName || WIP_STEP_SHEET_NAME, available: true };
+    return { poMap: buildWipPoMap(rows), focalMap: buildWipClientFocalMap(rows), replannedFinishMap: buildWipReplannedFinishMap(rows), version, sheetName: sheet.name || cache.wipStepSheetName || WIP_STEP_SHEET_NAME, available: true };
   } catch (error) {
     console.warn('Não foi possível carregar Work in Progress - STEP para vínculo de PO:', error.message);
-    return { poMap: new Map(), focalMap: new Map(), version: null, sheetName: WIP_STEP_SHEET_NAME, available: false, error: error.message };
+    return { poMap: new Map(), focalMap: new Map(), replannedFinishMap: new Map(), version: null, sheetName: WIP_STEP_SHEET_NAME, available: false, error: error.message };
   }
 }
 
-function enrichProjectsWithCustomerPo(projects, poMap, focalMap = new Map()) {
+function enrichProjectsWithCustomerPo(projects, poMap, focalMap = new Map(), replannedFinishMap = new Map()) {
   const map = poMap instanceof Map ? poMap : new Map();
   const focalPointMap = focalMap instanceof Map ? focalMap : new Map();
+  const replannedMap = replannedFinishMap instanceof Map ? replannedFinishMap : new Map();
   return (Array.isArray(projects) ? projects : []).map((project) => {
     const list = getPoListForProject(project, map).filter(Boolean);
     const uniqueList = Array.from(new Set(list));
     const focalList = getFocalPointListForProject(project, focalPointMap).filter(Boolean);
     const uniqueFocalList = Array.from(new Set(focalList));
+    const replanned = getReplannedFinishForProject(project, replannedMap);
     project.customerPoList = uniqueList;
     project.customerPo = uniqueList[0] || '';
     project.customerPoDisplay = uniqueList.length ? getProjectPoDisplay(project) : 'Aguardando PO';
@@ -2230,6 +2305,10 @@ function enrichProjectsWithCustomerPo(projects, poMap, focalMap = new Map()) {
     project.clientFocalPointList = uniqueFocalList;
     project.clientFocalPoint = uniqueFocalList[0] || '';
     project.clientFocalPointDisplay = uniqueFocalList.join(', ');
+    project.replannedFinishDate = replanned?.value || '';
+    project.replannedFinishRaw = replanned?.raw || '';
+    project.replannedFinishSource = replanned?.source || '';
+    project.replannedFinishStatus = replanned?.value ? 'found' : 'none';
     project.clientDisplayCode = buildClientDisplayCode(project);
     return project;
   });
@@ -2335,7 +2414,7 @@ async function buildPayload(options = {}) {
     throw error;
   }
   const rows = mapApiRows(sheet);
-  const projects = enrichProjectsWithCustomerPo(buildProjects(rows), wipPoData.poMap, wipPoData.focalMap);
+  const projects = enrichProjectsWithCustomerPo(buildProjects(rows), wipPoData.poMap, wipPoData.focalMap, wipPoData.replannedFinishMap);
   const stats = buildStats(projects);
   const alertData = buildAlerts(projects);
 

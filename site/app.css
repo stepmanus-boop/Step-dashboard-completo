@@ -485,7 +485,7 @@ body.modal-open { overflow: hidden; }
   scrollbar-width: thin;
   scrollbar-color: rgba(53, 115, 188, 0.55) transparent;
 }
-.projects-table { width: 100%; border-collapse: collapse; min-width: 1480px; }
+.projects-table { width: 100%; border-collapse: collapse; min-width: 1560px; }
 .projects-table thead th {
   position: sticky; top: 0; z-index: 2;
   background: rgba(3, 17, 31, 0.98);
@@ -5062,6 +5062,10 @@ body.client-exec-open {
   background: #f59e0b;
 }
 
+.client-exec-legend .replan {
+  background: #2563eb;
+}
+
 .client-scurve-svg {
   width: 100%;
   height: auto;
@@ -5106,6 +5110,55 @@ body.client-exec-open {
   fill: #0a9878;
   stroke: white;
   stroke-width: 3;
+}
+
+.client-chart-replan-boundary {
+  stroke: rgba(37, 99, 235, .45);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 5;
+}
+
+.client-chart-replan-boundary--end {
+  stroke-width: 2;
+}
+
+.client-chart-replan-line {
+  stroke: #2563eb;
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  stroke-dasharray: 10 6;
+  filter: drop-shadow(0 6px 12px rgba(37, 99, 235, .18));
+}
+
+.client-chart-replan-label {
+  fill: #1d4ed8;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .04em;
+}
+
+.client-chart-replan-hover {
+  fill: transparent;
+  stroke: transparent;
+}
+
+.client-chart-replan-hover:hover {
+  fill: rgba(37, 99, 235, .08);
+  stroke: rgba(37, 99, 235, .28);
+}
+
+.client-replan-date {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, .10);
+  color: #1d4ed8;
+  font-weight: 900;
+}
+
+.metric-chip--replanned {
+  border-color: rgba(37, 99, 235, .30);
 }
 
 .client-chart-delay-band {
@@ -7857,4 +7910,20 @@ body.client-mode .client-logo-box img,
   font-size: .72rem;
   font-weight: 800;
   letter-spacing: .08em;
+}
+
+/* v36.36 - edição de datas PM/Admin mais direta */
+.client-exec-edit-button,
+.modal-client-panel-button {
+  cursor: pointer;
+}
+.client-pm-editor {
+  outline: 2px solid rgba(14, 165, 233, 0.10);
+}
+.client-pm-date-field input[type="date"] {
+  min-height: 42px;
+  cursor: text;
+}
+.client-pm-date-field small::before {
+  content: "Valor atual do ";
 }
