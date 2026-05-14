@@ -6,6 +6,8 @@ const AUTH_REFRESH_MS = 300000;
 const ADMIN_REFRESH_MS = 60000;
 const ALERT_NOTIFICATION_COOLDOWN_MS = 4 * 60 * 60 * 1000;
 const PROJECTS_CACHE_KEY = 'step_dashboard_projects_cache_v4_client_scope';
+// Replanejamento WIP mantido no código para uso futuro, mas oculto do painel do cliente nesta versão.
+const CLIENT_REPLANNING_UI_ENABLED = false;
 
 let adminResponsesPollTimer = null;
 let projectsWarmupPromise = null;
@@ -4233,7 +4235,7 @@ function renderClientBspPanel() {
   if (!state.clientPortal.selectedProjectId && projects.length) state.clientPortal.selectedProjectId = projects[0].rowId;
   table.innerHTML = `
     <table class="client-bsp-table">
-      <thead><tr><th>BSP</th><th>Tags</th><th>Peso</th><th>Soldado</th><th>M²</th><th>Status</th><th>Etapa</th><th>% Geral</th><th>Término</th><th>Replanejado</th></tr></thead>
+      <thead><tr><th>BSP</th><th>Tags</th><th>Peso</th><th>Soldado</th><th>M²</th><th>Status</th><th>Etapa</th><th>% Geral</th><th>Término</th></tr></thead>
       <tbody>
         ${projects.map((project) => {
           const status = getProjectStatusPresentation(project);
@@ -4591,6 +4593,7 @@ function clientEarliestDate(...values) {
 }
 
 function applyClientExecutiveScheduleReplan(project, rows) {
+  if (!CLIENT_REPLANNING_UI_ENABLED) return rows;
   const replannedFinish = getClientSCurveReplannedFinishDate(project);
   if (!replannedFinish || !Array.isArray(rows) || !rows.length) return rows;
 
@@ -5234,6 +5237,7 @@ function getClientSCurvePlannedFinishDate(project) {
 }
 
 function getProjectReplannedFinishDate(project) {
+  if (!CLIENT_REPLANNING_UI_ENABLED) return '';
   const candidates = [
     project?.replannedFinishDate,
     project?.replannedFinish,
@@ -5867,19 +5871,16 @@ function renderClientExecutiveSchedule(project) {
   return `
     <div class="client-table-wrap client-table-wrap--compact client-exec-schedule-table">
       <table class="client-bsp-table client-bsp-table--schedule">
-        <thead><tr><th>Etapa</th><th>%</th><th>Prazo médio</th><th>Início</th><th>Término</th><th>Replanejado</th><th>Status</th></tr></thead>
+        <thead><tr><th>Etapa</th><th>%</th><th>Prazo médio</th><th>Início</th><th>Término</th><th>Status</th></tr></thead>
         <tbody>
           ${rows.map((row) => {
             const state = getClientScheduleVisualState(row.progress);
             const label = row.type === 'group' ? `<strong>${escapeHtml(row.label)}</strong>` : `<span class="client-schedule-child">${escapeHtml(row.label)}</span>`;
-            const sourceBadge = row.dateSource ? ` <small class="client-date-source">${escapeHtml(row.dateSource)}</small>` : '';
             const startCell = `${formatClientDateShort(row.start)}${row.plannedStart ? `<small class="client-planned-date">Plan.: ${formatClientDateShort(row.plannedStart)}</small>` : ''}`;
             const finishCell = `${formatClientDateShort(row.finish)}${row.plannedFinish ? `<small class="client-planned-date">Plan.: ${formatClientDateShort(row.plannedFinish)}</small>` : ''}`;
-            const replannedCell = row.replannedFinish ? `<span class="client-replan-date">${formatClientDateShort(row.replannedFinish)}</span>${row.replannedSource ? `<small class="client-planned-date">Rep.: ${escapeHtml(row.replannedSource)}</small>` : ''}` : '—';
             const deviationText = Number.isFinite(row.deviationDays) && row.deviationDays !== 0 ? ` • ${row.deviationDays > 0 ? '+' : ''}${row.deviationDays}d` : '';
-            const replannedText = row.replannedFinish && !row.dateSource ? 'Replanejado' : '';
-            const statusText = row.dateSource || replannedText || (state === 'completed' ? 'Concluído' : state === 'in-progress' ? 'Em andamento' : 'Não iniciado');
-            return `<tr class="client-schedule-row client-schedule-row--${state} client-schedule-row--${row.type}${row.replannedFinish ? ' client-schedule-row--replanned' : ''}"><td>${label}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(row.progress)}</span></td><td>${formatNumber(row.duration, 0)}d</td><td>${startCell}</td><td>${finishCell}</td><td>${replannedCell}</td><td><span class="client-spool-chip client-spool-chip--${state}">${statusText}${deviationText}</span>${sourceBadge}</td></tr>`;
+            const statusText = state === 'completed' ? 'Concluído' : state === 'in-progress' ? 'Em andamento' : 'Não iniciado';
+            return `<tr class="client-schedule-row client-schedule-row--${state} client-schedule-row--${row.type}"><td>${label}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(row.progress)}</span></td><td>${formatNumber(row.duration, 0)}d</td><td>${startCell}</td><td>${finishCell}</td><td><span class="client-spool-chip client-spool-chip--${state}">${statusText}${deviationText}</span></td></tr>`;
           }).join('')}
         </tbody>
       </table>
@@ -6287,11 +6288,11 @@ function renderClientMacroProjectRows(projects = state.projects) {
       return getClientOverallProgress(a) - getClientOverallProgress(b);
     })
     .slice(0, 180);
-  if (!list.length) return '<tr><td colspan="9" class="loading-cell">Nenhuma BSP encontrada para este cliente.</td></tr>';
+  if (!list.length) return '<tr><td colspan="8" class="loading-cell">Nenhuma BSP encontrada para este cliente.</td></tr>';
   return list.map((project) => {
     const status = getProjectStatusPresentation(project);
     const visualState = getClientProjectVisualState(project);
-    return `<tr class="client-spool-row client-spool-row--${visualState}"><td><strong>${escapeHtml(getClientProjectDisplayCode(project))}</strong></td><td>${escapeHtml(getProjectVesselLabel(project) || '—')}</td><td>${formatNumber(getProjectItemCount(project))}</td><td>${formatNumber(project.kilos, 0)} kg</td><td>${formatNumber(project.weldedWeightKg, 0)} kg</td><td><span class="client-spool-chip client-spool-chip--${visualState}">${escapeHtml(status.text)}</span></td><td><span class="client-spool-progress client-spool-progress--${visualState}">${formatPercent(getClientOverallProgress(project))}</span></td><td>${escapeHtml(project.plannedFinishDate || '—')}</td><td>${escapeHtml(getProjectReplannedFinishDate(project) || '—')}</td></tr>`;
+    return `<tr class="client-spool-row client-spool-row--${visualState}"><td><strong>${escapeHtml(getClientProjectDisplayCode(project))}</strong></td><td>${escapeHtml(getProjectVesselLabel(project) || '—')}</td><td>${formatNumber(getProjectItemCount(project))}</td><td>${formatNumber(project.kilos, 0)} kg</td><td>${formatNumber(project.weldedWeightKg, 0)} kg</td><td><span class="client-spool-chip client-spool-chip--${visualState}">${escapeHtml(status.text)}</span></td><td><span class="client-spool-progress client-spool-progress--${visualState}">${formatPercent(getClientOverallProgress(project))}</span></td><td>${escapeHtml(project.plannedFinishDate || '—')}</td></tr>`;
   }).join('');
 }
 
@@ -6713,16 +6714,15 @@ async function downloadClientMacroExecutivePdf(projects = state.projects, option
       status.text,
       formatPercent(getClientOverallProgress(project)),
       String(project.plannedFinishDate || '—'),
-      String(getProjectReplannedFinishDate(project) || '—'),
     ];
   });
   doc.autoTable({
     startY: 48,
-    head: [['BSP / PO', 'Unidade', 'Tags', 'Peso', 'Soldado', 'Status', '% Geral', 'Término', 'Replanejado']],
-    body: projectRows.length ? projectRows : [['—', '—', '—', '—', '—', 'Nenhuma BSP encontrada para este cliente.', '—', '—', '—']],
+    head: [['BSP / PO', 'Unidade', 'Tags', 'Peso', 'Soldado', 'Status', '% Geral', 'Término']],
+    body: projectRows.length ? projectRows : [['—', '—', '—', '—', '—', 'Nenhuma BSP encontrada para este cliente.', '—', '—']],
     styles: { font: 'helvetica', fontSize: 6.6, cellPadding: 1.35, overflow: 'linebreak', valign: 'middle', lineColor: [220, 228, 236], lineWidth: 0.1 },
     headStyles: { fillColor: [22, 83, 126], textColor: [255, 255, 255], fontStyle: 'bold' },
-    columnStyles: { 0: { cellWidth: 40 }, 1: { cellWidth: 22 }, 2: { cellWidth: 12, halign: 'center' }, 3: { cellWidth: 18, halign: 'right' }, 4: { cellWidth: 18, halign: 'right' }, 5: { cellWidth: 28 }, 6: { cellWidth: 15, halign: 'center' }, 7: { cellWidth: 19 }, 8: { cellWidth: 21 } },
+    columnStyles: { 0: { cellWidth: 42 }, 1: { cellWidth: 24 }, 2: { cellWidth: 13, halign: 'center' }, 3: { cellWidth: 20, halign: 'right' }, 4: { cellWidth: 20, halign: 'right' }, 5: { cellWidth: 32 }, 6: { cellWidth: 16, halign: 'center' }, 7: { cellWidth: 22 } },
     margin: { left: contentX, right: contentX },
     didDrawPage: () => drawClientPdfFooter(doc),
   });
@@ -6846,7 +6846,7 @@ function openClientMacroExecutive(projects = state.projects, options = {}) {
     <section class="client-exec-card client-exec-process-detail">
       <div class="client-exec-card-head"><h3>${isUnitScope ? 'Detalhamento da unidade' : 'Detalhamento macro das BSPs'}</h3><span>Menor progresso primeiro; finalizadas no final</span></div>
       <div class="client-table-wrap client-table-wrap--compact client-exec-process-table">
-        <table class="client-bsp-table"><thead><tr><th>BSP / PO</th><th>Unidade</th><th>Tags</th><th>Peso</th><th>Soldado</th><th>Status</th><th>% Geral</th><th>Término</th><th>Replanejado</th></tr></thead><tbody>
+        <table class="client-bsp-table"><thead><tr><th>BSP / PO</th><th>Unidade</th><th>Tags</th><th>Peso</th><th>Soldado</th><th>Status</th><th>% Geral</th><th>Término</th></tr></thead><tbody>
           ${renderClientMacroProjectRows(list)}
         </tbody></table>
       </div>
@@ -6886,7 +6886,6 @@ function openClientBspExecutive(project, options = {}) {
   const attention = getClientAttentionPoints(project);
   const startDate = clientFormatDateValue(getClientAnalyticStartDate(project));
   const finishDate = clientFormatDateValue(getClientAnalyticFinishDate(project));
-  const replannedFinishDate = getProjectReplannedFinishDate(project);
   const shipmentDate = clientFormatDateValue(getProjectShipmentDate(project));
   const deviationPercent = Math.max(0, plannedToday - overall);
   const stageValues = project.stageValues || {};
@@ -6907,7 +6906,6 @@ function openClientBspExecutive(project, options = {}) {
       <div class="client-exec-dates">
         <span>Início: <strong>${escapeHtml(startDate || '—')}</strong></span>
         <span>Término planejado: <strong>${escapeHtml(finishDate || '—')}</strong></span>
-        <span>Replanejado: <strong>${escapeHtml(replannedFinishDate || '—')}</strong></span>
         <span>Planejado hoje: <strong>${formatPercent(plannedToday)}</strong></span>
         <span>Desvio: <strong>${formatPercent(deviationPercent)}</strong></span>
         <span>Envio efetivo: <strong>${escapeHtml(shipmentDate || '—')}</strong></span>
@@ -6950,7 +6948,7 @@ function openClientBspExecutive(project, options = {}) {
     <div class="client-exec-grid client-exec-grid--main">
       <section class="client-exec-card client-exec-card--curve">
         <div class="client-exec-card-head"><h3>Curva S | Planejado x Realizado</h3><span>Baseada na data inicial e final da BSP</span></div>
-        <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span><span><i class="replan"></i> Replanejado</span><span><i class="delay"></i> Desvio</span></div>
+        <div class="client-exec-legend"><span><i class="planned"></i> Planejado</span><span><i class="actual"></i> Realizado</span><span><i class="delay"></i> Desvio</span></div>
         ${renderClientSCurveSvg(project)}
       </section>
       <aside class="client-exec-side">
@@ -8325,7 +8323,6 @@ function buildFilteredProjectsExportRows() {
     'Demanda atual',
     'Setor responsável',
     'Término planejado',
-    'Término replanejado',
     'Data de envio',
     'Qtd. itens do projeto',
     'Item / ISO / Spool',
@@ -8371,7 +8368,6 @@ function buildFilteredProjectsExportRows() {
         projectStage,
         projectSector,
         project.plannedFinishDate || '—',
-        getProjectReplannedFinishDate(project) || '—',
         getProjectShipmentDate(project),
         getProjectItemCount(project),
         spool ? (spool.iso || spool.drawing || '—') : 'Projeto sem itens internos detalhados',
@@ -8494,7 +8490,7 @@ function downloadFilteredProjectsExcel() {
 
 function renderTable() {
   if (!state.filteredProjects.length) {
-    bodyEl.innerHTML = '<tr><td colspan="22" class="loading-cell">Nenhum projeto encontrado para a busca informada.</td></tr>';
+    bodyEl.innerHTML = '<tr><td colspan="21" class="loading-cell">Nenhum projeto encontrado para a busca informada.</td></tr>';
     searchCountEl.textContent = "0 resultado(s)";
     updateExportFilteredProjectsButton();
     return;
@@ -8528,7 +8524,6 @@ function renderTable() {
           <td class="project-client-cell" title="${escapeHtml(getProjectClientLabel(project))}">${escapeHtml(getProjectClientLabel(project))}</td>
           <td class="project-vessel-cell" title="${escapeHtml(getProjectVesselLabel(project))}">${escapeHtml(getProjectVesselLabel(project))}</td>
           <td>${project.plannedFinishDate || "—"}</td>
-          <td>${getProjectReplannedFinishDate(project) || "—"}</td>
           <td>${formatNumber(getProjectItemCount(project))}</td>
           <td>${formatNumber(project.weldedWeightKg, 0)}</td>
           <td>${project.weldingWeek || "—"}</td>
@@ -8600,7 +8595,6 @@ function renderSelectedProjectCard() {
         <div class="metric-chip"><span>Semana finalizado</span><strong>${project.weldingWeek || "—"}</strong></div>
         <div class="metric-chip"><span>Início planejado</span><strong>${project.plannedStartDate || "—"}</strong></div>
         <div class="metric-chip"><span>Término planejado</span><strong>${project.plannedFinishDate || "—"}</strong></div>
-        <div class="metric-chip metric-chip--replanned"><span>Replanejado</span><strong>${getProjectReplannedFinishDate(project) || "—"}</strong></div>
         <div class="metric-chip"><span>Data de envio</span><strong>${getProjectShipmentDate(project)}</strong></div>
         <div class="metric-chip"><span>Peso total</span><strong>${formatNumber(project.kilos, 0)}kg</strong></div>
         <div class="metric-chip"><span>Área operacional</span><strong>${formatNumber(project.m2Painting, 3)}</strong></div>
@@ -8713,7 +8707,6 @@ function renderModal(project) {
       <article class="metric-chip"><span>Semana finalizado</span><strong>${project.weldingWeek || "—"}</strong></article>
       <article class="metric-chip"><span>Início planejado</span><strong>${project.plannedStartDate || "—"}</strong></article>
       <article class="metric-chip"><span>Término planejado</span><strong>${project.plannedFinishDate || "—"}</strong></article>
-      <article class="metric-chip metric-chip--replanned"><span>Replanejado</span><strong>${getProjectReplannedFinishDate(project) || "—"}</strong></article>
       <article class="metric-chip"><span>Peso total</span><strong>${formatNumber(project.kilos, 0)}kg</strong></article>
       <article class="metric-chip"><span>Área operacional total</span><strong>${formatNumber(project.m2Painting, 3)}</strong></article>
       <article class="metric-chip"><span>% Individual</span><strong>${formatPercent(project.individualProgress)}</strong></article>
@@ -9025,7 +9018,7 @@ function shouldSkipBackgroundRequest(options = {}) {
 function setProjectsLoadingState(message = 'Carregando dados operacionais...') {
   if (!state.user) return;
   if (bodyEl && !state.projects.length) {
-    bodyEl.innerHTML = `<tr><td colspan="22" class="loading-cell">${escapeHtml(message)}</td></tr>`;
+    bodyEl.innerHTML = `<tr><td colspan="21" class="loading-cell">${escapeHtml(message)}</td></tr>`;
   }
   if (detailCardEl && !state.projects.length) {
     detailCardEl.innerHTML = `<div class="detail-placeholder">${escapeHtml(message)}</div>`;
@@ -9317,7 +9310,7 @@ async function loadProjects(options = {}) {
         return;
       }
 
-      bodyEl.innerHTML = `<tr><td colspan="22" class="loading-cell">${escapeHtml(fallbackMessage)}</td></tr>`;
+      bodyEl.innerHTML = `<tr><td colspan="21" class="loading-cell">${escapeHtml(fallbackMessage)}</td></tr>`;
       detailCardEl.innerHTML = `<div class="detail-placeholder">${escapeHtml(fallbackMessage)}</div>`;
     } finally {
       state.loadingProjectsRequest = null;
@@ -10801,7 +10794,7 @@ function resetDashboardForLoggedOutState() {
   state.alerts = [];
   state.selectedProjectId = null;
   resetClientBspOverridesState();
-  if (bodyEl) bodyEl.innerHTML = `<tr><td colspan="22" class="loading-cell">Faça login para visualizar os projetos.</td></tr>`;
+  if (bodyEl) bodyEl.innerHTML = `<tr><td colspan="21" class="loading-cell">Faça login para visualizar os projetos.</td></tr>`;
   if (detailCardEl) detailCardEl.innerHTML = `<div class="detail-placeholder">Painel protegido. Entre com seu usuário e senha para visualizar as informações.</div>`;
   if (searchCountEl) searchCountEl.textContent = '0 resultado(s)';
   updateExportFilteredProjectsButton();
