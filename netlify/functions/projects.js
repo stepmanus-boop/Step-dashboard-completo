@@ -4,15 +4,50 @@ const path = require('path');
 const { isSupabaseConfigured, getUserById } = require('./_supabase');
 const { jsonResponse, requireSession } = require('./_auth');
 const API_BASE = process.env.SMARTSHEET_API_BASE || "https://api.smartsheet.com/2.0";
-const SHEET_NAME = process.env.SMARTSHEET_SHEET_NAME || "Progress Tracking Sheet - Piping Fabrication";
-const SHEET_ID_ENV = process.env.SMARTSHEET_SHEET_ID || "";
-const WIP_STEP_SHEET_NAME = process.env.SMARTSHEET_WIP_STEP_SHEET_NAME || "Work in Progress - STEP";
-const WIP_STEP_SHEET_ID_ENV = process.env.SMARTSHEET_WIP_STEP_SHEET_ID || process.env.SMARTSHEET_WORK_IN_PROGRESS_STEP_SHEET_ID || "";
+const DEFAULT_REGION = 'PT';
+const REGION_CONFIGS = {
+  BR: {
+    key: 'BR',
+    label: 'Brasil',
+    trackingSheetName: process.env.SMARTSHEET_SHEET_NAME_BR || process.env.SMARTSHEET_SHEET_NAME || "Progress Tracking Sheet - Piping Fabrication",
+    trackingSheetId: process.env.SMARTSHEET_SHEET_ID_BR || process.env.SMARTSHEET_SHEET_ID || "",
+    wipSheetName: process.env.SMARTSHEET_WIP_STEP_SHEET_NAME_BR || process.env.SMARTSHEET_WIP_STEP_SHEET_NAME || "Work in Progress - STEP",
+    wipSheetId: process.env.SMARTSHEET_WIP_STEP_SHEET_ID_BR || process.env.SMARTSHEET_WIP_STEP_SHEET_ID || process.env.SMARTSHEET_WORK_IN_PROGRESS_STEP_SHEET_ID || "",
+  },
+  PT: {
+    key: 'PT',
+    label: 'Portugal',
+    trackingSheetName: process.env.SMARTSHEET_SHEET_NAME_PT || "Progress Tracking Sheet - Piping Fabrication PT",
+    trackingSheetId: process.env.SMARTSHEET_SHEET_ID_PT || "",
+    wipSheetName: process.env.SMARTSHEET_WIP_STEP_SHEET_NAME_PT || "WORK-IN-PROGRESS -PT",
+    wipSheetId: process.env.SMARTSHEET_WIP_STEP_SHEET_ID_PT || process.env.SMARTSHEET_WORK_IN_PROGRESS_PT_SHEET_ID || "",
+  },
+};
+
+function normalizeRegion(value = DEFAULT_REGION) {
+  return 'PT';
+}
+
+function getRegionConfig(region = DEFAULT_REGION) {
+  return REGION_CONFIGS[normalizeRegion(region)] || REGION_CONFIGS.BR;
+}
+
+function getRequestRegionFromEvent(event = null) {
+  const qsRegion = event?.queryStringParameters?.region || event?.queryStringParameters?.operationRegion || '';
+  return normalizeRegion(qsRegion || DEFAULT_REGION);
+}
+
+const ACTIVE_REGION_CONFIG = getRegionConfig(DEFAULT_REGION);
+const SHEET_NAME = ACTIVE_REGION_CONFIG.trackingSheetName;
+const SHEET_ID_ENV = ACTIVE_REGION_CONFIG.trackingSheetId;
+const WIP_STEP_SHEET_NAME = ACTIVE_REGION_CONFIG.wipSheetName;
+const WIP_STEP_SHEET_ID_ENV = ACTIVE_REGION_CONFIG.wipSheetId;
 const TOKEN = process.env.SMARTSHEET_TOKEN || process.env.SMARTSHEET_ACCESS_TOKEN || process.env.SMARTSHEET_API_TOKEN || process.env.SMARTSHEET_BEARER_TOKEN || process.env.SMARTSHEET_PAT || process.env.SMARTSHEET_PERSONAL_ACCESS_TOKEN || "5pP36OjBaD1W2HWyxf6aoGxXasPvEl8gbqOmQ";
 const PROJECTS_FAST_CACHE_MS = Number(process.env.PROJECTS_FAST_CACHE_MS || 10 * 60 * 1000); // v32: 10 minutos default
 const SESSION_HYDRATION_CACHE_MS = Number(process.env.SESSION_HYDRATION_CACHE_MS || 5 * 60 * 1000);
 
 const cache = global.__STEP_PROGRESS_CACHE__ || {
+  region: null,
   sheetId: null,
   sheetName: null,
   version: null,
@@ -296,37 +331,6 @@ function pct(stageValues, key) {
   return numberFromStageValue(stageValues, key) ?? 0;
 }
 
-function isSpoolMaterialType(projectType, fallbackText = '') {
-  const normalize = (value) => String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-
-  const typeText = normalize(projectType).trim();
-  if (typeText) {
-    if (typeText.includes('spool')) return true;
-    if (typeText.includes('support') || typeText.includes('suporte') || typeText === 'sup' || typeText.includes('structure') || typeText.includes('estrutura') || typeText.includes('frame')) return false;
-  }
-
-  const evidence = normalize(fallbackText);
-  if (/\bspl\b/.test(evidence) || evidence.includes('spool')) return true;
-  if (/\bsup\b/.test(evidence) || evidence.includes('support') || evidence.includes('suporte') || evidence.includes('structure') || evidence.includes('estrutura') || evidence.includes('frame')) return false;
-  return false;
-}
-
-function fabricationStageItemsForType(projectType, fallbackText = '') {
-  const includeHydro = isSpoolMaterialType(projectType, fallbackText);
-  return [
-    { keys: ["Welding Preparation", "Spool Assemble and tack weld"], weight: 10 },
-    { keys: ["Initial Dimensional Inspection/3D"], weight: 8 },
-    { keys: ["Full welding execution"], weight: 25 },
-    { keys: ["Non Destructive Examination (QC)"], weight: 12 },
-    { keys: ["Final Dimensional Inpection/3D (QC)"], weight: 8 },
-    { keys: ["Hydro Test Pressure (QC)"], weight: 7, spoolOnly: true },
-    { keys: ["Surface preparation and/or coating", "HDG / FBE.  (PAINT)"], weight: 15 },
-  ].filter((item) => !item.spoolOnly || includeHydro);
-}
-
 const PRODUCTION_STAGE_EVIDENCE_KEYS = [
   "Drawing Execution Advance%",
   "Drawing",
@@ -365,10 +369,18 @@ function stageEvidenceValue(stageValues, keys) {
   return { hasEvidence: false, percent: 0 };
 }
 
-function fabricationProgressFromStageValues(stageValues, projectType = '', fallbackText = '') {
+function fabricationProgressFromStageValues(stageValues) {
   const painting = Math.max(pct(stageValues, "Surface preparation and/or coating"), pct(stageValues, "HDG / FBE.  (PAINT)"));
   if (painting >= 99.9) return 100;
-  const stages = fabricationStageItemsForType(projectType, fallbackText);
+  const stages = [
+    { keys: ["Welding Preparation", "Spool Assemble and tack weld"], weight: 10 },
+    { keys: ["Initial Dimensional Inspection/3D"], weight: 8 },
+    { keys: ["Full welding execution"], weight: 25 },
+    { keys: ["Non Destructive Examination (QC)"], weight: 12 },
+    { keys: ["Final Dimensional Inpection/3D (QC)"], weight: 8 },
+    { keys: ["Hydro Test Pressure (QC)"], weight: 7 },
+    { keys: ["Surface preparation and/or coating", "HDG / FBE.  (PAINT)"], weight: 15 },
+  ];
   const totalWeight = stages.reduce((sum, item) => sum + item.weight, 0) || 100;
   return Math.max(0, Math.min(100, stages.reduce((sum, item) => {
     const value = item.keys.reduce((max, key) => Math.max(max, pct(stageValues, key)), 0);
@@ -376,7 +388,7 @@ function fabricationProgressFromStageValues(stageValues, projectType = '', fallb
   }, 0) / totalWeight));
 }
 
-function productionStageSnapshotsFromValues(stageValues, projectType = '', fallbackText = '') {
+function productionStageSnapshotsFromValues(stageValues) {
   const engineering = stageEvidenceValue(stageValues, ["Drawing Execution Advance%", "Drawing"]);
   const procurementCandidates = [
     stageEvidenceValue(stageValues, ["Procuremnt Status %", "Procurement Status %", "Procurement"]),
@@ -388,10 +400,19 @@ function productionStageSnapshotsFromValues(stageValues, projectType = '', fallb
     if (!best.hasEvidence || item.percent > best.percent) return item;
     return best;
   }, { hasEvidence: false, percent: 0 });
-  const fabricationEvidenceKeys = fabricationStageItemsForType(projectType, fallbackText).flatMap((item) => item.keys);
   const fabrication = {
-    hasEvidence: hasStageProgressEvidence(stageValues, fabricationEvidenceKeys),
-    percent: fabricationProgressFromStageValues(stageValues, projectType, fallbackText),
+    hasEvidence: hasStageProgressEvidence(stageValues, [
+      "Welding Preparation",
+      "Spool Assemble and tack weld",
+      "Initial Dimensional Inspection/3D",
+      "Full welding execution",
+      "Non Destructive Examination (QC)",
+      "Final Dimensional Inpection/3D (QC)",
+      "Hydro Test Pressure (QC)",
+      "Surface preparation and/or coating",
+      "HDG / FBE.  (PAINT)",
+    ]),
+    percent: fabricationProgressFromStageValues(stageValues),
   };
   const packageDelivery = stageEvidenceValue(stageValues, ["Package and Delivered", "Final Inspection"]);
   return [
@@ -402,18 +423,18 @@ function productionStageSnapshotsFromValues(stageValues, projectType = '', fallb
   ];
 }
 
-function weightedOverallFromStageValues(stageValues, projectType = '', fallbackText = '') {
-  const stages = productionStageSnapshotsFromValues(stageValues, projectType, fallbackText);
+function weightedOverallFromStageValues(stageValues) {
+  const stages = productionStageSnapshotsFromValues(stageValues);
   const totalWeight = stages.reduce((sum, stage) => sum + stage.weight, 0) || 100;
   return Math.max(0, Math.min(100, stages.reduce((sum, stage) => sum + stage.percent * stage.weight, 0) / totalWeight));
 }
 
-function hasIncompleteProductionEvidence(stageValues, projectType = '', fallbackText = '') {
-  return productionStageSnapshotsFromValues(stageValues, projectType, fallbackText).some((stage) => stage.hasEvidence && Number(stage.percent || 0) < 99.9);
+function hasIncompleteProductionEvidence(stageValues) {
+  return productionStageSnapshotsFromValues(stageValues).some((stage) => stage.hasEvidence && Number(stage.percent || 0) < 99.9);
 }
 
 function isSpoolFinishedByState(spool) {
-  if (!spool || hasIncompleteProductionEvidence(spool.stageValues, spool.projectType, [spool.iso, spool.drawing, spool.description].filter(Boolean).join(' '))) return false;
+  if (!spool || hasIncompleteProductionEvidence(spool.stageValues)) return false;
   return Boolean(
     spool.finished
     || spool.projectFinishedFlag
@@ -451,7 +472,7 @@ function makeFlow(status, sector, percent = 0, stageStatus = null, state = null)
   return { state: flowState, sector: normalizedSector, status, percent: normalizedPercent, stageStatus: statusType };
 }
 
-function deriveOperationalStage(stageValues, fabricationStartDate, coatingPercent, finished, projectStatus, projectType = '', fallbackText = '') {
+function deriveOperationalStage(stageValues, fabricationStartDate, coatingPercent, finished, projectStatus) {
   const drawing = pct(stageValues, "Drawing Execution Advance%");
   const procurement = Math.max(pct(stageValues, "Procuremnt Status %"), pct(stageValues, "Material Release to Fabrication"));
   const materialSeparation = pct(stageValues, "Material Separation");
@@ -472,7 +493,6 @@ function deriveOperationalStage(stageValues, fabricationStartDate, coatingPercen
   const projectFinished = isStageBooleanDone(stageValues, "Project Finished?");
   const normalizedProjectStatus = String(projectStatus || "").trim().toUpperCase().replace(/\s+/g, " ");
   const isHold = ["ON HOLD", "HOLD", "PAUSED", "EM ESPERA"].includes(normalizedProjectStatus);
-  const includeHydro = isSpoolMaterialType(projectType, fallbackText);
 
   if (finished || projectFinished || projectFinishDate) return makeFlow("Finalizado", "Enviado", 100, "completed", "completed");
 
@@ -501,10 +521,10 @@ function deriveOperationalStage(stageValues, fabricationStartDate, coatingPercen
   if (coating > 0) {
     return makeFlow(paintingStatusFromPercent(coating), "Pintura", coating, null, "in_production");
   }
-  if (includeHydro && th >= 100) return makeFlow("Pintura", "Pintura", 0, "waiting", "in_production");
-  if (includeHydro && th > 0) return makeFlow("TH", "Qualidade", th, null, "in_inspection");
+  if (th >= 100) return makeFlow("Pintura", "Pintura", 0, "waiting", "in_production");
+  if (th > 0) return makeFlow("TH", "Qualidade", th, null, "in_inspection");
   if (nde != null && nde > 0 && nde < 100) return makeFlow("Aguardando END", "Qualidade", nde, null, "in_inspection");
-  if (finalDimensional >= 100) return includeHydro ? makeFlow("TH", "Qualidade", 0, "waiting", "in_inspection") : makeFlow("Pintura", "Pintura", 0, "waiting", "in_production");
+  if (finalDimensional >= 100) return makeFlow("TH", "Qualidade", 0, "waiting", "in_inspection");
   if (finalDimensional > 0) return makeFlow("Inspeção Dimensional Final - 3D", "Qualidade", finalDimensional, null, "in_inspection");
   if (fullWelding >= 100) return makeFlow("Inspeção Dimensional Final - 3D", "Qualidade", 0, "waiting", "in_inspection");
   if (fullWelding > 0) return makeFlow("Solda", "Produção", fullWelding, null, "in_production");
@@ -840,8 +860,8 @@ function projectUiState(projectStatus, overallProgress, finished, fabricationSta
   return "in_progress";
 }
 
-function getOperationalFlow(stageValues, fabricationStartDate, coatingPercent, finished, projectStatus, projectType = '', fallbackText = '') {
-  return deriveOperationalStage(stageValues, fabricationStartDate, coatingPercent, finished, projectStatus, projectType, fallbackText);
+function getOperationalFlow(stageValues, fabricationStartDate, coatingPercent, finished, projectStatus) {
+  return deriveOperationalStage(stageValues, fabricationStartDate, coatingPercent, finished, projectStatus);
 }
 
 function classifyStageSector(stageValue) {
@@ -1006,11 +1026,9 @@ function buildSpoolRow(row, parentSummary) {
   const projectFinishedFlag = isTruthyValue(getCellValue(row, "Project Finished?").raw);
   const fabricationStartDate = textValue(row, "Fabrication Start Date");
   const stageValues = buildStageValues(row);
-  const projectType = textValue(row, "Project Type") || textValue(parentSummary, "Project Type");
-  const typeFallbackText = [drawingText, parsedDrawing.iso, parsedDrawing.description].filter(Boolean).join(' ');
-  const hasIncompleteStageEvidence = hasIncompleteProductionEvidence(stageValues, projectType, typeFallbackText);
+  const hasIncompleteStageEvidence = hasIncompleteProductionEvidence(stageValues);
   const finished = !hasIncompleteStageEvidence && (projectFinishedFlag || overallProgress >= 100 || hasStageValue(stageValues, "Project Finish Date"));
-  const flow = getOperationalFlow(stageValues, fabricationStartDate, parsePercent(row, "Surface preparation and/or coating") ?? 0, finished, textValue(row, "PROJECT STATUS"), projectType, typeFallbackText);
+  const flow = getOperationalFlow(stageValues, fabricationStartDate, parsePercent(row, "Surface preparation and/or coating") ?? 0, finished, textValue(row, "PROJECT STATUS"));
   const awaitingShipment = flow.state === "awaiting_shipment";
   const uiState = uiStateFromFlow(flow, finished);
   const coatingPercent = parsePercent(row, "Surface preparation and/or coating") ?? 0;
@@ -1024,8 +1042,6 @@ function buildSpoolRow(row, parentSummary) {
     return 0;
   })();
   const weldingWeek = weldingPercent >= 100 && weldingFinishDate ? getProductionWeekLabel(weldingFinishDate) : "";
-  const observations = textValue(row, "OBSERVATIONS");
-  const tratativaObservationMatches = getObservationTratativaMatches([{ source: parsedDrawing.iso || drawingText || `Linha ${row.rowNumber || row.id}`, text: observations }]);
 
   return {
     rowId: row.id,
@@ -1033,11 +1049,8 @@ function buildSpoolRow(row, parentSummary) {
     iso: parsedDrawing.iso,
     description: parsedDrawing.description,
     drawing: drawingText,
-    observations,
-    tratativaObservationMatches,
-    hasTratativaObservation: tratativaObservationMatches.length > 0,
+    observations: textValue(row, "OBSERVATIONS"),
     pm: textValue(row, "PM") || textValue(parentSummary, "PM"),
-    projectType,
     operationalSector: flow.sector,
     operationalState: flow.state,
     currentStatus: flow.status,
@@ -1101,73 +1114,17 @@ function getSpoolCompletenessScore(spool) {
   return score;
 }
 
-function mergeUniqueObservationText(parts = []) {
-  const values = [];
-  const seen = new Set();
-  for (const part of parts) {
-    const value = String(part || "").trim();
-    if (!value) continue;
-    const key = normalizeStatusText(value);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    values.push(value);
-  }
-  return values.join(" | ");
-}
-
-function mergeSpoolObservationEvidence(primarySpool, secondarySpool) {
-  if (!primarySpool || !secondarySpool) return primarySpool || secondarySpool;
-
-  primarySpool.observations = mergeUniqueObservationText([primarySpool.observations, secondarySpool.observations]);
-
-  const mergedMatches = [];
-  const seenMatches = new Set();
-  for (const match of [
-    ...(Array.isArray(primarySpool.tratativaObservationMatches) ? primarySpool.tratativaObservationMatches : []),
-    ...(Array.isArray(secondarySpool.tratativaObservationMatches) ? secondarySpool.tratativaObservationMatches : []),
-  ]) {
-    const label = String(match?.label || "").trim();
-    const source = String(match?.source || "").trim();
-    const text = String(match?.text || "").trim();
-    if (!label || !text) continue;
-    const key = `${label}|${source}|${normalizeStatusText(text)}`;
-    if (seenMatches.has(key)) continue;
-    seenMatches.add(key);
-    mergedMatches.push({ label, source: source || "Tag", text });
-  }
-
-  if (!mergedMatches.length && primarySpool.observations) {
-    const source = primarySpool.iso || primarySpool.drawing || primarySpool.description || `Linha ${primarySpool.rowNumber || primarySpool.rowId || ""}`.trim() || "Tag";
-    mergedMatches.push(...getObservationTratativaMatches([{ source, text: primarySpool.observations }]));
-  }
-
-  primarySpool.tratativaObservationMatches = mergedMatches;
-  primarySpool.hasTratativaObservation = mergedMatches.length > 0;
-
-  return primarySpool;
-}
-
 function chooseBestSpoolRow(currentSpool, nextSpool) {
   if (!currentSpool) return nextSpool;
   const currentScore = getSpoolCompletenessScore(currentSpool);
   const nextScore = getSpoolCompletenessScore(nextSpool);
+  if (nextScore > currentScore) return nextSpool;
+  if (nextScore < currentScore) return currentSpool;
 
-  let selected = currentSpool;
-  let discarded = nextSpool;
-
-  if (nextScore > currentScore) {
-    selected = nextSpool;
-    discarded = currentSpool;
-  } else if (nextScore === currentScore) {
-    const currentRowNumber = Number(currentSpool?.rowNumber || 0);
-    const nextRowNumber = Number(nextSpool?.rowNumber || 0);
-    if (nextRowNumber > currentRowNumber) {
-      selected = nextSpool;
-      discarded = currentSpool;
-    }
-  }
-
-  return mergeSpoolObservationEvidence(selected, discarded);
+  const currentRowNumber = Number(currentSpool?.rowNumber || 0);
+  const nextRowNumber = Number(nextSpool?.rowNumber || 0);
+  if (nextRowNumber > currentRowNumber) return nextSpool;
+  return currentSpool;
 }
 
 
@@ -1183,7 +1140,7 @@ function applyProjectSpoolRollup(project) {
   const fallbackFlow = project.flow || makeFlow(project.currentStage || "AG. Emissão de detalhamento", project.operationalSector || "Engenharia", project.currentStagePercent || 0, project.currentStageStatus || "waiting", project.operationalState || project.uiState || "not_started");
   const summary = summarizeFlowItems(spools, fallbackFlow, project.quantitySpools || 1);
   const explicitFinished = Boolean(project.finished || project.projectFinishedFlag || hasProjectFinishDateMarker(project) || isProjectStatusFinished(project.projectStatus));
-  const hasIncompleteStageEvidence = hasIncompleteProductionEvidence(project.stageValues, project.projectType, project.summaryDrawing) || spools.some((spool) => hasIncompleteProductionEvidence(spool.stageValues, spool.projectType || project.projectType, [spool.iso, spool.drawing, spool.description].filter(Boolean).join(' ')));
+  const hasIncompleteStageEvidence = hasIncompleteProductionEvidence(project.stageValues) || spools.some((spool) => hasIncompleteProductionEvidence(spool.stageValues));
   const allSpoolsFinishedByEvidence = spools.length > 0 && spools.every(isSpoolFinishedByState);
   
   // v32.2: Cálculo de progresso baseado estritamente nas ISOs (spools)
@@ -1205,7 +1162,7 @@ function applyProjectSpoolRollup(project) {
       const stageTotalKilos = spoolsWithStageEvidence.reduce((sum, s) => sum + (s.kilos || 0), 0) || spoolsWithStageEvidence.length || 1;
       project.overallProgress = spoolsWithStageEvidence.reduce((sum, s) => {
         const weight = s.kilos || (stageTotalKilos / spoolsWithStageEvidence.length);
-        return sum + weightedOverallFromStageValues(s.stageValues, s.projectType || project.projectType, [s.iso, s.drawing, s.description].filter(Boolean).join(' ')) * weight;
+        return sum + weightedOverallFromStageValues(s.stageValues) * weight;
       }, 0) / stageTotalKilos;
     }
     
@@ -1220,7 +1177,7 @@ function applyProjectSpoolRollup(project) {
   }
 
   if (hasStageProgressEvidence(project.stageValues)) {
-    project.overallProgress = weightedOverallFromStageValues(project.stageValues, project.projectType, project.summaryDrawing);
+    project.overallProgress = weightedOverallFromStageValues(project.stageValues);
   }
 
   const finalFinished = summary.allFinished || (explicitFinished && !hasIncompleteStageEvidence && (spools.length === 0 || allSpoolsFinishedByEvidence));
@@ -1303,15 +1260,12 @@ function buildProject(summaryRow, childRows) {
   const individualProgress = parsePercent(summaryRow, "% Individual Progress") ?? overallProgress;
   const projectFinishedFlag = isTruthyValue(getCellValue(summaryRow, "Project Finished?").raw);
   const projectStatus = textValue(summaryRow, "Project Status") || textValue(summaryRow, "PROJECT STATUS") || textValue(summaryRow, "Overall Project Status") || textValue(summaryRow, "Status");
-  const observations = textValue(summaryRow, "OBSERVATIONS");
   const coatingPercent = parsePercent(summaryRow, "Surface preparation and/or coating") ?? 0;
   const fabricationStartDate = textValue(summaryRow, "Fabrication Start Date");
-  const projectType = textValue(summaryRow, "Project Type");
-  const summaryDrawing = textValue(summaryRow, "Drawing");
   const stageValues = buildStageValues(summaryRow);
-  const summaryHasIncompleteStageEvidence = hasIncompleteProductionEvidence(stageValues, projectType, summaryDrawing);
+  const summaryHasIncompleteStageEvidence = hasIncompleteProductionEvidence(stageValues);
   const summaryFinished = !summaryHasIncompleteStageEvidence && (projectFinishedFlag || overallProgress >= 100 || hasStageValue(stageValues, "Project Finish Date"));
-  const flow = getOperationalFlow(stageValues, fabricationStartDate, coatingPercent, summaryFinished, projectStatus, projectType, summaryDrawing);
+  const flow = getOperationalFlow(stageValues, fabricationStartDate, coatingPercent, summaryFinished, projectStatus);
   const awaitingShipment = flow.state === "awaiting_shipment";
   const uiState = uiStateFromFlow(flow, summaryFinished) || projectUiState(projectStatus, overallProgress, summaryFinished, fabricationStartDate, awaitingShipment);
   const weldingPercent = parsePercent(summaryRow, "Full welding execution") ?? 0;
@@ -1368,10 +1322,10 @@ function buildProject(summaryRow, childRows) {
     individualProgress: spools.length > 0 ? 0 : individualProgress, // Será calculado no rollup se houver spools
     overallProgress: spools.length > 0 ? 0 : overallProgress,       // Será calculado no rollup se houver spools
     projectStatus,
-    observations,
+    observations: textValue(summaryRow, "OBSERVATIONS"),
     jobProcessStatus: textValue(summaryRow, "Job Process Status") || progress.currentStage.label,
-    summaryDrawing,
-    projectType,
+    summaryDrawing: textValue(summaryRow, "Drawing"),
+    projectType: textValue(summaryRow, "Project Type"),
     fabricationStartDate: formatDateValue(textValue(summaryRow, "Fabrication Start Date")),
     plannedStartDate: formatDateValue(textValue(summaryRow, "Start Date")),
     plannedFinishDate: formatDateValue(textValue(summaryRow, "Finish Date")),
@@ -1395,7 +1349,7 @@ function buildProject(summaryRow, childRows) {
     spools,
     spoolStats,
   };
-  return decorateProjectTratativaObservation(applyProjectSpoolRollup(project));
+  return applyProjectSpoolRollup(project);
 }
 
 function mapApiRows(sheet) {
@@ -1569,77 +1523,6 @@ function compactStatusText(value) {
   return normalizeStatusText(value).replace(/[^A-Z0-9]+/g, "");
 }
 
-
-const TRATATIVA_OBSERVATION_RULES = [
-  {
-    label: "Revisão de P.O",
-    aliases: ["Revisão de P.O", "Revisao de P.O", "Revisão de PO", "Revisao de PO", "Revisão PO", "Revisao PO"],
-  },
-  {
-    label: "Aguardando liberação para envio",
-    aliases: ["Aguardando liberação para envio", "Aguardando liberacao para envio", "Aguardando liberação p/ envio", "Aguardando liberacao p envio", "Aguardando liberação envio", "Aguardando liberacao envio"],
-  },
-  {
-    label: "Entrega parcial",
-    aliases: ["Entrega parcial"],
-  },
-];
-
-function observationTextMatchesRule(text, aliases = []) {
-  const normalized = normalizeStatusText(text || "");
-  const compact = compactStatusText(text || "");
-  if (!normalized && !compact) return false;
-  return aliases.some((alias) => {
-    const normalizedAlias = normalizeStatusText(alias || "");
-    const compactAlias = compactStatusText(alias || "");
-    return Boolean(
-      (normalizedAlias && normalized.includes(normalizedAlias))
-      || (compactAlias && compact.includes(compactAlias))
-    );
-  });
-}
-
-function getObservationTratativaMatches(contexts = []) {
-  const matches = [];
-  const seen = new Set();
-  for (const context of contexts) {
-    const text = String(context?.text || "").trim();
-    if (!text) continue;
-    for (const rule of TRATATIVA_OBSERVATION_RULES) {
-      if (!observationTextMatchesRule(text, rule.aliases)) continue;
-      const source = String(context?.source || "BSP").trim() || "BSP";
-      const key = `${rule.label}|${source}|${text}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      matches.push({ label: rule.label, source, text });
-    }
-  }
-  return matches;
-}
-
-function getProjectObservationTratativaMatches(project) {
-  if (!project) return [];
-  const contexts = [{ source: "BSP", text: project.observations }];
-  if (Array.isArray(project.spools)) {
-    project.spools.forEach((spool, index) => {
-      const source = spool?.iso || spool?.drawing || spool?.description || `Tag ${index + 1}`;
-      contexts.push({ source: `Tag ${source}`, text: spool?.observations });
-    });
-  }
-  return getObservationTratativaMatches(contexts);
-}
-
-function decorateProjectTratativaObservation(project) {
-  const matches = getProjectObservationTratativaMatches(project);
-  project.tratativaObservationMatches = matches;
-  project.tratativaObservationReason = matches.map((item) => `${item.label} • ${item.source}: ${item.text}`).join(" | ");
-  project.hasTratativaObservation = matches.length > 0;
-  if (matches.length) {
-    project.statusPresentationOverride = { text: "Em tratativa", state: "in_progress", reason: project.tratativaObservationReason };
-  }
-  return project;
-}
-
 function isMeaningfulFinishValue(value) {
   if (value == null) return false;
   const raw = String(value).trim();
@@ -1674,7 +1557,7 @@ function hasProjectFinishedBooleanMarker(project) {
 
 function areAllProjectSpoolsFinished(project) {
   const spools = Array.isArray(project?.spools) ? project.spools : [];
-  return spools.length > 0 && spools.every((spool) => !hasIncompleteProductionEvidence(spool?.stageValues, spool?.projectType, [spool?.iso, spool?.drawing, spool?.description].filter(Boolean).join(' ')) && Boolean(
+  return spools.length > 0 && spools.every((spool) => !hasIncompleteProductionEvidence(spool?.stageValues) && Boolean(
     spool?.finished
     || spool?.projectFinishedFlag
     || spool?.uiState === "completed"
@@ -1690,7 +1573,7 @@ function areAllProjectSpoolsFinished(project) {
 
 function hasProjectFinishedMarker(project) {
   if (!project) return false;
-  if (hasIncompleteProductionEvidence(project.stageValues, project.projectType, project.summaryDrawing) || (Array.isArray(project.spools) && project.spools.some((spool) => hasIncompleteProductionEvidence(spool.stageValues, spool.projectType || project.projectType, [spool.iso, spool.drawing, spool.description].filter(Boolean).join(' '))))) return false;
+  if (hasIncompleteProductionEvidence(project.stageValues) || (Array.isArray(project.spools) && project.spools.some((spool) => hasIncompleteProductionEvidence(spool.stageValues)))) return false;
   return Boolean(
     hasProjectFinishedBooleanMarker(project)
     || hasProjectFinishDateMarker(project)
@@ -1956,46 +1839,51 @@ function normalizeName(value) {
     .toLowerCase();
 }
 
-async function resolveSheetId() {
-  if (cache.sheetId) return cache.sheetId;
-  if (SHEET_ID_ENV) {
-    cache.sheetId = SHEET_ID_ENV;
+async function resolveSheetId(region = DEFAULT_REGION) {
+  const config = getRegionConfig(region);
+  const cacheKey = normalizeRegion(region);
+  if (cache.region === cacheKey && cache.sheetId) return cache.sheetId;
+  if (cache.region !== cacheKey) {
+    cache.region = cacheKey;
+    cache.sheetId = null;
+    cache.sheetName = null;
+    cache.version = null;
+    cache.wipStepSheetId = null;
+    cache.wipStepSheetName = null;
+    cache.wipStepVersion = null;
+    cache.payload = null;
+    cache.lastSync = null;
+    cache.lastVersionCheck = null;
+  }
+  if (config.trackingSheetId) {
+    cache.sheetId = String(config.trackingSheetId);
     return cache.sheetId;
   }
-
-  const target = normalizeName(SHEET_NAME);
+  const target = normalizeName(config.trackingSheetName);
   let page = 1;
   let fuzzyFound = null;
-
   while (true) {
     const response = await apiFetch(`/sheets?page=${page}&pageSize=100`);
     const items = response.data || [];
-
     const exactFound = items.find((item) => normalizeName(item.name) === target);
     if (exactFound) {
       cache.sheetId = String(exactFound.id);
       cache.sheetName = exactFound.name;
       return cache.sheetId;
     }
-
-    if (!fuzzyFound) {
-      fuzzyFound = items.find((item) => normalizeName(item.name).includes(target) || target.includes(normalizeName(item.name)));
-    }
-
+    if (!fuzzyFound) fuzzyFound = items.find((item) => normalizeName(item.name).includes(target) || target.includes(normalizeName(item.name)));
     if (!items.length || page >= (response.totalPages || 1)) break;
     page += 1;
   }
-
   if (fuzzyFound) {
     cache.sheetId = String(fuzzyFound.id);
     cache.sheetName = fuzzyFound.name;
     return cache.sheetId;
   }
-
-  throw new Error(`Sheet "${SHEET_NAME}" não encontrada. Defina SMARTSHEET_SHEET_ID ou confira SMARTSHEET_SHEET_NAME.`);
+  throw new Error(`Sheet "${config.trackingSheetName}" não encontrada. Configure SMARTSHEET_SHEET_ID_${cacheKey} ou confira o nome.`);
 }
 
-async function resolveWipStepSheetId() {
+async function resolveWipStepSheetId(region = DEFAULT_REGION) {
   if (cache.wipStepSheetId) return cache.wipStepSheetId;
   if (WIP_STEP_SHEET_ID_ENV) {
     cache.wipStepSheetId = String(WIP_STEP_SHEET_ID_ENV);
@@ -2201,9 +2089,9 @@ function getFocalPointListForProject(project, focalMap) {
   return [];
 }
 
-async function fetchWipStepPoMap() {
+async function fetchWipStepPoMap(region = DEFAULT_REGION) {
   try {
-    const sheetId = await resolveWipStepSheetId();
+    const sheetId = await resolveWipStepSheetId(region);
     if (!sheetId) return { poMap: new Map(), version: null, sheetName: WIP_STEP_SHEET_NAME, available: false };
     const version = await fetchSheetVersion(sheetId);
     const sheet = await fetchFullSheet(sheetId);
@@ -2244,9 +2132,9 @@ async function fetchFullSheet(sheetId) {
   return apiFetch(`/sheets/${sheetId}?includeAll=true`);
 }
 
-function isWarmPayloadCache() {
+function isWarmPayloadCache(region = DEFAULT_REGION) {
   const lastCheck = Number(cache.lastVersionCheck || 0);
-  return Boolean(cache.payload && lastCheck > 0 && Date.now() - lastCheck <= PROJECTS_FAST_CACHE_MS);
+  return Boolean(cache.payload && cache.region === normalizeRegion(region) && lastCheck > 0 && Date.now() - lastCheck <= PROJECTS_FAST_CACHE_MS);
 }
 
 function cloneCachedPayloadWithMeta(extraMeta = {}) {
@@ -2261,6 +2149,8 @@ function cloneCachedPayloadWithMeta(extraMeta = {}) {
 }
 
 async function buildPayload(options = {}) {
+  const region = normalizeRegion(options.region || DEFAULT_REGION);
+  const regionConfig = getRegionConfig(region);
   if (!TOKEN) throw new Error("SMARTSHEET_TOKEN não configurado.");
   const force = Boolean(options.force);
   const preferCache = Boolean(options.preferCache);
@@ -2268,7 +2158,7 @@ async function buildPayload(options = {}) {
   // Mantém o Portal do Cliente e o painel interno rápidos em F5/login:
   // se a função Netlify ainda estiver aquecida e uma base completa foi validada há pouco,
   // responde pelo cache em memória sem reler Tracking + base de PO.
-  if (!force && isWarmPayloadCache()) {
+  if (!force && isWarmPayloadCache(region)) {
     return cache.payload;
   }
 
@@ -2299,7 +2189,7 @@ async function buildPayload(options = {}) {
     }
   }
 
-  const sheetId = await resolveSheetId();
+  const sheetId = await resolveSheetId(region);
   let version;
   try {
     version = await fetchSheetVersion(sheetId);
@@ -2316,7 +2206,7 @@ async function buildPayload(options = {}) {
     return cache.payload;
   }
 
-  const wipPoPromise = fetchWipStepPoMap().catch((error) => ({
+  const wipPoPromise = fetchWipStepPoMap(region).catch((error) => ({
     poMap: new Map(),
     focalMap: new Map(),
     version: cache.wipStepVersion || null,
@@ -2342,10 +2232,12 @@ async function buildPayload(options = {}) {
   const payload = {
     ok: true,
     meta: {
+      region,
+      regionLabel: regionConfig.label,
       sheetId,
-      sheetName: sheet.name || cache.sheetName || SHEET_NAME,
+      sheetName: sheet.name || cache.sheetName || regionConfig.trackingSheetName,
       version,
-      wipStepSheetName: wipPoData.sheetName || WIP_STEP_SHEET_NAME,
+      wipStepSheetName: wipPoData.sheetName || regionConfig.wipSheetName,
       wipStepVersion: wipPoData.version || null,
       wipStepPoAvailable: Boolean(wipPoData.available),
       lastSync: new Date().toISOString(),
@@ -2569,7 +2461,7 @@ exports.handler = async (event) => {
     }
 
     try {
-      await buildPayload({ force: false, preferCache: false });
+      await buildPayload({ force: false, preferCache: false, region: getRequestRegionFromEvent(event) });
       return jsonResponse(200, {
         ok: true,
         warmed: true,
@@ -2601,7 +2493,7 @@ exports.handler = async (event) => {
     const force = String(event.queryStringParameters?.force || "") === "1";
     const preferCache = String(event.queryStringParameters?.preferCache || "") === "1";
     const sessionPromise = hydrateClientSession(auth.session);
-    const payloadPromise = buildPayload({ force, preferCache });
+    const payloadPromise = buildPayload({ force, preferCache, region: getRequestRegionFromEvent(event) });
     const [session, rawPayload] = await Promise.all([sessionPromise, payloadPromise]);
     const payload = scopePayloadForSession(rawPayload, session);
     return jsonResponse(200, payload, {

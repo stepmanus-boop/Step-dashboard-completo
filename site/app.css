@@ -5057,9 +5057,8 @@ body.client-exec-open {
   background: #0a9878;
 }
 
-.client-exec-legend .deviation,
-.client-exec-legend .delay {
-  background: #f59e0b;
+.client-exec-legend .deviation {
+  background: #efc14f;
 }
 
 .client-scurve-svg {
@@ -5107,82 +5106,6 @@ body.client-exec-open {
   stroke: white;
   stroke-width: 3;
 }
-
-.client-chart-delay-band {
-  fill: rgba(245, 158, 11, .12);
-  stroke: none;
-}
-
-.client-chart-delay-boundary {
-  stroke: rgba(245, 158, 11, .58);
-  stroke-width: 1.6;
-  stroke-dasharray: 5 4;
-}
-
-.client-chart-delay-boundary--end {
-  stroke-width: 2;
-}
-
-.client-chart-delay-line {
-  stroke: #f59e0b;
-  stroke-width: 5;
-  stroke-linecap: round;
-  filter: drop-shadow(0 6px 12px rgba(245, 158, 11, .22));
-}
-
-.client-chart-delay-label {
-  fill: #b45309;
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: .04em;
-}
-
-.client-chart-delay-hover {
-  fill: transparent;
-  stroke: transparent;
-}
-
-.client-chart-delay-hover:hover {
-  fill: rgba(245, 158, 11, .10);
-  stroke: rgba(245, 158, 11, .35);
-}
-
-.client-chart-hover-target {
-  fill: transparent;
-  stroke: transparent;
-  cursor: crosshair;
-  pointer-events: all;
-}
-
-.client-chart-hover-target:hover {
-  fill: rgba(10, 152, 120, .10);
-  stroke: rgba(10, 152, 120, .26);
-}
-
-.client-chart-tooltip {
-  position: fixed;
-  z-index: 99999;
-  min-width: 150px;
-  max-width: 240px;
-  padding: 9px 11px;
-  border-radius: 8px;
-  background: rgba(7, 18, 31, .94);
-  color: #ffffff;
-  font-size: 12px;
-  line-height: 1.45;
-  font-weight: 700;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, .25);
-  pointer-events: none;
-  opacity: 0;
-  transform: translateY(4px);
-  transition: opacity .12s ease, transform .12s ease;
-}
-
-.client-chart-tooltip.visible {
-  opacity: 1;
-  transform: translateY(0);
-}
-
 
 .client-exec-side {
   display: grid;
@@ -7221,204 +7144,58 @@ body.client-mode .client-logo-box img,
 }
 
 
-/* v36.8 - Avisos do painel do cliente: On Hold e Em Tratativa por observação */
-.client-observation-notice {
-  margin: 14px 0 18px;
-  padding: 16px 18px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, .14);
-  background: rgba(255, 255, 255, .045);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, .18);
+/* ===== v37.0 - Campo ambiente operacional ===== */
+#admin-user-operation-region {
+  min-height: 42px;
 }
 
-.client-observation-notice > div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
 
-.client-observation-notice span {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: 6px 12px;
-  font-size: .74rem;
-  font-weight: 900;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-}
-
-.client-observation-notice strong {
-  color: #fff;
-  font-size: .95rem;
-}
-
-.client-observation-notice p,
-.client-observation-notice li {
-  color: #d9e9f7;
-  line-height: 1.45;
-  font-size: .9rem;
-}
-
-.client-observation-notice ul {
-  margin: 0;
-  padding-left: 18px;
-}
-
-/* ON HOLD precisa aparecer dentro da janela clara da visão executiva.
-   Por isso usamos alto contraste, sem texto branco sobre fundo claro. */
-.client-observation-notice--hold {
-  position: relative;
-  overflow: hidden;
-  border: 2px solid #f59e0b;
-  background: linear-gradient(135deg, #fff7cc 0%, #ffd766 55%, #ffbf3f 100%);
-  color: #2f2100;
-  box-shadow: 0 18px 40px rgba(180, 111, 0, .28);
-}
-
-.client-observation-notice--hold::before {
-  content: "!";
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  position: absolute;
-  top: 16px;
-  left: 18px;
-  width: 32px;
-  height: 32px;
-  border-radius: 999px;
-  background: #7c2d12;
-  color: #fff7ed;
-  font-size: 1.25rem;
-  font-weight: 1000;
-  box-shadow: 0 8px 18px rgba(124, 45, 18, .28);
-}
-
-.client-observation-notice--hold > div,
-.client-observation-notice--hold p {
-  margin-left: 46px;
-}
-
-.client-observation-notice--hold > div {
-  justify-content: flex-start;
-  flex-wrap: wrap;
-}
-
-.client-observation-notice--hold span {
-  color: #ffffff;
-  background: #b45309;
-  border: 1px solid rgba(124, 45, 18, .35);
-  box-shadow: 0 6px 14px rgba(180, 83, 9, .22);
-}
-
-.client-observation-notice--hold strong {
-  color: #3f2d00;
-  font-size: 1rem;
-  font-weight: 900;
-}
-
-.client-observation-notice--hold p,
-.client-observation-notice--hold li {
-  color: #3f2d00;
-  font-weight: 750;
-}
-
-.client-observation-notice--tratativa {
-  border-color: rgba(111, 240, 255, .34);
-  background: linear-gradient(135deg, rgba(111, 240, 255, .12), rgba(255, 255, 255, .035));
-}
-
-.client-observation-notice--tratativa span {
-  color: #b8f8ff;
-  background: rgba(111, 240, 255, .14);
-  border: 1px solid rgba(111, 240, 255, .28);
-}
-
-.client-planned-date,
-.client-date-source {
+/* ===== v37.2 - Client Key ===== */
+.field-helper {
   display: block;
-  margin-top: 3px;
-  font-size: 10px;
-  letter-spacing: .04em;
+  margin-top: 4px;
   opacity: .72;
-  font-weight: 700;
-}
-.client-date-source {
-  color: #57d7ff;
+  font-size: .72rem;
 }
 
-/* v36.22 - Curva S com barra de rolagem para prazos longos */
-.client-scurve-scroll {
-  width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 10px;
-  margin-top: 2px;
-  scrollbar-width: thin;
-  scrollbar-color: #f59e0b rgba(31, 92, 132, .16);
+/* ===== v37.4 - Botões de país / ambiente operacional ===== */
+.country-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
 }
-
-.client-scurve-scroll::-webkit-scrollbar {
-  height: 10px;
-}
-
-.client-scurve-scroll::-webkit-scrollbar-track {
-  background: rgba(31, 92, 132, .12);
+.country-pill {
+  border: 1px solid rgba(126, 204, 255, .28);
+  background: rgba(9, 52, 86, .62);
+  color: #bfe9ff;
   border-radius: 999px;
+  padding: 7px 12px;
+  min-height: 32px;
+  font-size: .78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.country-pill:hover,
+.country-pill.is-active {
+  background: linear-gradient(135deg, rgba(30, 134, 200, .95), rgba(15, 90, 145, .95));
+  border-color: rgba(139, 224, 255, .8);
+  color: #ffffff;
 }
 
-.client-scurve-scroll::-webkit-scrollbar-thumb {
-  background: #f59e0b;
-  border-radius: 999px;
+/* ===== v38.4 - Login automático ===== */
+.muted-small {
+  color: rgba(191, 233, 255, .72);
+  font-size: .82rem;
+  margin: 4px 0 0;
+}
+#admin-auto-login-list .manual-alert-actions {
+  margin-top: 10px;
 }
 
-.client-scurve-scroll::-webkit-scrollbar-thumb:hover {
-  background: #d97706;
-}
-
-.client-scurve-canvas {
-  width: fit-content;
-  min-width: 100%;
-}
-
-.client-scurve-canvas .client-scurve-svg {
-  display: block;
-  width: 100%;
-  min-width: 760px;
-}
-
-/* ===== v36.23 - Logo do Portal do Cliente sem distorção =====
-   O painel estava forçando a logo a ocupar 100% da largura e altura do quadro
-   com object-fit: cover. Para marcas retangulares, como PRIO, isso pode cortar
-   ou dar aparência de distorção. Aqui a imagem passa a respeitar a proporção
-   original, cabendo inteira dentro do quadro. */
-body.client-mode .client-logo-box,
-.client-logo-box {
-  display: grid !important;
-  place-items: center !important;
-  padding: 8px !important;
-  background: rgba(255, 255, 255, .96) !important;
-  overflow: hidden !important;
-  border-radius: 18px !important;
-}
-
-body.client-mode .client-logo-box img,
-.client-logo-box img,
-#client-dashboard-logo {
-  width: auto !important;
-  height: auto !important;
-  max-width: 100% !important;
-  max-height: 100% !important;
-  object-fit: contain !important;
-  object-position: center center !important;
-  aspect-ratio: auto !important;
-  padding: 0 !important;
-  margin: auto !important;
-  border-radius: 10px !important;
-  background: transparent !important;
-  display: block !important;
+/* ===== v38.5 - Região BR/PT corrigida ===== */
+.country-pill.is-active {
+  box-shadow: 0 0 0 2px rgba(139, 224, 255, .35), 0 0 18px rgba(30, 134, 200, .35);
 }
 
 /* v36.24 - API interna do Portal do Cliente */
@@ -7646,4 +7423,10 @@ body.client-mode .client-logo-box img,
 }
 .client-api-key-item.is-new-key {
   border-color: rgba(47, 216, 166, .35) !important;
+}
+
+
+/* v36.28 - API do cliente: botão Excluir após revogação */
+.client-api-key-item.is-revoked .client-api-key-actions .mini-action-button--danger {
+  opacity: 1;
 }

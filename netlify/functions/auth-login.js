@@ -1,4 +1,16 @@
 const { jsonResponse, createSessionCookie, normalizeText } = require('./_auth');
+
+function normalizeOperationRegion(value = process.env.OPERATION_REGION || process.env.SMARTSHEET_DEFAULT_REGION || 'PT') {
+  const normalized = String(value || 'PT').trim().toUpperCase();
+  if (['BR', 'BRASIL', 'BRAZIL'].includes(normalized)) return 'BR';
+  return 'PT';
+}
+
+function getLoginRegion(event, body = {}) {
+  const qs = event?.queryStringParameters || {};
+  return normalizeOperationRegion(body.operationRegion || body.region || body.siteKey || qs.region || qs.operationRegion || process.env.SITE_KEY || process.env.OPERATION_REGION || 'PT');
+}
+
 const { getUserByUsername, isSupabaseConfigured, userPasswordMatches, upsertUserPresence } = require('./_supabase');
 
 
@@ -40,10 +52,13 @@ exports.handler = async (event) => {
       projectPmAliases: [],
       qualityCompetencies: [],
       active: true,
+      operationRegion: getLoginRegion(event, body),
+      siteKey: getLoginRegion(event, body),
       passwordHash: 'admin123',
     };
 
-    let user = await getUserByUsername(username);
+    const operationRegion = getLoginRegion(event, body);
+    let user = await getUserByUsername(username, { operationRegion });
     if ((!user || !user.active) && normalizeText(username) === 'admin' && password === 'admin123') {
       user = defaultAdmin;
     }
@@ -81,6 +96,8 @@ exports.handler = async (event) => {
         projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
         qualityCompetencies: Array.isArray(user.qualityCompetencies) ? user.qualityCompetencies : [],
         clientKey: user.clientKey || '',
+        operationRegion: user.operationRegion || 'PT',
+        siteKey: user.siteKey || user.operationRegion || 'PT',
         clientName: user.clientName || '',
         clientLogoUrl: user.clientLogoUrl || '',
         clientPlatformImageUrl: user.clientPlatformImageUrl || '',

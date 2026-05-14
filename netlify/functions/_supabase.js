@@ -79,6 +79,17 @@ async function supabaseWriteWithClientPlatformFallback(path, options, payload, f
   }
 }
 
+
+function stripHiddenRegionSuffix(username = '') {
+  return String(username || '').replace(/__(BR|PT)$/i, '');
+}
+
+function buildHiddenRegionUsername(username = '', region = 'PT') {
+  const clean = stripHiddenRegionSuffix(username).trim();
+  const reg = String(region || 'PT').trim().toUpperCase() === 'BR' ? 'BR' : 'PT';
+  return clean ? `${clean}__${reg}` : '';
+}
+
 function mapUser(row) {
   if (!row) return null;
   const platformImages = row.client_platform_images && typeof row.client_platform_images === 'object'
@@ -88,7 +99,8 @@ function mapUser(row) {
   return {
     id: row.id,
     name: row.name,
-    username: row.username,
+    username: stripHiddenRegionSuffix(row.username),
+    rawUsername: row.username,
     passwordHash: row.password_hash,
     role: row.role === 'admin' ? 'admin' : (row.role === 'client' ? 'client' : 'sector'),
     sector: normalizeSectorValue(row.sector || (row.role === 'admin' ? 'all' : '')), 
@@ -96,6 +108,9 @@ function mapUser(row) {
     projectPmAliases: Array.isArray(row.project_pm_aliases) ? row.project_pm_aliases.filter(Boolean) : [],
     qualityCompetencies: Array.isArray(row.quality_competencies) ? row.quality_competencies.filter(Boolean) : [],
     clientKey: row.client_key || '',
+    operationRegion: ['BR','PT'].includes(String(row.operation_region || '').toUpperCase()) ? String(row.operation_region).toUpperCase() : 'PT',
+    siteKey: ['BR','PT'].includes(String(row.site_key || row.operation_region || '').toUpperCase()) ? String(row.site_key || row.operation_region).toUpperCase() : 'PT',
+    portalSite: ['BR','PT'].includes(String(row.portal_site || row.operation_region || '').toUpperCase()) ? String(row.portal_site || row.operation_region).toUpperCase() : 'PT',
     clientName: row.client_name || row.client_key || '',
     clientLogoUrl: row.client_logo_url || '',
     clientPlatformImageUrl: platformImageUrl,
@@ -217,10 +232,54 @@ async function listUsers() {
   return (Array.isArray(rows) ? rows : []).map(mapUser);
 }
 
-async function getUserByUsername(username) {
-  const q = encodeURIComponent(String(username || '').trim());
-  const rows = await supabaseFetch(`/rest/v1/users?select=*&username=eq.${q}&limit=1`);
-  return mapUser(Array.isArray(rows) ? rows[0] : null);
+function isUniversalAccessRow(row = {}) {
+  const role = String(row.role || '').trim().toLowerCase();
+  const sector = normalizeSectorValue(row.sector || '');
+  return role === 'admin' || sector === 'pcp';
+}
+
+async function getUserByUsername(username, options = {}) {
+  const cleanUsername = stripHiddenRegionSuffix(String(username || '').trim());
+  const q = encodeURIComponent(cleanUsername);
+  const region = String(options.operationRegion || options.region || options.siteKey || '').trim().toUpperCase();
+  const hiddenUsername = region ? buildHiddenRegionUsername(cleanUsername, region) : '';
+
+  const queryParts = [cleanUsername];
+  if (hiddenUsername && hiddenUsername !== cleanUsername) queryParts.push(hiddenUsername);
+
+  const rows = [];
+  for (const candidate of queryParts) {
+    const encoded = encodeURIComponent(candidate);
+    const result = await supabaseFetch(`/rest/v1/users?select=*&username=eq.${encoded}`);
+    if (Array.isArray(result)) rows.push(...result);
+  }
+
+  // Fallback: se não achou, busca todos com prefixo visual para detectar legado.
+  if (!rows.length) {
+    const fallback = await supabaseFetch(`/rest/v1/users?select=*&username=ilike.${q}%`);
+    if (Array.isArray(fallback)) rows.push(...fallback);
+  }
+
+  // Admin e PCP são universais pela regra de acesso.
+  const universal = rows.find((row) => isUniversalAccessRow(row) && row.active !== false);
+  if (universal) return mapUser(universal);
+
+  if (region) {
+    const regional = rows.find((row) => {
+      const raw = String(row.username || '');
+      const rowRegion = String(row.operation_region || row.site_key || row.portal_site || '').trim().toUpperCase()
+        || (raw.toUpperCase().endsWith('__BR') ? 'BR' : '')
+        || (raw.toUpperCase().endsWith('__PT') ? 'PT' : '')
+        || (String(row.client_key || '').trim().toUpperCase().endsWith('_BR') ? 'BR' : '')
+        || (String(row.client_key || '').trim().toUpperCase().endsWith('_PT') ? 'PT' : '')
+        || 'BR';
+      return rowRegion === region && row.active !== false;
+    });
+    if (regional) return mapUser(regional);
+    return null;
+  }
+
+  return mapUser(rows.find((row) => row.active !== false) || rows[0] || null);
 }
 
 async function getUserById(userId) {
@@ -240,6 +299,9 @@ async function insertUser(input) {
     project_pm_aliases: Array.isArray(input.projectPmAliases) ? input.projectPmAliases : [],
     quality_competencies: Array.isArray(input.qualityCompetencies) ? input.qualityCompetencies : [],
     client_key: input.clientKey || '',
+    operation_region: String(input.operationRegion || 'PT').toUpperCase() === 'BR' ? 'BR' : 'PT',
+    site_key: String(input.siteKey || input.operationRegion || 'PT').toUpperCase() === 'BR' ? 'BR' : 'PT',
+    portal_site: String(input.portalSite || input.siteKey || input.operationRegion || 'PT').toUpperCase() === 'BR' ? 'BR' : 'PT',
     client_name: input.clientName || input.clientKey || '',
     client_logo_url: input.clientLogoUrl || '',
     client_platform_image_url: input.clientPlatformImageUrl || '',
@@ -267,6 +329,9 @@ async function updateUser(userId, updates) {
   if ('projectPmAliases' in updates) payload.project_pm_aliases = Array.isArray(updates.projectPmAliases) ? updates.projectPmAliases : [];
   if ('qualityCompetencies' in updates) payload.quality_competencies = Array.isArray(updates.qualityCompetencies) ? updates.qualityCompetencies : [];
   if ('clientKey' in updates) payload.client_key = updates.clientKey || '';
+  if ('operationRegion' in updates) payload.operation_region = String(updates.operationRegion || 'PT').toUpperCase() === 'BR' ? 'BR' : 'PT';
+  if ('siteKey' in updates) payload.site_key = String(updates.siteKey || updates.operationRegion || 'PT').toUpperCase() === 'BR' ? 'BR' : 'PT';
+  if ('portalSite' in updates || 'operationRegion' in updates || 'siteKey' in updates) payload.portal_site = String(updates.portalSite || updates.siteKey || updates.operationRegion || 'PT').toUpperCase() === 'BR' ? 'BR' : 'PT';
   if ('clientName' in updates) payload.client_name = updates.clientName || updates.clientKey || '';
   if ('clientLogoUrl' in updates) payload.client_logo_url = updates.clientLogoUrl || '';
   if ('clientPlatformImageUrl' in updates) payload.client_platform_image_url = updates.clientPlatformImageUrl || '';
@@ -573,7 +638,6 @@ async function updateStageUpdate(updateId, updates) {
 }
 
 
-
 function mapClientApiKey(row) {
   if (!row) return null;
   return {
@@ -585,7 +649,7 @@ function mapClientApiKey(row) {
     tokenPrefix: row.token_prefix || '',
     tokenLast4: row.token_last4 || '',
     name: row.name || 'API do cliente',
-    scopes: Array.isArray(row.scopes) ? row.scopes.filter(Boolean) : ['read:projects'],
+    scopes: ['read:projects'],
     allowedClients: Array.isArray(row.allowed_clients) ? row.allowed_clients.filter(Boolean) : [],
     active: row.active !== false,
     expiresAt: row.expires_at || null,
@@ -620,7 +684,7 @@ async function createClientApiKey(input = {}) {
     token_prefix: input.tokenPrefix || '',
     token_last4: input.tokenLast4 || '',
     name: input.name || 'API do cliente',
-    scopes: Array.isArray(input.scopes) && input.scopes.length ? input.scopes : ['read:projects'],
+    scopes: ['read:projects'],
     active: input.active !== false,
     expires_at: input.expiresAt || null,
     created_by: input.createdBy || input.username || '',
@@ -644,6 +708,23 @@ async function revokeClientApiKey(id, userId) {
     body: JSON.stringify({ active: false, revoked_at: new Date().toISOString() }),
   });
   return mapClientApiKey(Array.isArray(rows) ? rows[0] : null);
+}
+
+async function deleteRevokedClientApiKey(id, userId) {
+  const keyId = encodeURIComponent(String(id || '').trim());
+  const owner = encodeURIComponent(String(userId || '').trim());
+  if (!keyId || !owner) return null;
+  const existingRows = await supabaseFetch(`/rest/v1/client_api_keys?id=eq.${keyId}&user_id=eq.${owner}&select=*`);
+  const existing = mapClientApiKey(Array.isArray(existingRows) ? existingRows[0] : null);
+  if (!existing) return null;
+  if (existing.active !== false) {
+    throw new Error('Só é possível excluir uma chave depois de revogar.');
+  }
+  await supabaseFetch(`/rest/v1/client_api_keys?id=eq.${keyId}&user_id=eq.${owner}`, {
+    method: 'DELETE',
+    headers: getSupabaseHeaders('return=minimal'),
+  });
+  return existing;
 }
 
 async function findClientApiKeyByHash(tokenHash) {
@@ -705,6 +786,7 @@ module.exports = {
   listClientApiKeysForUser,
   createClientApiKey,
   revokeClientApiKey,
+  deleteRevokedClientApiKey,
   findClientApiKeyByHash,
   markClientApiKeyUsed,
   hashPassword,

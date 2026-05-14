@@ -11,6 +11,24 @@ function sha256(value) {
   return crypto.createHash('sha256').update(String(value || '')).digest('hex');
 }
 
+const READ_ONLY_SCOPE = 'read:projects';
+const READ_ONLY_ALLOWED_METHODS = 'GET, OPTIONS';
+
+function readOnlyHeaders(extra = {}) {
+  return {
+    'access-control-allow-origin': '*',
+    'access-control-allow-methods': READ_ONLY_ALLOWED_METHODS,
+    'access-control-allow-headers': 'authorization, x-step-api-key, content-type',
+    'allow': READ_ONLY_ALLOWED_METHODS,
+    ...extra,
+  };
+}
+
+function hasReadOnlyScope(key = {}) {
+  const scopes = Array.isArray(key.scopes) ? key.scopes.map((scope) => String(scope || '').trim()) : [];
+  return scopes.includes(READ_ONLY_SCOPE) && !scopes.some((scope) => /^write:|^edit:|^admin:|^delete:/i.test(scope));
+}
+
 function extractToken(event) {
   const headers = event.headers || {};
   const auth = headers.authorization || headers.Authorization || '';
@@ -177,17 +195,30 @@ function buildUnits(projects = []) {
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
-    return jsonResponse(200, { ok: true });
+    return jsonResponse(200, { ok: true, readOnly: true }, { headers: readOnlyHeaders() });
   }
-  if (event.httpMethod !== 'GET') return jsonResponse(405, { ok: false, error: 'Método não permitido.' });
+  if (event.httpMethod !== 'GET') {
+    return jsonResponse(405, {
+      ok: false,
+      readOnly: true,
+      error: 'API somente leitura. Use apenas GET para consultar os dados; POST, PUT, PATCH e DELETE não são permitidos neste endpoint.',
+    }, { headers: readOnlyHeaders() });
+  }
   if (!isSupabaseConfigured()) return jsonResponse(500, { ok: false, error: 'Supabase não configurado.' });
 
   const token = extractToken(event);
   if (!token) return jsonResponse(401, { ok: false, error: 'Informe a API key no header Authorization: Bearer <token>.' });
 
   const key = await findClientApiKeyByHash(sha256(token));
-  if (!key || key.active === false) return jsonResponse(401, { ok: false, error: 'API key inválida ou revogada.' });
-  if (key.expiresAt && new Date(key.expiresAt).getTime() < Date.now()) return jsonResponse(401, { ok: false, error: 'API key expirada.' });
+  if (!key || key.active === false) return jsonResponse(401, { ok: false, error: 'API key inválida ou revogada.' }, { headers: readOnlyHeaders() });
+  if (key.expiresAt && new Date(key.expiresAt).getTime() < Date.now()) return jsonResponse(401, { ok: false, error: 'API key expirada.' }, { headers: readOnlyHeaders() });
+  if (!hasReadOnlyScope(key)) {
+    return jsonResponse(403, {
+      ok: false,
+      readOnly: true,
+      error: 'API key sem permissão de leitura válida. Esta API aceita somente o escopo read:projects.',
+    }, { headers: readOnlyHeaders() });
+  }
 
   const params = event.queryStringParameters || {};
   const includeSpools = String(params.includeSpools || params.include_spools || '') === '1';
@@ -215,6 +246,9 @@ exports.handler = async (event) => {
     },
     meta: {
       source: 'STEP Portal do Cliente API',
+      accessMode: 'read_only',
+      allowedMethods: ['GET'],
+      permissions: [READ_ONLY_SCOPE],
       generatedAt: new Date().toISOString(),
       lastSync: payload.meta?.lastSync || null,
       version: payload.meta?.version || null,
@@ -231,9 +265,7 @@ exports.handler = async (event) => {
 
   return jsonResponse(200, response, {
     headers: {
-      'cache-control': 'private, max-age=60, stale-while-revalidate=120',
-      'access-control-allow-origin': '*',
-      'access-control-allow-headers': 'authorization, x-step-api-key, content-type',
+      ...readOnlyHeaders({ 'cache-control': 'private, max-age=60, stale-while-revalidate=120' }),
     },
   });
 };
