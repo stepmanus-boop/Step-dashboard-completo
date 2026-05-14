@@ -572,6 +572,108 @@ async function updateStageUpdate(updateId, updates) {
   return mapStageUpdate(Array.isArray(rows) ? rows[0] : null);
 }
 
+
+
+function mapClientApiKey(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id || '',
+    username: row.username || '',
+    clientKey: row.client_key || '',
+    clientName: row.client_name || row.client_key || '',
+    tokenPrefix: row.token_prefix || '',
+    tokenLast4: row.token_last4 || '',
+    name: row.name || 'API do cliente',
+    scopes: Array.isArray(row.scopes) ? row.scopes.filter(Boolean) : ['read:projects'],
+    allowedClients: Array.isArray(row.allowed_clients) ? row.allowed_clients.filter(Boolean) : [],
+    active: row.active !== false,
+    expiresAt: row.expires_at || null,
+    lastUsedAt: row.last_used_at || null,
+    createdBy: row.created_by || '',
+    createdByName: row.created_by_name || '',
+    createdAt: row.created_at || null,
+    revokedAt: row.revoked_at || null,
+  };
+}
+
+async function listClientApiKeysForUser(userId) {
+  const q = encodeURIComponent(String(userId || '').trim());
+  if (!q) return [];
+  try {
+    const rows = await supabaseFetch(`/rest/v1/client_api_keys?select=*&user_id=eq.${q}&order=created_at.desc`);
+    return (Array.isArray(rows) ? rows : []).map(mapClientApiKey).filter(Boolean);
+  } catch (error) {
+    if (String(error.message || '').includes('client_api_keys')) return [];
+    throw error;
+  }
+}
+
+async function createClientApiKey(input = {}) {
+  const payload = {
+    user_id: String(input.userId || '').trim(),
+    username: input.username || '',
+    client_key: input.clientKey || '',
+    client_name: input.clientName || input.clientKey || '',
+    allowed_clients: Array.isArray(input.allowedClients) ? input.allowedClients : [],
+    token_hash: input.tokenHash,
+    token_prefix: input.tokenPrefix || '',
+    token_last4: input.tokenLast4 || '',
+    name: input.name || 'API do cliente',
+    scopes: Array.isArray(input.scopes) && input.scopes.length ? input.scopes : ['read:projects'],
+    active: input.active !== false,
+    expires_at: input.expiresAt || null,
+    created_by: input.createdBy || input.username || '',
+    created_by_name: input.createdByName || input.clientName || '',
+  };
+  const rows = await supabaseFetch('/rest/v1/client_api_keys?select=*', {
+    method: 'POST',
+    headers: getSupabaseHeaders('return=representation'),
+    body: JSON.stringify(payload),
+  });
+  return mapClientApiKey(Array.isArray(rows) ? rows[0] : null);
+}
+
+async function revokeClientApiKey(id, userId) {
+  const keyId = encodeURIComponent(String(id || '').trim());
+  const owner = encodeURIComponent(String(userId || '').trim());
+  if (!keyId || !owner) return null;
+  const rows = await supabaseFetch(`/rest/v1/client_api_keys?id=eq.${keyId}&user_id=eq.${owner}&select=*`, {
+    method: 'PATCH',
+    headers: getSupabaseHeaders('return=representation'),
+    body: JSON.stringify({ active: false, revoked_at: new Date().toISOString() }),
+  });
+  return mapClientApiKey(Array.isArray(rows) ? rows[0] : null);
+}
+
+async function findClientApiKeyByHash(tokenHash) {
+  const q = encodeURIComponent(String(tokenHash || '').trim());
+  if (!q) return null;
+  try {
+    const rows = await supabaseFetch(`/rest/v1/client_api_keys?select=*&token_hash=eq.${q}&active=eq.true&limit=1`);
+    return mapClientApiKey(Array.isArray(rows) ? rows[0] : null);
+  } catch (error) {
+    if (String(error.message || '').includes('client_api_keys')) return null;
+    throw error;
+  }
+}
+
+async function markClientApiKeyUsed(id) {
+  const keyId = encodeURIComponent(String(id || '').trim());
+  if (!keyId) return null;
+  try {
+    const rows = await supabaseFetch(`/rest/v1/client_api_keys?id=eq.${keyId}&select=*`, {
+      method: 'PATCH',
+      headers: getSupabaseHeaders('return=representation'),
+      body: JSON.stringify({ last_used_at: new Date().toISOString() }),
+    });
+    return mapClientApiKey(Array.isArray(rows) ? rows[0] : null);
+  } catch (error) {
+    if (String(error.message || '').includes('client_api_keys')) return null;
+    throw error;
+  }
+}
+
 module.exports = {
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
@@ -599,6 +701,12 @@ module.exports = {
   mapResponse,
   mapStageUpdate,
   mapPresence,
+  mapClientApiKey,
+  listClientApiKeysForUser,
+  createClientApiKey,
+  revokeClientApiKey,
+  findClientApiKeyByHash,
+  markClientApiKeyUsed,
   hashPassword,
   normalizeSectorList,
   normalizeText,

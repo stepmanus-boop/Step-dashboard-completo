@@ -17,6 +17,7 @@ const state = {
   projectView: 'all',
   projectDrill: { open: false, mode: 'total', selectedClientKey: '', selectedVesselKey: '' },
   clientPortal: { selectedVesselKey: '', selectedProjectId: null, rowClickTimer: null, vesselClickTimer: null },
+  clientApi: { keys: [], loading: false, newToken: '', feedback: '' },
   sectorScopedView: false,
   stats: null,
   meta: null,
@@ -3776,6 +3777,7 @@ function ensureClientDashboardEl() {
       <div class="client-hero-actions">
         <span id="client-dashboard-sync">Atualização: --</span>
         <button class="mini-action-button client-macro-button" type="button" data-client-open-macro-dashboard>Visão executiva da carteira</button>
+        <button class="mini-action-button client-api-button" type="button" data-client-open-api>Gerar API</button>
       </div>
     </div>
     <div class="client-summary-grid">
@@ -6107,7 +6109,261 @@ function openClientBspExecutive(project) {
   document.body.classList.add('client-exec-open');
 }
 
+
+function ensureClientApiModal() {
+  let modal = document.getElementById('client-api-modal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'client-api-modal';
+  modal.className = 'client-api-modal hidden';
+  modal.innerHTML = `
+    <div class="client-api-dialog" role="dialog" aria-modal="true" aria-labelledby="client-api-title">
+      <div class="client-api-head">
+        <div>
+          <p class="client-kicker">Integração</p>
+          <h2 id="client-api-title">API do Portal do Cliente</h2>
+          <p>Gere uma chave para consumir, de forma controlada, as informações que já aparecem neste painel.</p>
+        </div>
+        <button class="client-api-close" type="button" data-client-api-close aria-label="Fechar">×</button>
+      </div>
+      <div class="client-api-body">
+        <section class="client-api-card">
+          <div class="client-api-card-head">
+            <div>
+              <h3>Nova chave</h3>
+              <p>O token completo aparece somente uma vez. Copie e guarde em local seguro.</p>
+            </div>
+          </div>
+          <div class="client-api-form-row">
+            <label>
+              <span>Nome da integração</span>
+              <input id="client-api-key-name" type="text" value="API do Portal do Cliente" maxlength="120" />
+            </label>
+            <button class="mini-action-button" type="button" data-client-api-create>Criar API</button>
+          </div>
+          <div id="client-api-new-token" class="client-api-token-box hidden"></div>
+        </section>
+        <section class="client-api-card">
+          <div class="client-api-card-head">
+            <div>
+              <h3>Como consumir</h3>
+              <p>Use o endpoint abaixo com o header Authorization.</p>
+            </div>
+          </div>
+          <pre class="client-api-code" id="client-api-example"></pre>
+          <div class="client-api-help-grid">
+            <span><strong>Resumo:</strong> /api/client-data?format=summary</span>
+            <span><strong>Completo:</strong> /api/client-data?format=full</span>
+            <span><strong>Com spools:</strong> /api/client-data?includeSpools=1</span>
+            <span><strong>Filtro:</strong> /api/client-data?unit=FORTE ou ?bsp=25-1165-38</span>
+          </div>
+        </section>
+        <section class="client-api-card">
+          <div class="client-api-card-head">
+            <div>
+              <h3>Chaves criadas</h3>
+              <p>Revogue imediatamente qualquer chave que não estiver mais em uso.</p>
+            </div>
+            <button class="mini-action-button" type="button" data-client-api-refresh>Atualizar</button>
+          </div>
+          <div id="client-api-feedback" class="client-api-feedback"></div>
+          <div id="client-api-keys-list" class="client-api-keys-list"></div>
+        </section>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', handleClientApiModalClick);
+  return modal;
+}
+
+function getClientApiEndpoint() {
+  return `${window.location.origin}/api/client-data`;
+}
+
+function renderClientApiExample(token = '<SUA_API_KEY>') {
+  const exampleEl = document.getElementById('client-api-example');
+  if (!exampleEl) return;
+  const endpoint = getClientApiEndpoint();
+  exampleEl.textContent = `curl -H "Authorization: Bearer ${token}" \\\n  "${endpoint}?format=summary"`;
+}
+
+function renderClientApiKeys() {
+  const listEl = document.getElementById('client-api-keys-list');
+  const feedbackEl = document.getElementById('client-api-feedback');
+  const tokenEl = document.getElementById('client-api-new-token');
+  if (feedbackEl) feedbackEl.textContent = state.clientApi.feedback || '';
+  if (tokenEl) {
+    if (state.clientApi.newToken) {
+      tokenEl.classList.remove('hidden');
+      tokenEl.innerHTML = `
+        <span>Copie sua chave agora:</span>
+        <code>${escapeHtml(state.clientApi.newToken)}</code>
+        <div class="client-api-token-actions">
+          <button class="mini-action-button" type="button" data-client-api-copy-token>Copiar token</button>
+        </div>
+      `;
+    } else {
+      tokenEl.classList.add('hidden');
+      tokenEl.innerHTML = '';
+    }
+  }
+  if (!listEl) return;
+  if (state.clientApi.loading) {
+    listEl.innerHTML = '<div class="client-api-empty">Carregando chaves...</div>';
+    return;
+  }
+  const keys = Array.isArray(state.clientApi.keys) ? state.clientApi.keys : [];
+  if (!keys.length) {
+    listEl.innerHTML = '<div class="client-api-empty">Nenhuma API criada ainda.</div>';
+    return;
+  }
+  listEl.innerHTML = keys.map((key) => {
+    const status = key.active === false ? 'Revogada' : 'Ativa';
+    const created = key.createdAt ? new Date(key.createdAt).toLocaleString('pt-BR') : '--';
+    const used = key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString('pt-BR') : 'Nunca usada';
+    return `
+      <article class="client-api-key-item ${key.active === false ? 'is-revoked' : ''}">
+        <div>
+          <strong>${escapeHtml(key.name || 'API do cliente')}</strong>
+          <span>${escapeHtml(key.tokenPreview || 'step_••••')}</span>
+          <small>Criada: ${escapeHtml(created)} • Último uso: ${escapeHtml(used)} • ${escapeHtml(status)}</small>
+        </div>
+        ${key.active === false ? '' : `<button class="mini-action-button mini-action-button--danger" type="button" data-client-api-revoke="${escapeHtml(key.id)}">Revogar</button>`}
+      </article>
+    `;
+  }).join('');
+}
+
+async function loadClientApiKeys() {
+  state.clientApi.loading = true;
+  state.clientApi.feedback = '';
+  renderClientApiKeys();
+  try {
+    const response = await fetch('/api/client-api-keys', { credentials: 'same-origin', cache: 'no-store' });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao carregar chaves de API.');
+    state.clientApi.keys = Array.isArray(data.keys) ? data.keys : [];
+  } catch (error) {
+    state.clientApi.feedback = error?.message || 'Falha ao carregar chaves de API.';
+  } finally {
+    state.clientApi.loading = false;
+    renderClientApiKeys();
+  }
+}
+
+function openClientApiModal() {
+  if (!isClientUser()) return;
+  const modal = ensureClientApiModal();
+  state.clientApi.newToken = '';
+  state.clientApi.feedback = '';
+  modal.classList.remove('hidden');
+  document.body.classList.add('client-api-open');
+  renderClientApiExample();
+  renderClientApiKeys();
+  loadClientApiKeys();
+}
+
+function closeClientApiModal() {
+  const modal = document.getElementById('client-api-modal');
+  if (modal) modal.classList.add('hidden');
+  document.body.classList.remove('client-api-open');
+  state.clientApi.newToken = '';
+}
+
+async function createClientApiKeyFromModal() {
+  const input = document.getElementById('client-api-key-name');
+  const name = input?.value || 'API do Portal do Cliente';
+  state.clientApi.loading = true;
+  state.clientApi.feedback = 'Criando chave...';
+  state.clientApi.newToken = '';
+  renderClientApiKeys();
+  try {
+    const response = await fetch('/api/client-api-keys', {
+      method: 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao criar API.');
+    state.clientApi.newToken = data.key?.token || '';
+    state.clientApi.feedback = 'API criada com sucesso. Copie o token agora.';
+    renderClientApiExample(state.clientApi.newToken || '<SUA_API_KEY>');
+    await loadClientApiKeys();
+    state.clientApi.feedback = 'API criada com sucesso. Copie o token agora.';
+    renderClientApiKeys();
+  } catch (error) {
+    state.clientApi.feedback = error?.message || 'Falha ao criar API.';
+    renderClientApiKeys();
+  } finally {
+    state.clientApi.loading = false;
+  }
+}
+
+async function revokeClientApiKeyFromModal(id) {
+  if (!id) return;
+  state.clientApi.feedback = 'Revogando chave...';
+  renderClientApiKeys();
+  try {
+    const response = await fetch('/api/client-api-keys', {
+      method: 'DELETE',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao revogar API.');
+    state.clientApi.feedback = 'Chave revogada.';
+    await loadClientApiKeys();
+  } catch (error) {
+    state.clientApi.feedback = error?.message || 'Falha ao revogar API.';
+    renderClientApiKeys();
+  }
+}
+
+function copyClientApiToken() {
+  const token = state.clientApi.newToken || '';
+  if (!token) return;
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(token).then(() => {
+      state.clientApi.feedback = 'Token copiado.';
+      renderClientApiKeys();
+    }).catch(() => {});
+  }
+}
+
+function handleClientApiModalClick(event) {
+  if (event.target.closest('[data-client-api-close]') || event.target.id === 'client-api-modal') {
+    closeClientApiModal();
+    return;
+  }
+  if (event.target.closest('[data-client-api-create]')) {
+    createClientApiKeyFromModal();
+    return;
+  }
+  if (event.target.closest('[data-client-api-refresh]')) {
+    loadClientApiKeys();
+    return;
+  }
+  if (event.target.closest('[data-client-api-copy-token]')) {
+    copyClientApiToken();
+    return;
+  }
+  const revokeButton = event.target.closest('[data-client-api-revoke]');
+  if (revokeButton) {
+    revokeClientApiKeyFromModal(revokeButton.dataset.clientApiRevoke || '');
+  }
+}
+
 function handleClientDashboardClick(event) {
+  const apiButton = event.target.closest('[data-client-open-api]');
+  if (apiButton) {
+    openClientApiModal();
+    return;
+  }
   const macroButton = event.target.closest('[data-client-open-macro-dashboard]');
   if (macroButton) {
     openClientMacroExecutive();

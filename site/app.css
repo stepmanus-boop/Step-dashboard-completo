@@ -7388,3 +7388,233 @@ body.client-mode .client-logo-box img,
   width: 100%;
   min-width: 760px;
 }
+
+/* ===== v36.23 - Logo do Portal do Cliente sem distorção =====
+   O painel estava forçando a logo a ocupar 100% da largura e altura do quadro
+   com object-fit: cover. Para marcas retangulares, como PRIO, isso pode cortar
+   ou dar aparência de distorção. Aqui a imagem passa a respeitar a proporção
+   original, cabendo inteira dentro do quadro. */
+body.client-mode .client-logo-box,
+.client-logo-box {
+  display: grid !important;
+  place-items: center !important;
+  padding: 8px !important;
+  background: rgba(255, 255, 255, .96) !important;
+  overflow: hidden !important;
+  border-radius: 18px !important;
+}
+
+body.client-mode .client-logo-box img,
+.client-logo-box img,
+#client-dashboard-logo {
+  width: auto !important;
+  height: auto !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  object-fit: contain !important;
+  object-position: center center !important;
+  aspect-ratio: auto !important;
+  padding: 0 !important;
+  margin: auto !important;
+  border-radius: 10px !important;
+  background: transparent !important;
+  display: block !important;
+}
+
+/* v36.24 - API interna do Portal do Cliente */
+.client-api-button {
+  margin-left: 8px;
+}
+.client-api-modal.hidden {
+  display: none !important;
+}
+.client-api-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 8, 18, .72);
+  backdrop-filter: blur(10px);
+}
+.client-api-dialog {
+  width: min(980px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border: 1px solid rgba(95, 195, 255, .28);
+  border-radius: 26px;
+  background: linear-gradient(145deg, rgba(5, 31, 54, .98), rgba(3, 17, 31, .99));
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .45);
+  color: #eaf7ff;
+}
+.client-api-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  padding: 22px 24px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.client-api-head h2,
+.client-api-card h3 {
+  margin: 0;
+  color: #fff;
+}
+.client-api-head p,
+.client-api-card p {
+  margin: 6px 0 0;
+  color: #a8c5d7;
+}
+.client-api-close {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(9, 38, 64, .85);
+  color: #fff;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.client-api-body {
+  display: grid;
+  gap: 14px;
+  padding: 18px 24px 24px;
+}
+.client-api-card {
+  border: 1px solid rgba(64, 164, 223, .22);
+  background: rgba(3, 25, 44, .72);
+  border-radius: 18px;
+  padding: 16px;
+}
+.client-api-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.client-api-form-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+.client-api-form-row label span {
+  display: block;
+  color: #7bd5ff;
+  font-size: .78rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+.client-api-form-row input {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(116, 201, 255, .28);
+  background: rgba(0, 10, 18, .52);
+  color: #fff;
+  padding: 12px 14px;
+  outline: none;
+}
+.client-api-token-box {
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(47, 216, 166, .35);
+  background: rgba(2, 65, 50, .36);
+  border-radius: 14px;
+  padding: 12px;
+}
+.client-api-token-box span,
+.client-api-feedback {
+  color: #a8c5d7;
+}
+.client-api-token-box code {
+  display: block;
+  overflow: auto;
+  white-space: nowrap;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, .34);
+  color: #fff;
+  padding: 10px;
+  font-size: .88rem;
+}
+.client-api-token-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.client-api-code {
+  overflow: auto;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(0, 0, 0, .34);
+  padding: 14px;
+  color: #e9fbff;
+  white-space: pre-wrap;
+}
+.client-api-help-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  color: #a8c5d7;
+  font-size: .86rem;
+}
+.client-api-help-grid strong {
+  color: #7bd5ff;
+}
+.client-api-keys-list {
+  display: grid;
+  gap: 10px;
+}
+.client-api-key-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(0, 12, 24, .42);
+  border-radius: 14px;
+  padding: 12px;
+}
+.client-api-key-item strong,
+.client-api-key-item span,
+.client-api-key-item small {
+  display: block;
+}
+.client-api-key-item span {
+  color: #7bd5ff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  margin-top: 4px;
+}
+.client-api-key-item small {
+  color: #9fbdd1;
+  margin-top: 3px;
+}
+.client-api-key-item.is-revoked {
+  opacity: .55;
+}
+.client-api-empty {
+  color: #9fbdd1;
+  border: 1px dashed rgba(255,255,255,.15);
+  border-radius: 14px;
+  padding: 14px;
+  text-align: center;
+}
+.mini-action-button--danger {
+  border-color: rgba(255, 111, 111, .35) !important;
+  color: #ffd6d6 !important;
+}
+@media (max-width: 720px) {
+  .client-api-form-row,
+  .client-api-key-item {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+  .client-api-head,
+  .client-api-card-head {
+    flex-direction: column;
+  }
+}
