@@ -4584,6 +4584,94 @@ function clientLatestDate(...values) {
   return dates.length ? dates[dates.length - 1] : null;
 }
 
+
+function clientEarliestDate(...values) {
+  const dates = values.map(parseDateObject).filter(Boolean).sort((a, b) => a - b);
+  return dates.length ? dates[0] : null;
+}
+
+function applyClientExecutiveScheduleReplan(project, rows) {
+  const replannedFinish = getClientSCurveReplannedFinishDate(project);
+  if (!replannedFinish || !Array.isArray(rows) || !rows.length) return rows;
+
+  const plannedFinish = parseDateObject(getClientSCurvePlannedFinishDate(project)) || parseDateObject(getClientAnalyticFinishDate(project));
+  if (!plannedFinish || replannedFinish <= plannedFinish) return rows;
+
+  const today = getCurrentBrazilDate();
+  const nextRows = rows.map((row) => ({ ...row }));
+  const isChild = (row) => row?.type === 'child';
+  const isComplete = (row) => clampClientPercent(row?.progress) >= 99.9;
+  const isReached = (row) => {
+    const finish = parseDateObject(row?.finish);
+    return finish && finish <= today;
+  };
+
+  let anchorIndex = nextRows.findIndex((row) => isChild(row) && !isComplete(row) && isReached(row));
+  if (anchorIndex < 0) {
+    // Se a data replanejada já existe mas o prazo de uma etapa ainda não venceu,
+    // planejamos a partir da primeira etapa pendente para manter previsibilidade.
+    anchorIndex = nextRows.findIndex((row) => isChild(row) && !isComplete(row));
+  }
+  if (anchorIndex < 0) return nextRows;
+
+  const anchorRow = nextRows[anchorIndex];
+  const anchorFinish = parseDateObject(anchorRow.finish) || plannedFinish;
+  const replannedStart = addBusinessDaysUtc(anchorFinish, 1) || anchorFinish;
+  if (!replannedStart || replannedStart > replannedFinish) {
+    anchorRow.replannedFinish = replannedFinish;
+    anchorRow.replannedSource = 'WIP';
+    return nextRows;
+  }
+
+  const remainingChildIndexes = [];
+  for (let i = anchorIndex; i < nextRows.length; i += 1) {
+    const row = nextRows[i];
+    if (!isChild(row)) continue;
+    if (isComplete(row)) continue;
+    remainingChildIndexes.push(i);
+  }
+  if (!remainingChildIndexes.length) return nextRows;
+
+  const replanBusinessDays = Math.max(
+    remainingChildIndexes.length,
+    countBusinessDaysInclusive(replannedStart, replannedFinish) || remainingChildIndexes.length,
+  );
+  const scaled = scaleDurationVector(
+    remainingChildIndexes.map((index) => ({ key: `row-${index}`, base: Math.max(1, Number(nextRows[index].duration || 1)) })),
+    replanBusinessDays,
+  );
+
+  let cursor = new Date(replannedStart.getTime());
+  for (const index of remainingChildIndexes) {
+    const row = nextRows[index];
+    const duration = Math.max(1, Number((scaled.find((item) => item.key === `row-${index}`) || {}).duration || row.duration || 1));
+    const finish = addBusinessDaysUtc(cursor, duration - 1) || cursor;
+    row.replannedStart = new Date(cursor.getTime());
+    row.replannedFinish = finish > replannedFinish ? replannedFinish : finish;
+    row.replannedSource = 'WIP';
+    row.replannedDuration = Math.max(1, countBusinessDaysInclusive(row.replannedStart, row.replannedFinish) || duration);
+    cursor = addBusinessDaysUtc(row.replannedFinish, 1) || row.replannedFinish;
+    if (cursor > replannedFinish) cursor = new Date(replannedFinish.getTime());
+  }
+
+  // Consolida o replanejado nas linhas de grupo conforme os filhos daquele grupo.
+  let currentGroupIndex = -1;
+  for (let i = 0; i < nextRows.length; i += 1) {
+    const row = nextRows[i];
+    if (row.type === 'group') {
+      currentGroupIndex = i;
+      continue;
+    }
+    if (currentGroupIndex < 0 || !row.replannedFinish) continue;
+    const group = nextRows[currentGroupIndex];
+    group.replannedStart = clientEarliestDate(group.replannedStart, row.replannedStart);
+    group.replannedFinish = clientLatestDate(group.replannedFinish, row.replannedFinish);
+    group.replannedSource = 'WIP';
+  }
+
+  return nextRows;
+}
+
 function clientApplyRowDates(row, start, finish, sourceLabel = '') {
   const next = { ...row };
   const parsedStart = parseDateObject(start);
@@ -5206,15 +5294,88 @@ function clientChartY(value, height, pad) {
   return pad.top + (1 - clampClientPercent(value) / 100) * innerH;
 }
 
-function clientSvgPolyline(points, width, height, getValue) {
+function clientSvgPolyline(points, width, height, getValue, domainPoints = points) {
   const pad = { left: 42, right: 16, top: 18, bottom: 38 };
-  const usable = points.filter((point) => getValue(point) != null);
+  const usable = (Array.isArray(points) ? points : []).filter((point) => getValue(point) != null);
   if (!usable.length) return '';
   return usable.map((point, index) => {
-    const x = clientChartX(point, points, width, pad);
+    const x = clientChartX(point, domainPoints, width, pad);
     const y = clientChartY(getValue(point), height, pad);
     return `${index ? 'L' : 'M'} ${x.toFixed(1)} ${y.toFixed(1)}`;
   }).join(' ');
+}
+
+function clientActualValueAtDate(points, dateValue) {
+  const target = parseDateObject(dateValue);
+  if (!target) return null;
+  const actualPoints = (Array.isArray(points) ? points : [])
+    .map((point) => ({ ...point, date: parseDateObject(point?.date) }))
+    .filter((point) => point.date && point.actual != null)
+    .sort((a, b) => a.date - b.date);
+  if (!actualPoints.length) return null;
+
+  let previous = null;
+  let next = null;
+  for (const point of actualPoints) {
+    if (point.date.getTime() <= target.getTime()) previous = point;
+    if (point.date.getTime() >= target.getTime()) {
+      next = point;
+      break;
+    }
+  }
+
+  if (previous && previous.date.getTime() === target.getTime()) return clampClientPercent(previous.actual);
+  if (next && next.date.getTime() === target.getTime()) return clampClientPercent(next.actual);
+  if (previous && next && next.date.getTime() > previous.date.getTime()) {
+    const ratio = (target.getTime() - previous.date.getTime()) / Math.max(1, next.date.getTime() - previous.date.getTime());
+    return clampClientPercent(previous.actual + (next.actual - previous.actual) * ratio);
+  }
+  if (previous) return clampClientPercent(previous.actual);
+  if (next) return clampClientPercent(next.actual);
+  return null;
+}
+
+function splitClientSCurveActualSegments(points, delayInfo) {
+  const actualPoints = (Array.isArray(points) ? points : [])
+    .map((point) => ({ ...point, date: parseDateObject(point?.date) }))
+    .filter((point) => point.date && point.actual != null)
+    .sort((a, b) => a.date - b.date);
+  const delayStart = parseDateObject(delayInfo?.start);
+  if (!delayStart || !actualPoints.length) return { normal: actualPoints, delayed: [] };
+
+  const deadlineActual = clientActualValueAtDate(actualPoints, delayStart);
+  const hasDeadlinePoint = actualPoints.some((point) => point.date.getTime() === delayStart.getTime());
+  const deadlinePoint = deadlineActual == null ? null : {
+    date: delayStart,
+    planned: 100,
+    actual: deadlineActual,
+    trackingLabel: 'Início do desvio',
+  };
+
+  const normal = actualPoints.filter((point) => point.date.getTime() <= delayStart.getTime());
+  const delayed = actualPoints.filter((point) => point.date.getTime() >= delayStart.getTime());
+
+  if (deadlinePoint && !hasDeadlinePoint) {
+    normal.push(deadlinePoint);
+    delayed.unshift(deadlinePoint);
+  } else if (deadlinePoint && !delayed.length) {
+    delayed.push(deadlinePoint);
+  }
+
+  const dedupe = (list) => {
+    const map = new Map();
+    for (const point of list.sort((a, b) => (a.date - b.date) || ((a.actual || 0) - (b.actual || 0)))) {
+      const key = point.date.toISOString().slice(0, 10);
+      const previous = map.get(key);
+      if (!previous || (point.actual ?? 0) >= (previous.actual ?? 0)) map.set(key, point);
+    }
+    return Array.from(map.values()).sort((a, b) => a.date - b.date);
+  };
+
+  return {
+    normal: dedupe(normal),
+    delayed: dedupe(delayed),
+  };
 }
 
 function buildClientChartHoverTargets(points, width, height) {
@@ -5319,7 +5480,10 @@ function renderClientSCurveSvg(project) {
   const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
   const plannedPath = clientSvgPolyline(points, width, height, (point) => point.planned);
-  const actualPath = clientSvgPolyline(points, width, height, (point) => point.actual);
+  const delayInfo = getClientSCurveDelayInfo(project);
+  const actualSegments = splitClientSCurveActualSegments(points, delayInfo);
+  const actualPath = clientSvgPolyline(actualSegments.normal, width, height, (point) => point.actual, points);
+  const delayActualPath = clientSvgPolyline(actualSegments.delayed, width, height, (point) => point.actual, points);
   const grid = [0, 25, 50, 75, 100].map((value) => {
     const y = pad.top + (1 - value / 100) * innerH;
     return `<line x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}" class="client-chart-grid" /><text x="8" y="${y + 4}" class="client-chart-label">${value}%</text>`;
@@ -5332,7 +5496,8 @@ function renderClientSCurveSvg(project) {
     if (!lastActual) return '';
     const x = clientChartX(lastActual, points, width, pad);
     const y = clientChartY(lastActual.actual, height, pad);
-    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="client-chart-dot" />`;
+    const isDelayed = delayInfo?.start && parseDateObject(lastActual.date) && parseDateObject(lastActual.date) >= parseDateObject(delayInfo.start);
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="${isDelayed ? 'client-chart-dot client-chart-dot--delay' : 'client-chart-dot'}" />`;
   })();
   const replanOverlay = renderClientSCurveReplanOverlay(project, points, width, height, pad);
   const delayOverlay = renderClientSCurveDelayOverlay(project, points, width, height, pad);
@@ -5345,7 +5510,9 @@ function renderClientSCurveSvg(project) {
       <line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" class="client-chart-axis" />
       <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" class="client-chart-axis" />
       <path d="${plannedPath}" class="client-chart-planned" />
-      ${actualPath ? `<path d="${actualPath}" class="client-chart-actual" />${actualCircle}` : ''}
+      ${actualPath ? `<path d="${actualPath}" class="client-chart-actual" />` : ''}
+      ${delayActualPath ? `<path d="${delayActualPath}" class="client-chart-actual-delay" />` : ''}
+      ${actualCircle}
       ${hoverTargets}
       <text x="${pad.left}" y="${height - 12}" class="client-chart-date">${escapeHtml(first)}</text>
       <text x="${pad.left + innerW / 2 - 38}" y="${height - 12}" class="client-chart-date">${escapeHtml(mid)}</text>
@@ -5526,18 +5693,9 @@ function buildClientExecutiveSchedule(project) {
     cursor = addBusinessDaysUtc(groupFinish, 1) || groupFinish;
   }
 
-  const replanDate = getClientSCurveReplannedFinishDate(project);
-  if (replanDate) {
-    for (const row of rows) {
-      if ((row.key === 'delivery' && row.type === 'group') || (row.key === 'delivery' && row.type === 'child')) {
-        row.replannedFinish = replanDate;
-      }
-    }
-  }
+  if (!hasRealFabricationDates) return applyClientExecutiveScheduleReplan(project, rows);
 
-  if (!hasRealFabricationDates) return rows;
-
-  return rows.map((row) => {
+  const rowsWithTracking = rows.map((row) => {
     if (row.key === 'fabrication') {
       const fabFinish = clientLatestDate(realDates.coatingFinish, realDates.thFinish, realDates.inspectionFinish, realDates.weldingFinish, realDates.boilermakerFinish);
       return clientApplyRowDates(row, realDates.fabricationStart, fabFinish, realDates.sources?.fabricationStart || realDates.sources?.coatingFinish || realDates.sources?.thFinish || realDates.sources?.inspectionFinish || realDates.sources?.weldingFinish || realDates.sources?.boilermakerFinish || 'Tracking');
@@ -5554,6 +5712,8 @@ function buildClientExecutiveSchedule(project) {
     if (row.key === 'delivery' && row.type === 'group') return clientApplyRowDates(row, null, realDates.projectFinish, realDates.sources?.projectFinish || 'Tracking');
     return row;
   });
+
+  return applyClientExecutiveScheduleReplan(project, rowsWithTracking);
 }
 
 function getClientScheduleVisualState(progress) {
@@ -5577,9 +5737,11 @@ function renderClientExecutiveSchedule(project) {
             const sourceBadge = row.dateSource ? ` <small class="client-date-source">${escapeHtml(row.dateSource)}</small>` : '';
             const startCell = `${formatClientDateShort(row.start)}${row.plannedStart ? `<small class="client-planned-date">Plan.: ${formatClientDateShort(row.plannedStart)}</small>` : ''}`;
             const finishCell = `${formatClientDateShort(row.finish)}${row.plannedFinish ? `<small class="client-planned-date">Plan.: ${formatClientDateShort(row.plannedFinish)}</small>` : ''}`;
-            const replannedCell = row.replannedFinish ? `<span class="client-replan-date">${formatClientDateShort(row.replannedFinish)}</span>` : '—';
+            const replannedCell = row.replannedFinish ? `<span class="client-replan-date">${formatClientDateShort(row.replannedFinish)}</span>${row.replannedSource ? `<small class="client-planned-date">Rep.: ${escapeHtml(row.replannedSource)}</small>` : ''}` : '—';
             const deviationText = Number.isFinite(row.deviationDays) && row.deviationDays !== 0 ? ` • ${row.deviationDays > 0 ? '+' : ''}${row.deviationDays}d` : '';
-            return `<tr class="client-schedule-row client-schedule-row--${state} client-schedule-row--${row.type}"><td>${label}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(row.progress)}</span></td><td>${formatNumber(row.duration, 0)}d</td><td>${startCell}</td><td>${finishCell}</td><td>${replannedCell}</td><td><span class="client-spool-chip client-spool-chip--${state}">${row.dateSource || (state === 'completed' ? 'Concluído' : state === 'in-progress' ? 'Em andamento' : 'Não iniciado')}${deviationText}</span>${sourceBadge}</td></tr>`;
+            const replannedText = row.replannedFinish && !row.dateSource ? 'Replanejado' : '';
+            const statusText = row.dateSource || replannedText || (state === 'completed' ? 'Concluído' : state === 'in-progress' ? 'Em andamento' : 'Não iniciado');
+            return `<tr class="client-schedule-row client-schedule-row--${state} client-schedule-row--${row.type}${row.replannedFinish ? ' client-schedule-row--replanned' : ''}"><td>${label}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(row.progress)}</span></td><td>${formatNumber(row.duration, 0)}d</td><td>${startCell}</td><td>${finishCell}</td><td>${replannedCell}</td><td><span class="client-spool-chip client-spool-chip--${state}">${statusText}${deviationText}</span>${sourceBadge}</td></tr>`;
           }).join('')}
         </tbody>
       </table>
@@ -5917,7 +6079,10 @@ function renderClientMacroSCurveSvg(projects = state.projects) {
   const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
   const plannedPath = clientSvgPolyline(points, width, height, (point) => point.planned);
-  const actualPath = clientSvgPolyline(points, width, height, (point) => point.actual);
+  const delayInfo = getClientSCurveDelayInfo(project);
+  const actualSegments = splitClientSCurveActualSegments(points, delayInfo);
+  const actualPath = clientSvgPolyline(actualSegments.normal, width, height, (point) => point.actual, points);
+  const delayActualPath = clientSvgPolyline(actualSegments.delayed, width, height, (point) => point.actual, points);
   const grid = [0, 25, 50, 75, 100].map((value) => {
     const y = pad.top + (1 - value / 100) * innerH;
     return `<line x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}" class="client-chart-grid" /><text x="8" y="${y + 4}" class="client-chart-label">${value}%</text>`;
@@ -5930,7 +6095,8 @@ function renderClientMacroSCurveSvg(projects = state.projects) {
     if (!lastActual) return '';
     const x = clientChartX(lastActual, points, width, pad);
     const y = clientChartY(lastActual.actual, height, pad);
-    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="client-chart-dot" />`;
+    const isDelayed = delayInfo?.start && parseDateObject(lastActual.date) && parseDateObject(lastActual.date) >= parseDateObject(delayInfo.start);
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" class="${isDelayed ? 'client-chart-dot client-chart-dot--delay' : 'client-chart-dot'}" />`;
   })();
   const hoverTargets = buildClientChartHoverTargets(points, width, height);
   return wrapClientSCurveSvg(`
@@ -5939,7 +6105,9 @@ function renderClientMacroSCurveSvg(projects = state.projects) {
       <line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" class="client-chart-axis" />
       <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" class="client-chart-axis" />
       <path d="${plannedPath}" class="client-chart-planned" />
-      ${actualPath ? `<path d="${actualPath}" class="client-chart-actual" />${actualCircle}` : ''}
+      ${actualPath ? `<path d="${actualPath}" class="client-chart-actual" />` : ''}
+      ${delayActualPath ? `<path d="${delayActualPath}" class="client-chart-actual-delay" />` : ''}
+      ${actualCircle}
       ${hoverTargets}
       <text x="${pad.left}" y="${height - 12}" class="client-chart-date">${escapeHtml(first)}</text>
       <text x="${pad.left + innerW / 2 - 38}" y="${height - 12}" class="client-chart-date">${escapeHtml(mid)}</text>
