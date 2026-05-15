@@ -4316,14 +4316,184 @@ function compareClientSpoolsByPriority(a, b) {
   return String(a?.iso || '').localeCompare(String(b?.iso || ''), 'pt-BR', { numeric: true, sensitivity: 'base' });
 }
 
-function renderClientSpoolRows(spools, limit = 120) {
+function getClientSpoolPanelKey(spool, index = 0) {
+  const candidates = [spool?.iso, spool?.drawing, spool?.description, spool?.lineNumber, spool?.primary]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  const raw = candidates.join('|') || `spool-${index}`;
+  return normalizeCompactText(raw) || `spool-${index}`;
+}
+
+function findClientSpoolByPanelKey(project, key) {
+  const wanted = String(key || '').trim();
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  if (!wanted || !spools.length) return null;
+  return spools.find((spool, index) => getClientSpoolPanelKey(spool, index) === wanted) || null;
+}
+
+function formatClientStandalonePanelValue(value) {
+  if (value == null || value === '') return '—';
+  return String(value);
+}
+
+function formatClientStandalonePanelPercent(value) {
+  if (value == null || value === '') return '—';
+  if (String(value).trim().toUpperCase() === 'N/A') return 'N/A';
+  return String(value).includes('%') ? String(value) : formatPercent(clientPercentValue(value));
+}
+
+function getClientStandaloneStageRows(project, spool = null) {
+  const projectStageValues = project?.stageValues && typeof project.stageValues === 'object' ? project.stageValues : {};
+  const spoolStageValues = spool?.stageValues && typeof spool.stageValues === 'object' ? spool.stageValues : {};
+  const source = Object.keys(spoolStageValues).length ? spoolStageValues : projectStageValues;
+  const keys = getClientDetailStageKeys(project);
+  return keys.map((key) => {
+    const label = (state.meta?.stageOrder || []).find((stage) => stage.key === key)?.label || key;
+    return { label, value: source[key] };
+  });
+}
+
+function buildClientStandalonePanelHtml(project, spool = null) {
+  const isSpool = Boolean(spool);
+  const status = getProjectStatusPresentation(project);
+  const visualState = isSpool ? getClientSpoolVisualState(spool) : getClientProjectVisualState(project);
+  const title = isSpool ? (spool.iso || spool.drawing || 'Tag / ISO') : getClientProjectDisplayCode(project);
+  const subtitle = isSpool ? `${getClientProjectDisplayCode(project)} • ${getProjectVesselLabel(project)}` : `${getProjectClientLabel(project)} • ${getProjectVesselLabel(project)}`;
+  const progress = isSpool ? getClientSpoolProgress(spool) : getClientOverallProgress(project);
+  const stageRows = getClientStandaloneStageRows(project, spool);
+  const po = getClientTrackingReportPo(project) || '—';
+  const description = isSpool ? (spool.description || spool.drawing || '—') : (project.summaryDrawing || project.projectDisplay || '—');
+  const observation = isSpool
+    ? (spool.observations || spool.OBSERVATIONS || spool.observation || spool.note || spool.notes || '—')
+    : getProjectObservationContexts(project).map((item) => `${item.source}: ${item.text}`).join(' | ') || '—';
+  const currentStatus = isSpool ? (spool.currentStatus || spool.stage || uiStateLabel(spool.uiState)) : status.text;
+  const currentStage = isSpool ? (spool.currentSector || spool.operationalSector || spool.flow?.sector || '—') : getProjectCurrentStageDisplay(project);
+  const kilos = isSpool ? Number(spool.kilos || 0) : Number(project.kilos || 0);
+  const m2 = isSpool ? Number(spool.m2Painting || 0) : Number(project.m2Painting || 0);
+  const finishedDate = isSpool
+    ? (spool.plannedFinishDate || spool.finishDate || spool.deliveryDate || project.plannedFinishDate)
+    : (project.plannedFinishDate || getClientAnalyticFinishDate(project));
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  const siblingRows = !isSpool ? spools.slice().sort(compareClientSpoolsByPriority).map((item, index) => {
+    const itemState = getClientSpoolVisualState(item);
+    return `<tr><td>${escapeHtml(item.iso || item.drawing || `Tag ${index + 1}`)}</td><td>${escapeHtml(item.description || '—')}</td><td><span class="chip chip-${itemState}">${escapeHtml(item.currentStatus || item.stage || uiStateLabel(item.uiState))}</span></td><td>${formatPercent(getClientSpoolProgress(item))}</td><td>${formatNumber(item.kilos || 0, 2)} kg</td></tr>`;
+  }).join('') : '';
+
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(title)} • Painel Individual STEP</title>
+<style>
+  :root { color-scheme: light; font-family: Inter, Segoe UI, Arial, sans-serif; --blue:#083a63; --teal:#008a75; --soft:#eef8fb; --line:#c9dde8; --text:#12324a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: linear-gradient(135deg, #f8fcff 0%, #eef8fb 100%); color: var(--text); }
+  .page { max-width: 1280px; margin: 0 auto; padding: 28px; }
+  .hero { display: grid; grid-template-columns: 1fr auto; gap: 18px; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 24px; padding: 24px; box-shadow: 0 18px 44px rgba(8,58,99,.11); }
+  .kicker { margin: 0 0 8px; color: var(--teal); font-weight: 900; letter-spacing: .14em; text-transform: uppercase; font-size: 12px; }
+  h1 { margin: 0; font-size: clamp(26px, 4vw, 46px); color: var(--blue); line-height: 1.05; }
+  .subtitle { margin: 10px 0 0; color: #49677b; font-weight: 700; }
+  .logo { height: 54px; max-width: 130px; object-fit: contain; }
+  .toolbar { display:flex; gap:10px; justify-content:flex-end; margin-top:14px; }
+  button { border:0; border-radius:999px; padding:11px 16px; font-weight:900; cursor:pointer; background:var(--blue); color:#fff; }
+  button.secondary { background:#e8f3f7; color:var(--blue); }
+  .grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:14px; margin-top:18px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:20px; padding:16px; box-shadow:0 12px 30px rgba(8,58,99,.08); min-width:0; }
+  .card span { display:block; color:#638094; font-size:11px; font-weight:900; letter-spacing:.10em; text-transform:uppercase; margin-bottom:6px; }
+  .card strong { display:block; font-size:20px; color:var(--blue); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .card.full { grid-column: 1 / -1; }
+  .progress-wrap { display:grid; grid-template-columns: 180px 1fr; gap:18px; align-items:center; margin-top:18px; }
+  .gauge { width:160px; aspect-ratio:1; border-radius:50%; background:conic-gradient(var(--teal) ${clampClientPercent(progress)}%, #dce7ee 0); display:grid; place-items:center; position:relative; margin:auto; }
+  .gauge:after { content:""; position:absolute; inset:18px; border-radius:50%; background:#fff; }
+  .gauge strong { position:relative; z-index:1; color:var(--blue); font-size:28px; }
+  .section { margin-top:18px; background:#fff; border:1px solid var(--line); border-radius:22px; padding:18px; box-shadow:0 12px 30px rgba(8,58,99,.08); }
+  .section h2 { margin:0 0 14px; color:var(--blue); font-size:20px; }
+  table { width:100%; border-collapse:separate; border-spacing:0; overflow:hidden; border-radius:14px; border:1px solid var(--line); }
+  th, td { padding:12px 14px; text-align:left; border-bottom:1px solid #e2edf2; vertical-align:top; }
+  th { background:var(--soft); color:var(--blue); font-size:12px; letter-spacing:.08em; text-transform:uppercase; }
+  tr:last-child td { border-bottom:0; }
+  .chip { display:inline-flex; border-radius:999px; padding:6px 10px; font-weight:900; font-size:12px; background:#e8f3f7; color:var(--blue); }
+  .chip-completed { background:#dcfce7; color:#166534; }
+  .chip-in-progress { background:#fef3c7; color:#92400e; }
+  .chip-not-started { background:#e2e8f0; color:#475569; }
+  .note { color:#49677b; line-height:1.5; white-space:pre-wrap; }
+  @media (max-width: 850px) { .hero, .progress-wrap { grid-template-columns:1fr; } .grid { grid-template-columns:1fr 1fr; } .page { padding:14px; } }
+  @media print { .toolbar { display:none; } body { background:#fff; } .page { max-width:none; } }
+</style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div>
+        <p class="kicker">${isSpool ? 'Painel Individual da Tag / ISO' : 'Painel Individual da Obra'}</p>
+        <h1>${escapeHtml(title)}</h1>
+        <p class="subtitle">${escapeHtml(subtitle)}</p>
+      </div>
+      <div>
+        <img class="logo" src="${escapeHtml(new URL('./assets/step-logo.png', window.location.href).href)}" alt="STEP">
+        <div class="toolbar"><button onclick="window.print()">Imprimir / PDF</button><button class="secondary" onclick="window.close()">Fechar</button></div>
+      </div>
+    </section>
+
+    <section class="progress-wrap">
+      <div class="gauge"><strong>${formatPercent(progress)}</strong></div>
+      <div class="grid">
+        <article class="card"><span>BSP</span><strong>${escapeHtml(getClientProjectDisplayCode(project))}</strong></article>
+        <article class="card"><span>PO</span><strong>${escapeHtml(po)}</strong></article>
+        <article class="card"><span>Cliente</span><strong>${escapeHtml(getProjectClientLabel(project))}</strong></article>
+        <article class="card"><span>Unidade</span><strong>${escapeHtml(getProjectVesselLabel(project))}</strong></article>
+        <article class="card"><span>Status</span><strong>${escapeHtml(currentStatus || '—')}</strong></article>
+        <article class="card"><span>Etapa</span><strong>${escapeHtml(currentStage || '—')}</strong></article>
+        <article class="card"><span>Peso</span><strong>${formatNumber(kilos, 2)} kg</strong></article>
+        <article class="card"><span>M²</span><strong>${formatNumber(m2, 3)}</strong></article>
+        <article class="card"><span>Descrição</span><strong>${escapeHtml(description)}</strong></article>
+        <article class="card"><span>Término</span><strong>${escapeHtml(clientFormatDateValue(finishedDate) || '—')}</strong></article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Evolução por etapa</h2>
+      <table><thead><tr><th>Etapa</th><th>Avanço</th></tr></thead><tbody>
+        ${stageRows.map((row) => `<tr><td>${escapeHtml(row.label)}</td><td><span class="chip">${escapeHtml(formatClientStandalonePanelPercent(row.value))}</span></td></tr>`).join('')}
+      </tbody></table>
+    </section>
+
+    <section class="section">
+      <h2>Observações</h2>
+      <div class="note">${escapeHtml(formatClientStandalonePanelValue(observation))}</div>
+    </section>
+
+    ${!isSpool ? `<section class="section"><h2>Tags / ISOs da obra</h2><table><thead><tr><th>Tag/ISO</th><th>Descrição</th><th>Status</th><th>%</th><th>Peso</th></tr></thead><tbody>${siblingRows || '<tr><td colspan="5">Nenhuma tag detalhada encontrada.</td></tr>'}</tbody></table></section>` : ''}
+  </main>
+</body>
+</html>`;
+}
+
+function openClientSpoolIndividualPanel(project, spool = null) {
+  if (!project) return;
+  const newWindow = window.open('', '_blank');
+  if (!newWindow) {
+    window.alert('O navegador bloqueou a nova aba. Libere pop-ups para abrir o painel individual.');
+    return;
+  }
+  try { newWindow.opener = null; } catch (_) {}
+  const html = buildClientStandalonePanelHtml(project, spool);
+  newWindow.document.open();
+  newWindow.document.write(html);
+  newWindow.document.close();
+}
+
+function renderClientSpoolRows(spools, limit = 120, project = null) {
   const items = (Array.isArray(spools) ? [...spools] : []).sort(compareClientSpoolsByPriority).slice(0, limit);
   if (!items.length) return '<tr><td colspan="7" class="loading-cell">Nenhuma tag detalhada encontrada para esta BSP.</td></tr>';
-  return items.map((spool) => {
+  const projectId = project?.rowId || state.clientBspOverrides.activeExecutiveProjectId || state.clientPortal.selectedProjectId || '';
+  return items.map((spool, index) => {
     const state = getClientSpoolVisualState(spool);
     const statusText = spool?.currentStatus || spool?.stage || uiStateLabel(spool?.uiState);
     const observationText = spool?.observations ? String(spool.observations).trim() : '—';
-    return `<tr class="client-spool-row client-spool-row--${state}"><td><strong>${escapeHtml(spool.iso || '—')}</strong></td><td>${escapeHtml(spool.description || '—')}</td><td>${escapeHtml(observationText)}</td><td><span class="client-spool-chip client-spool-chip--${state}">${escapeHtml(statusText)}</span></td><td>${escapeHtml(spool.currentSector || spool.operationalSector || '—')}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(spool.overallProgress)}</span></td><td>${formatNumber(spool.kilos, 2)} kg</td></tr>`;
+    const key = getClientSpoolPanelKey(spool, index);
+    return `<tr class="client-spool-row client-spool-row--${state} client-spool-row--clickable" data-client-spool-panel="${escapeHtml(key)}" data-client-spool-project-id="${escapeHtml(projectId)}" title="Clique para abrir o painel individual em uma nova aba"><td><strong>${escapeHtml(spool.iso || '—')}</strong></td><td>${escapeHtml(spool.description || '—')}</td><td>${escapeHtml(observationText)}</td><td><span class="client-spool-chip client-spool-chip--${state}">${escapeHtml(statusText)}</span></td><td>${escapeHtml(spool.currentSector || spool.operationalSector || '—')}</td><td><span class="client-spool-progress client-spool-progress--${state}">${formatPercent(spool.overallProgress)}</span></td><td>${formatNumber(spool.kilos, 2)} kg</td></tr>`;
   }).join('');
 }
 
@@ -4364,7 +4534,7 @@ function renderClientProjectDetail(project) {
     </div>
     <div class="client-table-wrap client-table-wrap--compact">
       <table class="client-bsp-table"><thead><tr><th>Tag/ISO</th><th>Descrição</th><th>Observação</th><th>Status</th><th>Etapa</th><th>%</th><th>Peso</th></tr></thead><tbody>
-        ${renderClientSpoolRows(spools, 80)}
+        ${renderClientSpoolRows(spools, 80, project)}
       </tbody></table>
     </div>
   `;
@@ -6126,6 +6296,24 @@ function ensureClientBspExecutiveModalEl() {
   `;
   document.body.appendChild(modal);
   modal.addEventListener('click', (event) => {
+    const spoolPanelRow = event.target.closest('[data-client-spool-panel]');
+    if (spoolPanelRow) {
+      event.preventDefault();
+      event.stopPropagation();
+      const projectId = spoolPanelRow.dataset.clientSpoolProjectId || state.clientBspOverrides.activeExecutiveProjectId;
+      const project = state.projects.find((item) => String(item.rowId) === String(projectId));
+      const spool = findClientSpoolByPanelKey(project, spoolPanelRow.dataset.clientSpoolPanel || '');
+      if (project && spool) openClientSpoolIndividualPanel(project, spool);
+      return;
+    }
+    const projectPanelRow = event.target.closest('[data-client-project-panel]');
+    if (projectPanelRow) {
+      event.preventDefault();
+      event.stopPropagation();
+      const project = state.projects.find((item) => String(item.rowId) === String(projectPanelRow.dataset.clientProjectPanel));
+      if (project) openClientSpoolIndividualPanel(project, null);
+      return;
+    }
     const pdfButton = event.target.closest('[data-client-download-pdf]');
     if (pdfButton) {
       event.preventDefault();
@@ -6365,7 +6553,7 @@ function renderClientMacroProjectRows(projects = state.projects) {
   return list.map((project) => {
     const status = getProjectStatusPresentation(project);
     const visualState = getClientProjectVisualState(project);
-    return `<tr class="client-spool-row client-spool-row--${visualState}"><td><strong>${escapeHtml(getClientProjectDisplayCode(project))}</strong></td><td>${escapeHtml(getProjectVesselLabel(project) || '—')}</td><td>${formatNumber(getProjectItemCount(project))}</td><td>${formatNumber(project.kilos, 0)} kg</td><td>${formatNumber(project.weldedWeightKg, 0)} kg</td><td><span class="client-spool-chip client-spool-chip--${visualState}">${escapeHtml(status.text)}</span></td><td><span class="client-spool-progress client-spool-progress--${visualState}">${formatPercent(getClientOverallProgress(project))}</span></td><td>${escapeHtml(project.plannedFinishDate || '—')}</td></tr>`;
+    return `<tr class="client-spool-row client-spool-row--${visualState} client-spool-row--clickable" data-client-project-panel="${escapeHtml(project.rowId || '')}" title="Clique para abrir o painel individual da obra em uma nova aba"><td><strong>${escapeHtml(getClientProjectDisplayCode(project))}</strong></td><td>${escapeHtml(getProjectVesselLabel(project) || '—')}</td><td>${formatNumber(getProjectItemCount(project))}</td><td>${formatNumber(project.kilos, 0)} kg</td><td>${formatNumber(project.weldedWeightKg, 0)} kg</td><td><span class="client-spool-chip client-spool-chip--${visualState}">${escapeHtml(status.text)}</span></td><td><span class="client-spool-progress client-spool-progress--${visualState}">${formatPercent(getClientOverallProgress(project))}</span></td><td>${escapeHtml(project.plannedFinishDate || '—')}</td></tr>`;
   }).join('');
 }
 
@@ -7074,7 +7262,7 @@ function openClientBspExecutive(project, options = {}) {
       </div>
       <div class="client-table-wrap client-table-wrap--compact client-exec-process-table">
         <table class="client-bsp-table"><thead><tr><th>Tag/ISO</th><th>Descrição</th><th>Observação</th><th>Status</th><th>Etapa</th><th>%</th><th>Peso</th></tr></thead><tbody>
-          ${renderClientSpoolRows(spools, 120)}
+          ${renderClientSpoolRows(spools, 120, project)}
         </tbody></table>
       </div>
     </section>
@@ -7390,6 +7578,16 @@ function handleClientApiModalClick(event) {
 }
 
 function handleClientDashboardClick(event) {
+  const spoolPanelRow = event.target.closest('[data-client-spool-panel]');
+  if (spoolPanelRow) {
+    event.preventDefault();
+    event.stopPropagation();
+    const projectId = spoolPanelRow.dataset.clientSpoolProjectId || state.clientPortal.selectedProjectId;
+    const project = state.projects.find((item) => String(item.rowId) === String(projectId));
+    const spool = findClientSpoolByPanelKey(project, spoolPanelRow.dataset.clientSpoolPanel || '');
+    if (project && spool) openClientSpoolIndividualPanel(project, spool);
+    return;
+  }
   const reportButton = event.target.closest('[data-client-download-report]');
   if (reportButton) {
     event.preventDefault();
@@ -8394,7 +8592,7 @@ function excelCell(value, type = 'String') {
 }
 
 const CLIENT_TRACKING_REPORT_COLUMNS = [
-  { label: 'Primary', width: 82 },
+  { label: 'Primary', width: 118 },
   { label: 'Project', width: 135 },
   { label: 'Client', width: 115 },
   { label: 'Vessel', width: 115 },

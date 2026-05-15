@@ -8186,3 +8186,39 @@ body.client-mode .client-logo-box img,
   background: #eaf6fb !important;
   color: #0f3b57 !important;
 }
+
+/* ===== v36.49 - Primary ajustado + clique para painel individual ===== */
+.client-tracking-report-table th:nth-child(1),
+.client-tracking-report-table td:nth-child(1) {
+  min-width: 118px !important;
+  width: 118px !important;
+  max-width: 118px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  text-align: center !important;
+  letter-spacing: .045em !important;
+}
+
+.client-tracking-report-table th:nth-child(2),
+.client-tracking-report-table td:nth-child(2) {
+  left: 118px !important;
+}
+
+.client-tracking-report-table thead th:nth-child(1) {
+  font-size: .68rem !important;
+  line-height: 1.15 !important;
+}
+
+.client-spool-row--clickable {
+  cursor: pointer;
+  transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+}
+
+.client-spool-row--clickable:hover td {
+  background: rgba(236, 253, 245, .82) !important;
+}
+
+.client-spool-row--clickable:hover {
+  box-shadow: inset 4px 0 0 rgba(0, 138, 117, .72);
+}

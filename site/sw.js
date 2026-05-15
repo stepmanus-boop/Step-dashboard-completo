@@ -1,4 +1,4 @@
-const CACHE_NAME = 'step-dashboard-v36.48-br-client-panel-excel-full';
+const CACHE_NAME = 'step-dashboard-v36.49-br-primary-spool-panel';
 // Versão v28: preserva cache local entre logouts e usa caminho rápido pós-login
 // - Mantém assets do app shell versionados para liberar app.js corrigido imediatamente
 // - API continua sem cache no Service Worker; dados operacionais usam cache local validado pelo app
