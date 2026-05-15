@@ -8122,8 +8122,8 @@ body.client-mode .client-logo-box img,
 }
 
 .client-tracking-report-table .client-report-summary-row td {
-  background: #fff200 !important;
-  color: #050505 !important;
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
   font-weight: 900;
 }
 
@@ -8140,4 +8140,49 @@ body.client-mode .client-logo-box img,
   .client-exec-card-head--report {
     align-items: stretch;
   }
+}
+
+/* ===== v36.48 - Ajuste visual do Report no painel + remoção do amarelo ===== */
+.client-tracking-report-table th:nth-child(1),
+.client-tracking-report-table td:nth-child(1) {
+  min-width: 86px !important;
+  width: 86px !important;
+  max-width: 110px !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  background: #f8fbfd !important;
+  color: #0f3b57 !important;
+  box-shadow: none !important;
+}
+
+.client-tracking-report-table thead th:nth-child(1),
+.client-tracking-report-table thead th:nth-child(2),
+.client-tracking-report-table th:nth-child(1),
+.client-tracking-report-table th:nth-child(2) {
+  background: #eaf6fb !important;
+  color: #0f3b57 !important;
+}
+
+.client-tracking-report-table th:nth-child(2),
+.client-tracking-report-table td:nth-child(2) {
+  left: 86px !important;
+  min-width: 132px !important;
+  width: 132px !important;
+  background: #f8fbfd !important;
+  color: #0f3b57 !important;
+}
+
+.client-tracking-report-table .client-report-summary-row td {
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+  font-weight: 900;
+  border-top: 1px solid rgba(148, 163, 184, .65) !important;
+  border-bottom: 1px solid rgba(148, 163, 184, .65) !important;
+}
+
+.client-tracking-report-table .client-report-summary-row td:nth-child(1),
+.client-tracking-report-table .client-report-summary-row td:nth-child(2) {
+  background: #eaf6fb !important;
+  color: #0f3b57 !important;
 }

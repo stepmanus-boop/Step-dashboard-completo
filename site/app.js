@@ -5927,7 +5927,7 @@ function renderClientTrackingReportPreview(project) {
           <h3>Report do Cliente</h3>
           <span>Dados do Tracking + Work in Progress exibidos dentro da visão principal</span>
         </div>
-        <button class="client-exec-pdf-button client-exec-report-button" type="button" data-client-download-report="${escapeHtml(project?.rowId || '')}">Baixar Excel</button>
+        <button class="client-exec-pdf-button client-exec-report-button" type="button" data-client-download-report="${escapeHtml(project?.rowId || '')}">Baixar Excel do Painel</button>
       </div>
       <div class="client-report-summary-strip">
         <article><span>Project</span><strong>${escapeHtml(getClientTrackingReportProjectText(project))}</strong></article>
@@ -6973,7 +6973,7 @@ function openClientBspExecutive(project, options = {}) {
         <p>${escapeHtml(getProjectClientLabel(project))} • ${escapeHtml(getProjectVesselLabel(project))} • <span class="cell-status cell-status--${status.state}">${escapeHtml(status.text)}</span></p>
         <div class="client-exec-header-actions">
           <button class="client-exec-pdf-button" type="button" data-client-download-pdf data-client-report-type="project" data-client-report-project-id="${escapeHtml(project.rowId)}">Baixar PDF</button>
-          <button class="client-exec-pdf-button client-exec-report-button" type="button" data-client-download-report="${escapeHtml(project.rowId)}">Baixar Report Excel</button>
+          <button class="client-exec-pdf-button client-exec-report-button" type="button" data-client-download-report="${escapeHtml(project.rowId)}">Baixar Excel do Painel</button>
           ${canManageClientBspPanel(project) ? `<button class="client-exec-pdf-button client-exec-edit-button" type="button" data-client-bsp-edit="${escapeHtml(project.rowId)}">Editar datas / informações</button>` : ''}
         </div>
       </div>
@@ -8564,28 +8564,346 @@ function buildClientTrackingReportRows(project) {
   return rows;
 }
 
-function buildClientTrackingReportWorkbook(project) {
-  const rows = buildClientTrackingReportRows(project);
-  const safeSheetName = sanitizeWorksheetName((project?.projectNumber || project?.projectDisplay || 'Report').replace(/^BSP\s+/i, '') || 'Report');
-  const columnDefs = CLIENT_TRACKING_REPORT_COLUMNS.map((column) => `<Column ss:Width="${column.width || 110}"/>`).join('');
-  const headerRow = `<Row ss:StyleID="Header">${CLIENT_TRACKING_REPORT_COLUMNS.map((column) => excelCellWithStyle(column.label, 'String', 'Header')).join('')}</Row>`;
-  const bodyRows = rows.map((row) => {
-    const rowStyle = row._summary ? 'Summary' : '';
+function excelCellWithOptions(value, type = 'String', styleId = '', options = {}) {
+  const attrs = [];
+  if (styleId) attrs.push(`ss:StyleID="${excelXmlEscape(styleId)}"`);
+  if (Number.isFinite(Number(options.mergeAcross)) && Number(options.mergeAcross) > 0) attrs.push(`ss:MergeAcross="${Number(options.mergeAcross)}"`);
+  if (Number.isFinite(Number(options.index)) && Number(options.index) > 0) attrs.push(`ss:Index="${Number(options.index)}"`);
+  const attrText = attrs.length ? ` ${attrs.join(' ')}` : '';
+  if (value == null || value === '') return `<Cell${attrText}/>`;
+  if (type === 'Number' || type === 'Percent') {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return `<Cell${attrText}><Data ss:Type="String">${excelXmlEscape(value)}</Data></Cell>`;
+    return `<Cell${attrText}><Data ss:Type="Number">${number}</Data></Cell>`;
+  }
+  return `<Cell${attrText}><Data ss:Type="String">${excelXmlEscape(value)}</Data></Cell>`;
+}
+
+function excelMergedCell(value, styleId = 'Section', mergeAcross = 1) {
+  return excelCellWithOptions(value, 'String', styleId, { mergeAcross });
+}
+
+function excelRow(cells = [], height = null) {
+  const heightAttr = Number.isFinite(Number(height)) ? ` ss:Height="${Number(height)}"` : '';
+  return `<Row${heightAttr}>${cells.join('')}</Row>`;
+}
+
+function excelBlankRow() {
+  return '<Row/>';
+}
+
+function excelSectionRow(title, subtitle = '', mergeAcross = 9) {
+  const text = subtitle ? `${title} | ${subtitle}` : title;
+  return excelRow([excelMergedCell(text, 'Section', mergeAcross)], 22);
+}
+
+function excelMetricPair(label, value) {
+  return [excelCellWithStyle(label, 'String', 'MetricLabel'), excelCellWithStyle(value, 'String', 'MetricValue')];
+}
+
+function excelMetricRows(metrics = [], pairsPerRow = 5) {
+  const rows = [];
+  for (let i = 0; i < metrics.length; i += pairsPerRow) {
+    const slice = metrics.slice(i, i + pairsPerRow);
+    const cells = [];
+    slice.forEach((item) => cells.push(...excelMetricPair(item[0], item[1])));
+    while (cells.length < pairsPerRow * 2) cells.push(excelCellWithStyle('', 'String', 'NormalCell'));
+    rows.push(excelRow(cells, 24));
+  }
+  return rows.join('');
+}
+
+function excelPercentNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '';
+  return Number((clampClientPercent(number) / 100).toFixed(6));
+}
+
+function excelSignedPercentNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '';
+  return Number((number / 100).toFixed(6));
+}
+
+function excelPanelStageStatus(percent) {
+  const value = clampClientPercent(percent);
+  if (value >= 99.9) return 'Concluído';
+  if (value > 0) return 'Em andamento';
+  return 'Não iniciado';
+}
+
+function buildClientExecutiveDetailRows(project) {
+  const spools = Array.isArray(project?.spools) ? [...project.spools] : [];
+  return spools.sort(compareClientSpoolsByPriority).map((spool) => {
+    const state = getClientSpoolVisualState(spool);
+    const statusText = spool?.currentStatus || spool?.stage || uiStateLabel(spool?.uiState);
+    return {
+      iso: spool.iso || spool.tag || spool.projectRef || '—',
+      description: spool.description || '—',
+      observations: spool.observations ? String(spool.observations).trim() : '—',
+      status: statusText || '—',
+      sector: spool.currentSector || spool.operationalSector || '—',
+      progress: excelPercentNumber(spool.overallProgress),
+      kilos: Number(spool.kilos || 0),
+      state,
+    };
+  });
+}
+
+function buildClientExecutivePanelWorkbook(project) {
+  const reportRows = buildClientTrackingReportRows(project);
+  const safeProjectName = sanitizeWorksheetName((project?.projectNumber || project?.projectDisplay || 'Painel').replace(/^BSP\s+/i, '') || 'Painel');
+  const status = getProjectStatusPresentation(project);
+  const stages = getClientProductionStages(project);
+  const overall = getClientOverallProgress(project);
+  const fabrication = getClientFabricationProgress(project);
+  const plannedToday = getClientPlannedToday(project);
+  const completedTags = getClientCompletedTags(project);
+  const totalTags = getProjectItemCount(project);
+  const remainingTags = Math.max(0, totalTags - completedTags);
+  const weight = Number(project?.kilos || 0);
+  const welded = Number(project?.weldedWeightKg || 0);
+  const pending = Math.max(0, weight - welded);
+  const timeline = getClientStageTimeline(project);
+  const attention = getClientAttentionPoints(project);
+  const scheduleRows = buildClientExecutiveSchedule(project);
+  const curveRows = buildClientSCurveData(project);
+  const detailRows = buildClientExecutiveDetailRows(project);
+  const startDate = clientFormatDateValue(getClientAnalyticStartDate(project));
+  const finishDate = clientFormatDateValue(getClientAnalyticFinishDate(project));
+  const shipmentDate = clientFormatDateValue(getProjectShipmentDate(project));
+  const deviationPercent = Math.max(0, plannedToday - overall);
+  const generatedAt = new Date().toLocaleString('pt-BR');
+  const po = getClientTrackingReportPo(project) || '—';
+
+  const panelCols = [120, 145, 120, 145, 120, 145, 120, 145, 120, 145].map((width) => `<Column ss:Width="${width}"/>`).join('');
+  const panelRows = [];
+  panelRows.push(excelRow([excelMergedCell('STEP OIL & GAS | SPOOL FABRICATION - DASHBOARD', 'PanelTitle', 9)], 30));
+  panelRows.push(excelRow([excelMergedCell(`${getClientProjectDisplayCode(project)} • ${getProjectClientLabel(project)} • ${getProjectVesselLabel(project)}`, 'PanelSubtitle', 9)], 24));
+  panelRows.push(excelRow([excelMergedCell(`Exportado em ${generatedAt} | Layout completo do painel executivo do cliente`, 'PanelMeta', 9)], 20));
+  panelRows.push(excelBlankRow());
+
+  panelRows.push(excelSectionRow('Informações principais', 'Tracking + Work in Progress'));
+  panelRows.push(excelMetricRows([
+    ['Project', getClientTrackingReportProjectText(project)],
+    ['Client', getProjectClientLabel(project)],
+    ['Vessel', getProjectVesselLabel(project)],
+    ['Client PO Number', po],
+    ['PM', project?.pm || '—'],
+    ['Priority', project?.priority || '—'],
+    ['Project Type', getProjectTypeLabel(project) || '—'],
+    ['Status', status.text || '—'],
+    ['Início', startDate || '—'],
+    ['Término planejado', finishDate || '—'],
+    ['Planejado hoje', formatPercent(plannedToday)],
+    ['Desvio', formatPercent(deviationPercent)],
+    ['Envio efetivo', shipmentDate || '—'],
+    ['Etapa atual', getProjectCurrentStageDisplay(project) || '—'],
+    ['M² programada', formatNumber(project?.m2Painting, 3)],
+  ]));
+  panelRows.push(excelBlankRow());
+
+  panelRows.push(excelSectionRow('KPIs do painel', 'Visão executiva'));
+  panelRows.push(excelRow([
+    excelCellWithStyle('Indicador', 'String', 'Header'),
+    excelCellWithStyle('Valor', 'String', 'Header'),
+    excelCellWithStyle('Indicador', 'String', 'Header'),
+    excelCellWithStyle('Valor', 'String', 'Header'),
+    excelCellWithStyle('Indicador', 'String', 'Header'),
+    excelCellWithStyle('Valor', 'String', 'Header'),
+    excelCellWithStyle('Indicador', 'String', 'Header'),
+    excelCellWithStyle('Valor', 'String', 'Header'),
+    excelCellWithStyle('Indicador', 'String', 'Header'),
+    excelCellWithStyle('Valor', 'String', 'Header'),
+  ], 22));
+  panelRows.push(excelMetricRows([
+    ['Overall Progress', formatPercent(overall)],
+    ['Fabrication Progress', formatPercent(fabrication)],
+    ['Peso programado', `${formatNumber(weight, 0)} kg`],
+    ['Peso soldado', `${formatNumber(welded, 0)} kg`],
+    ['Peso restante', `${formatNumber(pending, 0)} kg`],
+    ['Tags totais', formatNumber(totalTags, 0)],
+    ['Tags finalizadas', formatNumber(completedTags, 0)],
+    ['Tags restantes', formatNumber(remainingTags, 0)],
+    ['Progresso planejado hoje', formatPercent(plannedToday)],
+    ['Desvio acumulado', formatPercent(deviationPercent)],
+  ]));
+  panelRows.push(excelBlankRow());
+
+  panelRows.push(excelSectionRow('Progress by Production Stage', 'Etapas principais'));
+  panelRows.push(excelRow([
+    excelCellWithStyle('Etapa', 'String', 'Header'),
+    excelCellWithStyle('Progresso', 'String', 'Header'),
+    excelCellWithStyle('Status', 'String', 'Header'),
+    excelMergedCell('', 'Header', 6),
+  ], 22));
+  stages.forEach((stage) => {
+    panelRows.push(excelRow([
+      excelCellWithStyle(stage.label, 'String', 'NormalCell'),
+      excelCellWithStyle(excelPercentNumber(stage.percent), 'Percent', 'Percent'),
+      excelCellWithStyle(excelPanelStageStatus(stage.percent), 'String', stage.percent >= 99.9 ? 'Good' : stage.percent > 0 ? 'Warning' : 'NormalCell'),
+      excelMergedCell('', 'NormalCell', 6),
+    ], 22));
+  });
+  panelRows.push(excelBlankRow());
+
+  panelRows.push(excelSectionRow('Timeline operacional', 'Resumo dos passos do schedule'));
+  panelRows.push(excelRow([
+    excelCellWithStyle('Etapa', 'String', 'Header'),
+    excelCellWithStyle('Progresso', 'String', 'Header'),
+    excelCellWithStyle('Estado', 'String', 'Header'),
+    excelMergedCell('', 'Header', 6),
+  ], 22));
+  timeline.forEach((item) => {
+    panelRows.push(excelRow([
+      excelCellWithStyle(item.label, 'String', 'NormalCell'),
+      excelCellWithStyle(excelPercentNumber(item.percent), 'Percent', 'Percent'),
+      excelCellWithStyle(excelPanelStageStatus(item.percent), 'String', item.percent >= 99.9 ? 'Good' : item.percent > 0 ? 'Warning' : 'NormalCell'),
+      excelMergedCell('', 'NormalCell', 6),
+    ], 22));
+  });
+  panelRows.push(excelBlankRow());
+
+  panelRows.push(excelSectionRow('S-Curve | Planejado x Realizado', 'Dados que alimentam a curva'));
+  panelRows.push(excelRow([
+    excelCellWithStyle('Data', 'String', 'Header'),
+    excelCellWithStyle('Planejado', 'String', 'Header'),
+    excelCellWithStyle('Realizado', 'String', 'Header'),
+    excelCellWithStyle('Desvio', 'String', 'Header'),
+    excelCellWithStyle('Marco / Observação', 'String', 'Header'),
+    excelMergedCell('', 'Header', 4),
+  ], 22));
+  curveRows.forEach((point) => {
+    const planned = Number(point.planned || 0);
+    const actual = point.actual == null ? '' : Number(point.actual || 0);
+    const deviation = actual === '' ? '' : actual - planned;
+    panelRows.push(excelRow([
+      excelCellWithStyle(clientFormatDateValue(point.date), 'String', 'NormalCell'),
+      excelCellWithStyle(excelPercentNumber(planned), 'Percent', 'Percent'),
+      excelCellWithStyle(actual === '' ? '—' : excelPercentNumber(actual), actual === '' ? 'String' : 'Percent', actual === '' ? 'Muted' : 'Percent'),
+      excelCellWithStyle(deviation === '' ? '—' : excelSignedPercentNumber(deviation), deviation === '' ? 'String' : 'Percent', deviation > 0 ? 'Good' : deviation < 0 ? 'Warning' : 'Percent'),
+      excelCellWithStyle(point.trackingLabel || '', 'String', 'NormalCell'),
+      excelMergedCell('', 'NormalCell', 4),
+    ], 20));
+  });
+  panelRows.push(excelBlankRow());
+
+  panelRows.push(excelSectionRow('Schedule Executivo da BSP', 'Planejado + datas reais do Tracking quando preenchidas'));
+  panelRows.push(excelRow([
+    excelCellWithStyle('Etapa', 'String', 'Header'),
+    excelCellWithStyle('%', 'String', 'Header'),
+    excelCellWithStyle('Prazo médio', 'String', 'Header'),
+    excelCellWithStyle('Início', 'String', 'Header'),
+    excelCellWithStyle('Término', 'String', 'Header'),
+    excelCellWithStyle('Status', 'String', 'Header'),
+    excelCellWithStyle('Desvio', 'String', 'Header'),
+    excelMergedCell('', 'Header', 2),
+  ], 22));
+  scheduleRows.forEach((row) => {
+    const state = getClientScheduleVisualState(row.progress);
+    const statusText = state === 'completed' ? 'Concluído' : state === 'in-progress' ? 'Em andamento' : 'Não iniciado';
+    panelRows.push(excelRow([
+      excelCellWithStyle(row.label || '—', 'String', row.type === 'group' ? 'Summary' : 'NormalCell'),
+      excelCellWithStyle(excelPercentNumber(row.progress), 'Percent', 'Percent'),
+      excelCellWithStyle(`${formatNumber(row.duration, 0)}d`, 'String', 'NormalCell'),
+      excelCellWithStyle(formatClientDateShort(row.start), 'String', 'NormalCell'),
+      excelCellWithStyle(formatClientDateShort(row.finish), 'String', 'NormalCell'),
+      excelCellWithStyle(statusText, 'String', state === 'completed' ? 'Good' : state === 'in-progress' ? 'Warning' : 'NormalCell'),
+      excelCellWithStyle(Number.isFinite(row.deviationDays) && row.deviationDays !== 0 ? `${row.deviationDays > 0 ? '+' : ''}${row.deviationDays}d` : '—', 'String', row.deviationDays > 0 ? 'Warning' : 'NormalCell'),
+      excelMergedCell('', 'NormalCell', 2),
+    ], 20));
+  });
+  panelRows.push(excelBlankRow());
+
+  panelRows.push(excelSectionRow('S-Curve | Attention Points', 'Análise automática'));
+  if (attention.length) {
+    attention.forEach((item, index) => panelRows.push(excelRow([
+      excelCellWithStyle(index + 1, 'Number', 'Number'),
+      excelCellWithOptions(item, 'String', 'NormalCell', { mergeAcross: 8 }),
+    ], 22)));
+  } else {
+    panelRows.push(excelRow([excelMergedCell('Nenhum ponto de atenção automático encontrado.', 'Muted', 9)], 22));
+  }
+  panelRows.push(excelBlankRow());
+
+  panelRows.push(excelSectionRow('Report Tracking + Work in Progress', 'Tabela consolidada da BSP e spools'));
+  panelRows.push(excelRow(CLIENT_TRACKING_REPORT_COLUMNS.map((column) => excelCellWithStyle(column.label, 'String', 'Header')), 26));
+  reportRows.forEach((row) => {
+    const rowStyle = row._summary ? 'Summary' : 'NormalCell';
     const cells = CLIENT_TRACKING_REPORT_COLUMNS.map((column) => {
       const value = row[column.label];
-      if (column.type === 'number') return excelCellWithStyle(value, 'Number', rowStyle || 'Number');
-      if (column.type === 'percent') {
-        if (String(value).trim().toUpperCase() === 'N/A') return excelCellWithStyle('N/A', 'String', rowStyle || 'NormalCell');
-        return excelCellWithStyle(value, 'Percent', rowStyle || 'Percent');
+      if (column.type === 'number') return excelCellWithStyle(value, 'Number', row._summary ? 'SummaryNumber' : 'Number');
+      if (column.type === 'percent' || column.type === 'percent-or-text') {
+        if (String(value).trim().toUpperCase() === 'N/A') return excelCellWithStyle('N/A', 'String', rowStyle);
+        return excelCellWithStyle(value, 'Percent', row._summary ? 'SummaryPercent' : 'Percent');
       }
-      if (column.type === 'percent-or-text') {
-        if (String(value).trim().toUpperCase() === 'N/A') return excelCellWithStyle('N/A', 'String', rowStyle || 'NormalCell');
-        return excelCellWithStyle(value, 'Percent', rowStyle || 'Percent');
+      return excelCellWithStyle(value, 'String', rowStyle);
+    });
+    panelRows.push(excelRow(cells, row._summary ? 24 : 21));
+  });
+
+  const reportColumnDefs = CLIENT_TRACKING_REPORT_COLUMNS.map((column) => `<Column ss:Width="${column.width || 110}"/>`).join('');
+  const reportSheetRows = [];
+  reportSheetRows.push(excelRow([excelMergedCell('Report Tracking + Work in Progress', 'PanelTitle', Math.max(1, CLIENT_TRACKING_REPORT_COLUMNS.length - 1))], 28));
+  reportSheetRows.push(excelRow([excelMergedCell(`${getClientProjectDisplayCode(project)} | PO ${po}`, 'PanelSubtitle', Math.max(1, CLIENT_TRACKING_REPORT_COLUMNS.length - 1))], 22));
+  reportSheetRows.push(excelBlankRow());
+  reportSheetRows.push(excelRow(CLIENT_TRACKING_REPORT_COLUMNS.map((column) => excelCellWithStyle(column.label, 'String', 'Header')), 26));
+  reportRows.forEach((row) => {
+    const rowStyle = row._summary ? 'Summary' : 'NormalCell';
+    const cells = CLIENT_TRACKING_REPORT_COLUMNS.map((column) => {
+      const value = row[column.label];
+      if (column.type === 'number') return excelCellWithStyle(value, 'Number', row._summary ? 'SummaryNumber' : 'Number');
+      if (column.type === 'percent' || column.type === 'percent-or-text') {
+        if (String(value).trim().toUpperCase() === 'N/A') return excelCellWithStyle('N/A', 'String', rowStyle);
+        return excelCellWithStyle(value, 'Percent', row._summary ? 'SummaryPercent' : 'Percent');
       }
-      return excelCellWithStyle(value, 'String', rowStyle || 'NormalCell');
-    }).join('');
-    return `<Row>${cells}</Row>`;
-  }).join('');
+      return excelCellWithStyle(value, 'String', rowStyle);
+    });
+    reportSheetRows.push(excelRow(cells, row._summary ? 24 : 21));
+  });
+
+  const detailColumnDefs = [145, 260, 300, 160, 160, 90, 95].map((width) => `<Column ss:Width="${width}"/>`).join('');
+  const detailSheetRows = [];
+  detailSheetRows.push(excelRow([excelMergedCell('Detalhamento da obra', 'PanelTitle', 6)], 28));
+  detailSheetRows.push(excelRow([excelMergedCell(`${getClientProjectDisplayCode(project)} | ${getProjectClientLabel(project)}`, 'PanelSubtitle', 6)], 22));
+  detailSheetRows.push(excelBlankRow());
+  detailSheetRows.push(excelRow(['Tag/ISO', 'Descrição', 'Observação', 'Status', 'Etapa', '%', 'Peso'].map((label) => excelCellWithStyle(label, 'String', 'Header')), 26));
+  if (detailRows.length) {
+    detailRows.forEach((row) => {
+      detailSheetRows.push(excelRow([
+        excelCellWithStyle(row.iso, 'String', 'NormalCell'),
+        excelCellWithStyle(row.description, 'String', 'NormalCell'),
+        excelCellWithStyle(row.observations, 'String', 'NormalCell'),
+        excelCellWithStyle(row.status, 'String', row.state === 'completed' ? 'Good' : row.state === 'in-progress' ? 'Warning' : 'NormalCell'),
+        excelCellWithStyle(row.sector, 'String', 'NormalCell'),
+        excelCellWithStyle(row.progress, 'Percent', 'Percent'),
+        excelCellWithStyle(row.kilos, 'Number', 'Number'),
+      ], 22));
+    });
+  } else {
+    detailSheetRows.push(excelRow([excelMergedCell('Nenhuma tag detalhada encontrada para esta BSP.', 'Muted', 6)], 22));
+  }
+
+  const styles = `
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center"/><Font ss:FontName="Arial" ss:Size="10"/></Style>
+  <Style ss:ID="PanelTitle"><Alignment ss:Vertical="Center" ss:Horizontal="Center"/><Font ss:Bold="1" ss:Color="#FFFFFF" ss:Size="14"/><Interior ss:Color="#0B3A5A" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="PanelSubtitle"><Alignment ss:Vertical="Center" ss:Horizontal="Center"/><Font ss:Bold="1" ss:Color="#0B3A5A" ss:Size="11"/><Interior ss:Color="#DFF4FF" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="PanelMeta"><Alignment ss:Vertical="Center" ss:Horizontal="Center"/><Font ss:Color="#475569" ss:Size="9"/><Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Section"><Alignment ss:Vertical="Center"/><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#0F766E" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Header"><Alignment ss:Vertical="Center" ss:Horizontal="Center" ss:WrapText="1"/><Font ss:Bold="1" ss:Color="#0F2F46"/><Interior ss:Color="#EAF6FB" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#94A3B8"/><Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
+  <Style ss:ID="MetricLabel"><Alignment ss:Vertical="Center"/><Font ss:Bold="1" ss:Color="#0F766E" ss:Size="9"/><Interior ss:Color="#F0FDFA" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCFBF1"/></Borders></Style>
+  <Style ss:ID="MetricValue"><Alignment ss:Vertical="Center" ss:WrapText="1"/><Font ss:Bold="1" ss:Color="#0F172A"/><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
+  <Style ss:ID="NormalCell"><Alignment ss:Vertical="Center" ss:WrapText="1"/><Font ss:Color="#1E293B"/><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#EEF2F7"/></Borders></Style>
+  <Style ss:ID="Number"><Alignment ss:Vertical="Center"/><NumberFormat ss:Format="0.00"/><Font ss:Color="#1E293B"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
+  <Style ss:ID="Percent"><Alignment ss:Vertical="Center"/><NumberFormat ss:Format="0.00%"/><Font ss:Color="#1E293B"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
+  <Style ss:ID="Good"><Alignment ss:Vertical="Center" ss:WrapText="1"/><Font ss:Bold="1" ss:Color="#065F46"/><Interior ss:Color="#ECFDF5" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/></Borders></Style>
+  <Style ss:ID="Warning"><Alignment ss:Vertical="Center" ss:WrapText="1"/><Font ss:Bold="1" ss:Color="#92400E"/><Interior ss:Color="#FFFBEB" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FDE68A"/></Borders></Style>
+  <Style ss:ID="Muted"><Alignment ss:Vertical="Center" ss:WrapText="1"/><Font ss:Color="#64748B" ss:Italic="1"/><Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
+  <Style ss:ID="Summary"><Alignment ss:Vertical="Center" ss:WrapText="1"/><Font ss:Bold="1" ss:Color="#0F172A"/><Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#94A3B8"/><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#94A3B8"/></Borders></Style>
+  <Style ss:ID="SummaryNumber"><Alignment ss:Vertical="Center"/><NumberFormat ss:Format="0.00"/><Font ss:Bold="1" ss:Color="#0F172A"/><Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#94A3B8"/></Borders></Style>
+  <Style ss:ID="SummaryPercent"><Alignment ss:Vertical="Center"/><NumberFormat ss:Format="0.00%"/><Font ss:Bold="1" ss:Color="#0F172A"/><Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#94A3B8"/></Borders></Style>
+ </Styles>`;
 
   return `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
@@ -8594,33 +8912,28 @@ function buildClientTrackingReportWorkbook(project) {
  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
  xmlns:html="http://www.w3.org/TR/REC-html40">
  <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
-  <Title>${excelXmlEscape(`${project?.projectDisplay || 'BSP'} Report`)}</Title>
+  <Title>${excelXmlEscape(`${project?.projectDisplay || 'BSP'} Painel Executivo`)}</Title>
   <Author>STEP Dashboard</Author>
   <Created>${new Date().toISOString()}</Created>
  </DocumentProperties>
- <Styles>
-  <Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center"/><Font ss:FontName="Arial" ss:Size="10"/></Style>
-  <Style ss:ID="NormalCell"><Alignment ss:Vertical="Center" ss:WrapText="1"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
-  <Style ss:ID="Number"><Alignment ss:Vertical="Center"/><NumberFormat ss:Format="0.00"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
-  <Style ss:ID="Percent"><Alignment ss:Vertical="Center"/><NumberFormat ss:Format="0.00%"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
-  <Style ss:ID="Header"><Alignment ss:Vertical="Center" ss:WrapText="1"/><Font ss:Bold="1" ss:Color="#1F2937"/><Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#94A3B8"/></Borders></Style>
-  <Style ss:ID="Summary"><Alignment ss:Vertical="Center" ss:WrapText="1"/><Font ss:Bold="1" ss:Color="#000000"/><Interior ss:Color="#FFF200" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#94A3B8"/></Borders></Style>
- </Styles>
- <Worksheet ss:Name="${excelXmlEscape(safeSheetName)}">
-  <Table>
-   ${columnDefs}
-   ${headerRow}
-   ${bodyRows}
-  </Table>
-  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
-   <FreezePanes/>
-   <FrozenNoSplit/>
-   <SplitHorizontal>1</SplitHorizontal>
-   <TopRowBottomPane>1</TopRowBottomPane>
-   <ActivePane>2</ActivePane>
-  </WorksheetOptions>
+ ${styles}
+ <Worksheet ss:Name="${excelXmlEscape(sanitizeWorksheetName(`Painel ${safeProjectName}`))}">
+  <Table>${panelCols}${panelRows.join('')}</Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><FrozenNoSplit/><SplitHorizontal>3</SplitHorizontal><TopRowBottomPane>3</TopRowBottomPane><ActivePane>2</ActivePane></WorksheetOptions>
+ </Worksheet>
+ <Worksheet ss:Name="Report Tracking WIP">
+  <Table>${reportColumnDefs}${reportSheetRows.join('')}</Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><FrozenNoSplit/><SplitHorizontal>4</SplitHorizontal><TopRowBottomPane>4</TopRowBottomPane><ActivePane>2</ActivePane></WorksheetOptions>
+ </Worksheet>
+ <Worksheet ss:Name="Detalhamento">
+  <Table>${detailColumnDefs}${detailSheetRows.join('')}</Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><FrozenNoSplit/><SplitHorizontal>4</SplitHorizontal><TopRowBottomPane>4</TopRowBottomPane><ActivePane>2</ActivePane></WorksheetOptions>
  </Worksheet>
 </Workbook>`;
+}
+
+function buildClientTrackingReportWorkbook(project) {
+  return buildClientExecutivePanelWorkbook(project);
 }
 
 function sanitizeWorksheetName(value) {
@@ -8640,7 +8953,7 @@ function downloadClientTrackingReport(project) {
   const blob = new Blob(['\ufeff', workbook], { type: 'application/vnd.ms-excel;charset=utf-8;' });
   const po = sanitizeFilenamePart(getClientTrackingReportPo(project) || 'sem-po');
   const projectPart = sanitizeFilenamePart(project.projectNumber || project.projectDisplay || 'bsp');
-  const filename = `report_${projectPart}_PO_${po}_${new Date().toISOString().slice(0, 10)}.xls`;
+  const filename = `painel_executivo_${projectPart}_PO_${po}_${new Date().toISOString().slice(0, 10)}.xls`;
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
   link.download = filename;

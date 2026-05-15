@@ -1,0 +1,28 @@
+Versão v36.48 - Excel do Painel Completo + Ajuste visual do Report
+
+Alterações aplicadas:
+
+1) Botão de Excel da Visão Executiva
+- O botão agora aparece como "Baixar Excel do Painel".
+- O arquivo exportado não baixa somente a tabela do Report/Tracking.
+- O Excel agora exporta o conteúdo completo do painel executivo da BSP.
+
+2) Conteúdo do Excel exportado
+O arquivo gerado possui layout mais refinado e inclui:
+- Informações principais da BSP: Project, Client, Vessel, PO, Priority, Project Type, PM, status, início, término e envio efetivo.
+- KPIs do painel: progresso geral, fabrication progress, peso programado, peso soldado, peso restante, tags totais, tags finalizadas, tags restantes, planejado hoje e desvio.
+- Progress by Production Stage.
+- Timeline operacional.
+- Dados da Curva S: data, planejado, realizado, desvio e marcos.
+- Schedule Executivo da BSP.
+- S-Curve Attention Points.
+- Report Tracking + Work in Progress.
+- Aba adicional de Detalhamento da obra com tags/ISOs, observações, status, etapa, progresso e peso.
+
+3) Visual do Report no painel
+- Corrigida a coluna "Primary" que ficava com bloco escuro e largo demais.
+- Removido o destaque amarelo da linha principal/resumo.
+- Linha principal agora usa um destaque discreto em cinza/azul claro, mais profissional e alinhado ao restante do painel.
+
+4) Cache
+- Atualizado o service worker para v36.48, forçando o navegador a buscar app.js e app.css novos.
