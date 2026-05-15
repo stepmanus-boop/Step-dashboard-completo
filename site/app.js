@@ -6097,7 +6097,7 @@ function renderClientTrackingReportPreview(project) {
           <h3>Report do Cliente</h3>
           <span>Dados do Tracking + Work in Progress exibidos dentro da visão principal</span>
         </div>
-        <button class="client-exec-pdf-button client-exec-report-button" type="button" data-client-download-report="${escapeHtml(project?.rowId || '')}">Baixar Excel do Painel</button>
+        <button class="client-exec-pdf-button client-exec-report-button" type="button" data-client-download-report="${escapeHtml(project?.rowId || '')}">Baixar Excel do Cronograma</button>
       </div>
       <div class="client-report-summary-strip">
         <article><span>Project</span><strong>${escapeHtml(getClientTrackingReportProjectText(project))}</strong></article>
@@ -7161,7 +7161,7 @@ function openClientBspExecutive(project, options = {}) {
         <p>${escapeHtml(getProjectClientLabel(project))} • ${escapeHtml(getProjectVesselLabel(project))} • <span class="cell-status cell-status--${status.state}">${escapeHtml(status.text)}</span></p>
         <div class="client-exec-header-actions">
           <button class="client-exec-pdf-button" type="button" data-client-download-pdf data-client-report-type="project" data-client-report-project-id="${escapeHtml(project.rowId)}">Baixar PDF</button>
-          <button class="client-exec-pdf-button client-exec-report-button" type="button" data-client-download-report="${escapeHtml(project.rowId)}">Baixar Excel do Painel</button>
+          <button class="client-exec-pdf-button client-exec-report-button" type="button" data-client-download-report="${escapeHtml(project.rowId)}">Baixar Excel do Cronograma</button>
           ${canManageClientBspPanel(project) ? `<button class="client-exec-pdf-button client-exec-edit-button" type="button" data-client-bsp-edit="${escapeHtml(project.rowId)}">Editar datas / informações</button>` : ''}
         </div>
       </div>
