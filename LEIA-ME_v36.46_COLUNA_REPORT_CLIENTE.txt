@@ -1,0 +1,22 @@
+Versão v36.46 - Coluna Report no cronograma do cliente
+
+O que foi adicionado:
+- Nova coluna "Report" na tabela de BSPs do Portal do Cliente.
+- Cada BSP agora possui botão "Report" para baixar um arquivo Excel no modelo do relatório enviado como referência.
+- O report exportado usa as colunas:
+  Primary, Project, Client, Vessel, Client PO Number, Priority, Project Type, PM, Drawing, Line Nº, Size, Quantity Spools, Kilos, etapas de progresso e % Individual Progress.
+- O arquivo é gerado a partir dos dados já carregados do Tracking + Work in Progress:
+  - Tracking: estrutura da BSP, ISOs/spools, etapa, peso, quantidade, line, size, progressos.
+  - Work in Progress: Client PO Number e dados complementares de PO.
+- A linha principal da BSP sai destacada no Excel e abaixo ficam as linhas das ISOs/spools.
+
+Arquivos alterados:
+- site/app.js
+- site/app.css
+- site/sw.js
+- netlify/functions/projects.js
+- netlify/functions/client-data.js
+
+Observação:
+- A alteração não usa refresh automático da página.
+- O botão baixa o report diretamente no navegador, sem fechar painéis ou modais abertos.

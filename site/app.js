@@ -5891,6 +5891,65 @@ function renderClientExecutiveSchedule(project) {
   `;
 }
 
+
+function formatClientTrackingReportScreenCell(value, column = {}) {
+  if (value == null || value === '') return '—';
+  const rawText = String(value).trim();
+  if (!rawText) return '—';
+  if (column.type === 'percent' || column.type === 'percent-or-text') {
+    if (rawText.toUpperCase() === 'N/A') return 'N/A';
+    const number = Number(value);
+    if (!Number.isFinite(number)) return escapeHtml(rawText);
+    return formatPercent(number * 100);
+  }
+  if (column.type === 'number') {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return escapeHtml(rawText);
+    const fraction = /kilos/i.test(column.label || '') ? 0 : 0;
+    return formatNumber(number, fraction);
+  }
+  return escapeHtml(rawText);
+}
+
+function renderClientTrackingReportPreview(project) {
+  const rows = buildClientTrackingReportRows(project);
+  if (!rows.length) return '<section class="client-exec-card client-exec-report-preview"><div class="client-empty-state">Report não disponível para esta BSP.</div></section>';
+  const summary = rows[0] || {};
+  const columns = CLIENT_TRACKING_REPORT_COLUMNS;
+  const po = summary['Client PO Number'] || getClientTrackingReportPo(project) || '—';
+  const progress = formatClientTrackingReportScreenCell(summary['% Individual Progress'], { type: 'percent' });
+  const spoolCount = summary['Quantity Spools'] || getProjectItemCount(project) || 0;
+  const kilos = summary['Kilos'] || project?.kilos || 0;
+  return `
+    <section class="client-exec-card client-exec-report-preview">
+      <div class="client-exec-card-head client-exec-card-head--report">
+        <div>
+          <h3>Report do Cliente</h3>
+          <span>Dados do Tracking + Work in Progress exibidos dentro da visão principal</span>
+        </div>
+        <button class="client-exec-pdf-button client-exec-report-button" type="button" data-client-download-report="${escapeHtml(project?.rowId || '')}">Baixar Excel</button>
+      </div>
+      <div class="client-report-summary-strip">
+        <article><span>Project</span><strong>${escapeHtml(getClientTrackingReportProjectText(project))}</strong></article>
+        <article><span>Client PO Number</span><strong>${escapeHtml(po)}</strong></article>
+        <article><span>PM</span><strong>${escapeHtml(summary.PM || project?.pm || '—')}</strong></article>
+        <article><span>Project Type</span><strong>${escapeHtml(summary['Project Type'] || getProjectTypeLabel(project) || '—')}</strong></article>
+        <article><span>Quantity Spools</span><strong>${formatNumber(spoolCount, 0)}</strong></article>
+        <article><span>Kilos</span><strong>${formatNumber(kilos, 0)}</strong></article>
+        <article><span>% Individual Progress</span><strong>${escapeHtml(progress)}</strong></article>
+      </div>
+      <div class="client-table-wrap client-report-table-wrap">
+        <table class="client-bsp-table client-tracking-report-table">
+          <thead><tr>${columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead>
+          <tbody>
+            ${rows.map((row) => `<tr class="${row._summary ? 'client-report-summary-row' : ''}">${columns.map((column) => `<td>${formatClientTrackingReportScreenCell(row[column.label], column)}</td>`).join('')}</tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
 function getClientStageTimeline(project) {
   const stages = getClientProductionStages(project);
   return stages.map((stage) => ({
@@ -6072,6 +6131,14 @@ function ensureClientBspExecutiveModalEl() {
       event.preventDefault();
       event.stopPropagation();
       handleClientExecutivePdfDownload(pdfButton);
+      return;
+    }
+    const reportButton = event.target.closest('[data-client-download-report]');
+    if (reportButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const project = state.projects.find((item) => String(item.rowId) === String(reportButton.dataset.clientDownloadReport));
+      downloadClientTrackingReport(project);
       return;
     }
     const editButton = event.target.closest('[data-client-bsp-edit]');
@@ -6906,6 +6973,7 @@ function openClientBspExecutive(project, options = {}) {
         <p>${escapeHtml(getProjectClientLabel(project))} • ${escapeHtml(getProjectVesselLabel(project))} • <span class="cell-status cell-status--${status.state}">${escapeHtml(status.text)}</span></p>
         <div class="client-exec-header-actions">
           <button class="client-exec-pdf-button" type="button" data-client-download-pdf data-client-report-type="project" data-client-report-project-id="${escapeHtml(project.rowId)}">Baixar PDF</button>
+          <button class="client-exec-pdf-button client-exec-report-button" type="button" data-client-download-report="${escapeHtml(project.rowId)}">Baixar Report Excel</button>
           ${canManageClientBspPanel(project) ? `<button class="client-exec-pdf-button client-exec-edit-button" type="button" data-client-bsp-edit="${escapeHtml(project.rowId)}">Editar datas / informações</button>` : ''}
         </div>
       </div>
@@ -6987,6 +7055,8 @@ function openClientBspExecutive(project, options = {}) {
       <div class="client-exec-card-head"><h3>Schedule Executivo da BSP</h3><span>Planejado + datas reais do Tracking quando preenchidas</span></div>
       ${renderClientExecutiveSchedule(project)}
     </section>
+
+    ${renderClientTrackingReportPreview(project)}
 
     <section class="client-exec-card client-exec-attention">
       <div class="client-exec-card-head"><h3>S-Curve | Attention Points</h3><span>Análise automática</span></div>
@@ -7320,6 +7390,14 @@ function handleClientApiModalClick(event) {
 }
 
 function handleClientDashboardClick(event) {
+  const reportButton = event.target.closest('[data-client-download-report]');
+  if (reportButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    const project = state.projects.find((item) => String(item.rowId) === String(reportButton.dataset.clientDownloadReport));
+    downloadClientTrackingReport(project);
+    return;
+  }
   const apiButton = event.target.closest('[data-client-open-api]');
   if (apiButton) {
     openClientApiModal();
@@ -7378,6 +7456,11 @@ function handleClientDashboardClick(event) {
 }
 
 function handleClientDashboardDblClick(event) {
+  if (event.target.closest('[data-client-download-report]')) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
   const vesselButton = event.target.closest('[data-client-vessel]');
   if (vesselButton && isClientUser()) {
     event.preventDefault();
@@ -8310,6 +8393,265 @@ function excelCell(value, type = 'String') {
   return `<Cell><Data ss:Type="String">${excelXmlEscape(value == null || value === '' ? '—' : value)}</Data></Cell>`;
 }
 
+const CLIENT_TRACKING_REPORT_COLUMNS = [
+  { label: 'Primary', width: 82 },
+  { label: 'Project', width: 135 },
+  { label: 'Client', width: 115 },
+  { label: 'Vessel', width: 115 },
+  { label: 'Client PO Number', width: 145 },
+  { label: 'Priority', width: 70, type: 'number' },
+  { label: 'Project Type', width: 110 },
+  { label: 'PM', width: 150 },
+  { label: 'Drawing', width: 230 },
+  { label: 'Line Nº', width: 180 },
+  { label: 'Size', width: 80 },
+  { label: 'Quantity Spools', width: 105, type: 'number' },
+  { label: 'Kilos', width: 95, type: 'number' },
+  { label: 'Drawing Execution Advance%', width: 135, type: 'percent' },
+  { label: 'Spool Assemble and tack weld', width: 150, type: 'percent' },
+  { label: 'Full welding execution', width: 135, type: 'percent' },
+  { label: 'Non Destructive Examination (QC)', width: 165, type: 'percent' },
+  { label: 'Final Dimensional Inpection/3D (QC)', width: 185, type: 'percent' },
+  { label: 'Hydro Test Pressure (QC)', width: 150, type: 'percent' },
+  { label: 'HDG / FBE.  (PAINT)', width: 135, type: 'percent-or-text' },
+  { label: 'Surface preparation and/or coating', width: 180, type: 'percent' },
+  { label: 'Final Inspection', width: 120, type: 'percent' },
+  { label: 'Package and Delivered', width: 140, type: 'percent' },
+  { label: '% Individual Progress', width: 130, type: 'percent' },
+];
+
+const CLIENT_TRACKING_REPORT_STAGE_KEYS = {
+  'Drawing Execution Advance%': 'Drawing Execution Advance%',
+  'Spool Assemble and tack weld': 'Spool Assemble and tack weld',
+  'Full welding execution': 'Full welding execution',
+  'Non Destructive Examination (QC)': 'Non Destructive Examination (QC)',
+  'Final Dimensional Inpection/3D (QC)': 'Final Dimensional Inpection/3D (QC)',
+  'Hydro Test Pressure (QC)': 'Hydro Test Pressure (QC)',
+  'HDG / FBE.  (PAINT)': 'HDG / FBE.  (PAINT)',
+  'Surface preparation and/or coating': 'Surface preparation and/or coating',
+  'Final Inspection': 'Final Inspection',
+  'Package and Delivered': 'Package and Delivered',
+};
+
+function excelCellWithStyle(value, type = 'String', styleId = '') {
+  const styleAttr = styleId ? ` ss:StyleID="${excelXmlEscape(styleId)}"` : '';
+  if (value == null || value === '') return `<Cell${styleAttr}/>`;
+  if (type === 'Number' || type === 'Percent') {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return `<Cell${styleAttr}><Data ss:Type="String">${excelXmlEscape(value)}</Data></Cell>`;
+    return `<Cell${styleAttr}><Data ss:Type="Number">${number}</Data></Cell>`;
+  }
+  return `<Cell${styleAttr}><Data ss:Type="String">${excelXmlEscape(value)}</Data></Cell>`;
+}
+
+function getClientTrackingReportPo(project) {
+  const list = Array.isArray(project?.customerPoList) ? project.customerPoList : [];
+  const candidates = [project?.customerPo, ...list, project?.customerPoDisplay]
+    .map((value) => String(value || '').trim())
+    .filter((value) => value && !/aguardando\s+po/i.test(value));
+  return Array.from(new Set(candidates)).join(', ');
+}
+
+function clientReportNumberValue(value) {
+  if (value == null || value === '' || value === '—') return '';
+  let text = String(value).trim().replace(/\s/g, '');
+  if (!text) return '';
+  const hasComma = text.includes(',');
+  const hasDot = text.includes('.');
+  if (hasComma && hasDot) {
+    text = text.lastIndexOf(',') > text.lastIndexOf('.')
+      ? text.replace(/\./g, '').replace(',', '.')
+      : text.replace(/,/g, '');
+  } else if (hasComma) {
+    text = text.replace(',', '.');
+  }
+  text = text.replace(/[^\d.-]/g, '');
+  const number = Number(text);
+  return Number.isFinite(number) ? number : '';
+}
+
+function clientReportPercentNumber(value) {
+  if (value == null || value === '') return '';
+  if (String(value).trim().toUpperCase() === 'N/A') return 'N/A';
+  const raw = String(value).replace('%', '').replace(',', '.').trim();
+  const number = Number(raw);
+  if (!Number.isFinite(number)) return '';
+  if (number > 1) return Number((number / 100).toFixed(6));
+  return number;
+}
+
+function getClientTrackingReportStageValue(source, label) {
+  const key = CLIENT_TRACKING_REPORT_STAGE_KEYS[label];
+  if (!key) return '';
+  const stageValues = source?.stageValues || {};
+  const direct = stageValues[key];
+  if (direct == null || direct === '') return '';
+  if (String(direct).trim().toUpperCase() === 'N/A') return 'N/A';
+  return clientReportPercentNumber(direct);
+}
+
+function getClientTrackingReportProjectText(project, spool = null) {
+  if (spool) {
+    const ref = String(spool.projectRef || spool.projectDisplay || '').trim();
+    if (ref) return ref.replace(/^BSP\s+/i, '');
+    return String(project?.projectNumber || project?.projectDisplay || '').replace(/^BSP\s+/i, '').trim();
+  }
+  return project?.projectDisplay || project?.projectNumber || '—';
+}
+
+function buildClientTrackingReportRows(project) {
+  if (!project) return [];
+  const po = getClientTrackingReportPo(project);
+  const baseProjectRow = {
+    'Primary': project.primary || project.rowNumber || '',
+    'Project': getClientTrackingReportProjectText(project),
+    'Client': getProjectClientLabel(project),
+    'Vessel': getProjectVesselLabel(project),
+    'Client PO Number': po,
+    'Priority': clientReportNumberValue(project.priority),
+    'Project Type': getProjectTypeLabel(project),
+    'PM': project.pm || '',
+    'Drawing': project.summaryDrawing || 'ISO',
+    'Line Nº': project.lineNumber || '',
+    'Size': project.size || '',
+    'Quantity Spools': Number(project.quantitySpools || getProjectItemCount(project) || 0),
+    'Kilos': Number(project.kilos || 0),
+    'Drawing Execution Advance%': getClientTrackingReportStageValue(project, 'Drawing Execution Advance%'),
+    'Spool Assemble and tack weld': getClientTrackingReportStageValue(project, 'Spool Assemble and tack weld'),
+    'Full welding execution': getClientTrackingReportStageValue(project, 'Full welding execution'),
+    'Non Destructive Examination (QC)': getClientTrackingReportStageValue(project, 'Non Destructive Examination (QC)'),
+    'Final Dimensional Inpection/3D (QC)': getClientTrackingReportStageValue(project, 'Final Dimensional Inpection/3D (QC)'),
+    'Hydro Test Pressure (QC)': getClientTrackingReportStageValue(project, 'Hydro Test Pressure (QC)'),
+    'HDG / FBE.  (PAINT)': getClientTrackingReportStageValue(project, 'HDG / FBE.  (PAINT)'),
+    'Surface preparation and/or coating': getClientTrackingReportStageValue(project, 'Surface preparation and/or coating'),
+    'Final Inspection': getClientTrackingReportStageValue(project, 'Final Inspection'),
+    'Package and Delivered': getClientTrackingReportStageValue(project, 'Package and Delivered'),
+    '% Individual Progress': clientReportPercentNumber(project.individualProgress || project.overallProgress || 0),
+    _summary: true,
+  };
+
+  const rows = [baseProjectRow];
+  const spools = getDisplaySpoolsForProject(project);
+  spools.forEach((spool, index) => {
+    rows.push({
+      'Primary': spool.primary || `${project.primary || project.rowNumber || ''}-${String(index + 1).padStart(2, '0')}`,
+      'Project': getClientTrackingReportProjectText(project, spool),
+      'Client': spool.client || getProjectClientLabel(project),
+      'Vessel': spool.vessel || getProjectVesselLabel(project),
+      'Client PO Number': po,
+      'Priority': clientReportNumberValue(spool.priority || project.priority),
+      'Project Type': spool.projectType || getProjectTypeLabel(project),
+      'PM': spool.pm || project.pm || '',
+      'Drawing': spool.drawing || spool.iso || '',
+      'Line Nº': spool.lineNumber || '',
+      'Size': spool.size || '',
+      'Quantity Spools': Number(spool.quantitySpools || 1),
+      'Kilos': Number(spool.kilos || 0),
+      'Drawing Execution Advance%': getClientTrackingReportStageValue(spool, 'Drawing Execution Advance%'),
+      'Spool Assemble and tack weld': getClientTrackingReportStageValue(spool, 'Spool Assemble and tack weld'),
+      'Full welding execution': getClientTrackingReportStageValue(spool, 'Full welding execution'),
+      'Non Destructive Examination (QC)': getClientTrackingReportStageValue(spool, 'Non Destructive Examination (QC)'),
+      'Final Dimensional Inpection/3D (QC)': getClientTrackingReportStageValue(spool, 'Final Dimensional Inpection/3D (QC)'),
+      'Hydro Test Pressure (QC)': getClientTrackingReportStageValue(spool, 'Hydro Test Pressure (QC)'),
+      'HDG / FBE.  (PAINT)': getClientTrackingReportStageValue(spool, 'HDG / FBE.  (PAINT)'),
+      'Surface preparation and/or coating': getClientTrackingReportStageValue(spool, 'Surface preparation and/or coating'),
+      'Final Inspection': getClientTrackingReportStageValue(spool, 'Final Inspection'),
+      'Package and Delivered': getClientTrackingReportStageValue(spool, 'Package and Delivered'),
+      '% Individual Progress': clientReportPercentNumber(spool.individualProgress ?? spool.overallProgress ?? 0),
+      _summary: false,
+    });
+  });
+  return rows;
+}
+
+function buildClientTrackingReportWorkbook(project) {
+  const rows = buildClientTrackingReportRows(project);
+  const safeSheetName = sanitizeWorksheetName((project?.projectNumber || project?.projectDisplay || 'Report').replace(/^BSP\s+/i, '') || 'Report');
+  const columnDefs = CLIENT_TRACKING_REPORT_COLUMNS.map((column) => `<Column ss:Width="${column.width || 110}"/>`).join('');
+  const headerRow = `<Row ss:StyleID="Header">${CLIENT_TRACKING_REPORT_COLUMNS.map((column) => excelCellWithStyle(column.label, 'String', 'Header')).join('')}</Row>`;
+  const bodyRows = rows.map((row) => {
+    const rowStyle = row._summary ? 'Summary' : '';
+    const cells = CLIENT_TRACKING_REPORT_COLUMNS.map((column) => {
+      const value = row[column.label];
+      if (column.type === 'number') return excelCellWithStyle(value, 'Number', rowStyle || 'Number');
+      if (column.type === 'percent') {
+        if (String(value).trim().toUpperCase() === 'N/A') return excelCellWithStyle('N/A', 'String', rowStyle || 'NormalCell');
+        return excelCellWithStyle(value, 'Percent', rowStyle || 'Percent');
+      }
+      if (column.type === 'percent-or-text') {
+        if (String(value).trim().toUpperCase() === 'N/A') return excelCellWithStyle('N/A', 'String', rowStyle || 'NormalCell');
+        return excelCellWithStyle(value, 'Percent', rowStyle || 'Percent');
+      }
+      return excelCellWithStyle(value, 'String', rowStyle || 'NormalCell');
+    }).join('');
+    return `<Row>${cells}</Row>`;
+  }).join('');
+
+  return `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+  <Title>${excelXmlEscape(`${project?.projectDisplay || 'BSP'} Report`)}</Title>
+  <Author>STEP Dashboard</Author>
+  <Created>${new Date().toISOString()}</Created>
+ </DocumentProperties>
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center"/><Font ss:FontName="Arial" ss:Size="10"/></Style>
+  <Style ss:ID="NormalCell"><Alignment ss:Vertical="Center" ss:WrapText="1"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
+  <Style ss:ID="Number"><Alignment ss:Vertical="Center"/><NumberFormat ss:Format="0.00"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
+  <Style ss:ID="Percent"><Alignment ss:Vertical="Center"/><NumberFormat ss:Format="0.00%"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
+  <Style ss:ID="Header"><Alignment ss:Vertical="Center" ss:WrapText="1"/><Font ss:Bold="1" ss:Color="#1F2937"/><Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#94A3B8"/></Borders></Style>
+  <Style ss:ID="Summary"><Alignment ss:Vertical="Center" ss:WrapText="1"/><Font ss:Bold="1" ss:Color="#000000"/><Interior ss:Color="#FFF200" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#94A3B8"/></Borders></Style>
+ </Styles>
+ <Worksheet ss:Name="${excelXmlEscape(safeSheetName)}">
+  <Table>
+   ${columnDefs}
+   ${headerRow}
+   ${bodyRows}
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>1</SplitHorizontal>
+   <TopRowBottomPane>1</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+</Workbook>`;
+}
+
+function sanitizeWorksheetName(value) {
+  return String(value || 'Report')
+    .replace(/[\\/?:*\[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 31) || 'Report';
+}
+
+function downloadClientTrackingReport(project) {
+  if (!project) {
+    window.alert('Não foi possível localizar a BSP para gerar o report.');
+    return;
+  }
+  const workbook = buildClientTrackingReportWorkbook(project);
+  const blob = new Blob(['\ufeff', workbook], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+  const po = sanitizeFilenamePart(getClientTrackingReportPo(project) || 'sem-po');
+  const projectPart = sanitizeFilenamePart(project.projectNumber || project.projectDisplay || 'bsp');
+  const filename = `report_${projectPart}_PO_${po}_${new Date().toISOString().slice(0, 10)}.xls`;
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  window.setTimeout(() => {
+    URL.revokeObjectURL(link.href);
+    link.remove();
+  }, 0);
+}
+
 function buildFilteredProjectsExportRows() {
   const projects = Array.isArray(state.filteredProjects) ? state.filteredProjects : [];
   const stageOrder = Array.isArray(state.meta?.stageOrder) ? state.meta.stageOrder : [];
@@ -9072,8 +9414,44 @@ function readProjectsCache() {
   }
 }
 
+function hasResolvedCustomerPo(project) {
+  const values = [
+    project?.customerPo,
+    project?.customerPoDisplay,
+    ...(Array.isArray(project?.customerPoList) ? project.customerPoList : []),
+  ];
+  return values.some((value) => {
+    const text = String(value || '').trim();
+    return text && !/aguardando\s+po/i.test(text);
+  });
+}
+
+function isClientProjectsPayloadPoReady(payload) {
+  if (!isClientUser()) return true;
+  const projects = Array.isArray(payload?.projects) ? payload.projects : [];
+  if (!projects.length) return false;
+
+  // Quando a base complementar de PO respondeu, o payload está pronto mesmo que alguma BSP isolada
+  // permaneça sem PO por falta de correspondência no Smartsheet.
+  if (payload?.meta?.wipStepPoAvailable === true) return true;
+
+  // Fallbacks/snapshots antigos costumam vir com todas as BSPs como "Aguardando PO".
+  // Eles não podem ser tratados como carregamento final no Portal do Cliente.
+  if (projects.some(hasResolvedCustomerPo)) return true;
+
+  const servedFromFallback = Boolean(payload?.meta?.servedFromDiskFallback || payload?.meta?.source === 'disk-snapshot' || payload?.meta?.cacheReason === 'disk-fallback');
+  if (servedFromFallback) return false;
+
+  const allWaitingPo = projects.every((project) => /aguardando\s+po/i.test(String(getClientProjectDisplayCode(project) || '')));
+  return !allWaitingPo;
+}
+
 function writeProjectsCache(payload) {
   try {
+    if (isClientUser() && !isClientProjectsPayloadPoReady(payload)) {
+      console.warn('[Cache] Não salvou cache do Portal do Cliente sem PO carregada');
+      return;
+    }
     window.localStorage.setItem(getProjectsCacheKey(), JSON.stringify({
       savedAt: Date.now(),
       payload,
@@ -9109,6 +9487,12 @@ function shouldIgnoreCachedProjectsPayload(cacheEntry) {
   // Validação adicional: se o cache tem meta.clientPortal=true mas nenhum projeto, é inválido.
   if (isClientUser() && cacheEntry.payload.meta?.clientPortal && cachedProjects.length === 0) {
     console.warn('[Cache] Ignorando cache com clientPortal=true mas sem projetos');
+    return true;
+  }
+  // Evita reaproveitar snapshot antigo/fallback em que todas as BSPs aparecem como "Aguardando PO".
+  // Esse era o motivo de abrir em guia anônima sem PO e só corrigir depois de vários F5.
+  if (isClientUser() && !isClientProjectsPayloadPoReady(cacheEntry.payload)) {
+    console.warn('[Cache] Ignorando cache do Portal do Cliente sem PO carregada');
     return true;
   }
   return false;
@@ -9290,6 +9674,9 @@ async function loadProjects(options = {}) {
       }
       if (isClientUser() && projectsFromApi.length === 0) {
         console.warn('[LoadProjects] Aviso: usuário cliente recebeu 0 projetos da API');
+      }
+      if (isClientUser() && options.requireClientPo && !isClientProjectsPayloadPoReady(data)) {
+        throw new Error('As BSPs carregaram, mas as POs ainda não foram recebidas. Buscando a base completa novamente.');
       }
       state.lastProjectsFetchAt = Date.now();
       writeProjectsCache(data);
@@ -10586,7 +10973,8 @@ function hasDashboardDataReady() {
     const bspsText = String(document.getElementById('client-stat-bsps')?.textContent || '').trim();
     const vesselGrid = document.getElementById('client-vessel-grid');
     const hasVisibleClientCards = Boolean(vesselGrid && vesselGrid.querySelector('[data-client-vessel]'));
-    return bspsText !== '' && bspsText !== '--' && bspsText !== '0' && hasVisibleClientCards;
+    const poReady = isClientProjectsPayloadPoReady({ projects, meta: state.meta || {} });
+    return bspsText !== '' && bspsText !== '--' && bspsText !== '0' && hasVisibleClientCards && poReady;
   }
 
   const countText = String(searchCountEl?.textContent || '').trim();
@@ -10599,33 +10987,44 @@ function waitForNextRenderFrame() {
 }
 
 async function ensureDashboardDataReadyBeforeRelease(options = {}) {
-  const maxAttempts = Number(options.maxAttempts || 3);
+  const maxAttempts = Number(options.maxAttempts || 4);
   const retryDelayMs = Number(options.retryDelayMs || 900);
+  let lastError = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     await waitForNextRenderFrame();
     if (hasDashboardDataReady()) return true;
 
+    const clientPoPending = isClientUser() && !isClientProjectsPayloadPoReady({ projects: state.projects || [], meta: state.meta || {} });
     setLoginProgress(Math.min(96, 88 + attempt * 2), {
-      title: 'Conferindo dados na tela...',
-      message: 'Estamos garantindo que as BSPs, POs e dashboards já apareceram no painel.',
-      detail: `Validação visual dos dados ${attempt}/${maxAttempts}.`,
+      title: clientPoPending ? 'Carregando POs...' : 'Conferindo dados na tela...',
+      message: clientPoPending
+        ? 'As BSPs já foram localizadas. Agora estamos buscando a base completa de POs sem atualizar a página.'
+        : 'Estamos garantindo que as BSPs, POs e dashboards já apareceram no painel.',
+      detail: `Validação dos dados ${attempt}/${maxAttempts}.`,
     });
 
-    await loadProjects({
-      force: false,
-      skipLocalCache: false,
-      suppressLoadingState: true,
-      preferServerCache: true,
-      requireData: false,
-    });
+    try {
+      await loadProjects({
+        force: attempt > 2 && clientPoPending,
+        skipLocalCache: true,
+        suppressLoadingState: true,
+        preferServerCache: false,
+        requireData: true,
+        requireClientPo: clientPoPending,
+      });
+    } catch (error) {
+      lastError = error;
+      console.warn('[Login] Revalidação de dados ainda pendente:', error?.message || error);
+    }
+
     await waitForNextRenderFrame();
     if (hasDashboardDataReady()) return true;
 
     await new Promise((resolve) => window.setTimeout(resolve, retryDelayMs));
   }
 
-  throw new Error('Os dados ainda não apareceram na tela. O painel não será liberado vazio; tente novamente em alguns segundos.');
+  throw new Error(lastError?.message || 'Os dados ainda não apareceram na tela. O painel não será liberado vazio; tente novamente em alguns segundos.');
 }
 
 async function completeLoginProgress() {
@@ -12138,7 +12537,7 @@ async function handleLoginSubmit(event) {
       detail: 'Dashboard quase pronto.',
     });
 
-    await ensureDashboardDataReadyBeforeRelease({ maxAttempts: 1, retryDelayMs: 300 });
+    await ensureDashboardDataReadyBeforeRelease({ maxAttempts: 4, retryDelayMs: 650 });
 
     syncStageDraftsForCurrentSector();
     const autoOpenStageValidation = shouldOpenStageValidationWorkspaceFromUrl() && canValidateStageWorkspace();

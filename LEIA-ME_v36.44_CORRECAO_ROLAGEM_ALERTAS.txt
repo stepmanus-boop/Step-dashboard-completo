@@ -1,0 +1,21 @@
+Versão v36.44 - Correção de rolagem nos alertas
+
+Problema identificado:
+- Os modais de alerta usavam a classe .modal-dialog--alert com height: auto.
+- Quando existiam muitas notificações, o conteúdo crescia além do limite visual e a área interna não assumia a rolagem corretamente.
+- Isso afetava tanto o modal "Prazos em alerta" quanto o modal "Meus alertas por setor".
+
+Correção aplicada:
+- Ajustado site/app.css para forçar altura controlada nos modais de alerta.
+- O cabeçalho do modal permanece fixo na parte superior.
+- A lista de notificações agora rola internamente para baixo.
+- Incluído suporte para rolagem em desktop e mobile com 100dvh.
+- Atualizado site/sw.js para uma nova versão de cache, evitando que o navegador mantenha CSS antigo.
+
+Arquivos alterados:
+- site/app.css
+- site/sw.js
+
+Validação técnica:
+- node --check site/app.js executado sem erro.
+- node --check site/sw.js executado sem erro.

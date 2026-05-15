@@ -998,6 +998,8 @@ function isChildRow(row) {
 function buildSpoolRow(row, parentSummary) {
   const drawingText = textValue(row, "Drawing");
   const parsedDrawing = extractIsoDescription(drawingText);
+  const spoolProjectText = textValue(row, "Project") || textValue(parentSummary, "Project");
+  const spoolQuantityRaw = parseNumber(row, "Quantity Spools");
   const progress = deriveProgress(row);
   const rowOverallProgress = parsePercent(row, "% Overall Progress");
   const rowIndividualProgress = parsePercent(row, "% Individual Progress");
@@ -1030,6 +1032,15 @@ function buildSpoolRow(row, parentSummary) {
   return {
     rowId: row.id,
     rowNumber: row.rowNumber,
+    primary: textValue(row, "Primary") || textValue(row, "PRIMARY") || '',
+    projectRef: spoolProjectText,
+    projectDisplay: spoolProjectText,
+    client: textValue(row, "Client") || textValue(parentSummary, "Client"),
+    vessel: textValue(row, "Vessel") || textValue(parentSummary, "Vessel"),
+    priority: textValue(row, "Priority") || textValue(parentSummary, "Priority"),
+    lineNumber: textValue(row, "Line Nº") || textValue(row, "Line No") || textValue(row, "Line Number"),
+    size: textValue(row, "Size"),
+    quantitySpools: Number(spoolQuantityRaw || 0) > 0 ? spoolQuantityRaw : 1,
     iso: parsedDrawing.iso,
     description: parsedDrawing.description,
     drawing: drawingText,
@@ -1347,6 +1358,7 @@ function buildProject(summaryRow, childRows) {
   const project = {
     rowId: summaryRow.id,
     rowNumber: summaryRow.rowNumber,
+    primary: textValue(summaryRow, "Primary") || textValue(summaryRow, "PRIMARY") || '',
     projectPrefix: parts.prefix,
     projectNumber: parts.number,
     projectDisplay: parts.display || projectText,
@@ -1355,6 +1367,9 @@ function buildProject(summaryRow, childRows) {
     customerPoDisplay: 'Aguardando PO',
     customerPoStatus: 'waiting',
     clientDisplayCode: `${parts.display || projectText || 'BSP'} - Aguardando PO`,
+    priority: textValue(summaryRow, "Priority"),
+    lineNumber: textValue(summaryRow, "Line Nº") || textValue(summaryRow, "Line No") || textValue(summaryRow, "Line Number"),
+    size: textValue(summaryRow, "Size"),
     quantitySpools,
     kilos: parseNumber(summaryRow, "Kilos"),
     weldedWeightKg,
@@ -2339,6 +2354,32 @@ function cloneCachedPayloadWithMeta(extraMeta = {}) {
   };
 }
 
+
+function payloadProjectHasResolvedCustomerPo(project = {}) {
+  const values = [
+    project.customerPo,
+    project.customerPoDisplay,
+    ...(Array.isArray(project.customerPoList) ? project.customerPoList : []),
+  ];
+  return values.some((value) => {
+    const text = String(value || '').trim();
+    return text && !/aguardando\s+po/i.test(text);
+  });
+}
+
+function isPayloadOperationallyComplete(payload = {}) {
+  const projects = Array.isArray(payload.projects) ? payload.projects : [];
+  if (!projects.length) return true;
+
+  // Quando a base complementar de PO respondeu, o payload pode ser usado em cache.
+  // Algumas BSPs isoladas podem continuar sem PO por falta de correspondência real.
+  if (payload.meta?.wipStepPoAvailable === true) return true;
+
+  // Snapshots antigos tinham todas as BSPs sem PO. Eles não podem ser devolvidos como
+  // resposta rápida, senão a guia anônima abre o portal sem PO até o usuário dar F5.
+  return projects.some(payloadProjectHasResolvedCustomerPo);
+}
+
 async function buildPayload(options = {}) {
   if (!TOKEN) throw new Error("SMARTSHEET_TOKEN não configurado.");
   const force = Boolean(options.force);
@@ -2347,14 +2388,14 @@ async function buildPayload(options = {}) {
   // Mantém o Portal do Cliente e o painel interno rápidos em F5/login:
   // se a função Netlify ainda estiver aquecida e uma base completa foi validada há pouco,
   // responde pelo cache em memória sem reler Tracking + base de PO.
-  if (!force && isWarmPayloadCache()) {
+  if (!force && isWarmPayloadCache() && isPayloadOperationallyComplete(cache.payload)) {
     return cache.payload;
   }
 
   // Caminho crítico de login: se já há um payload válido em memória, devolver primeiro
   // a última versão conhecida evita que a tela fique bloqueada por checagem de versão
   // do Smartsheet. O botão "Atualizar agora" continua usando force=1 e busca fresco.
-  if (!force && preferCache && cache.payload) {
+  if (!force && preferCache && cache.payload && isPayloadOperationallyComplete(cache.payload)) {
     return cloneCachedPayloadWithMeta({
       ...(cache.payload.meta || {}),
       servedFromFastCache: true,
@@ -2366,7 +2407,7 @@ async function buildPayload(options = {}) {
   // de forma síncrona para garantir resposta instantânea no login.
   if (!force && preferCache && !cache.payload) {
     const diskPayload = readBundledFallbackPayloadSync();
-    if (diskPayload && diskPayload.projects && diskPayload.projects.length > 0) {
+    if (diskPayload && diskPayload.projects && diskPayload.projects.length > 0 && isPayloadOperationallyComplete(diskPayload)) {
       cache.payload = diskPayload;
       cache.lastSync = diskPayload.meta?.lastSync || new Date().toISOString();
       // Não marcamos lastVersionCheck para forçar uma revalidação em background depois
@@ -2375,6 +2416,9 @@ async function buildPayload(options = {}) {
         servedFromDiskFallback: true,
         cacheReason: 'disk-fallback',
       });
+    }
+    if (diskPayload && diskPayload.projects && diskPayload.projects.length > 0) {
+      console.warn('[projects] Snapshot em disco ignorado porque está sem PO carregada; buscando Smartsheet completo.');
     }
   }
 
@@ -2391,7 +2435,7 @@ async function buildPayload(options = {}) {
 
   // Preserva a velocidade: se a base principal não mudou, não força leitura da base complementar de PO.
   // O botão Atualizar agora usa force=1 para recalcular tudo quando necessário.
-  if (!force && cache.payload && cache.version === version) {
+  if (!force && cache.payload && cache.version === version && isPayloadOperationallyComplete(cache.payload)) {
     return cache.payload;
   }
 

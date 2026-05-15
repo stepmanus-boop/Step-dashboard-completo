@@ -1,0 +1,20 @@
+Versão v36.47 - Report do Cliente no painel principal
+
+Alterações aplicadas:
+- Removida a coluna Report da lista de BSPs do Portal do Cliente.
+- O report passou a aparecer dentro da Visão Executiva da BSP, na mesma tela do dashboard, curva S e schedule.
+- A seção "Report do Cliente" exibe dados consolidados do Tracking + Work in Progress.
+- A tabela completa do report aparece em tela com rolagem horizontal e cabeçalho fixo.
+- Mantido botão "Baixar Excel" dentro da própria visão executiva para exportação quando necessário.
+- Atualizado o Service Worker/cache para forçar carregamento do app.js e app.css novos.
+
+Arquivos alterados:
+- site/app.js
+- site/app.css
+- site/sw.js
+
+Validações executadas:
+- node --check site/app.js
+- node --check site/sw.js
+- node --check netlify/functions/projects.js
+- node --check netlify/functions/client-data.js

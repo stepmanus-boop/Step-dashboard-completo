@@ -1,8 +1,11 @@
-const CACHE_NAME = 'step-dashboard-v36.43-br-macro-executiva-fix';
+const CACHE_NAME = 'step-dashboard-v36.47-br-client-report-main-panel';
 // Versão v28: preserva cache local entre logouts e usa caminho rápido pós-login
 // - Mantém assets do app shell versionados para liberar app.js corrigido imediatamente
-// - API continua sem cache no Service Worker; dados operacionais usam cache local do app
+// - API continua sem cache no Service Worker; dados operacionais usam cache local validado pelo app
 // - Interceptação de /api restrita à própria origem para evitar efeitos colaterais
+// - v36.45: evita liberar Portal do Cliente com fallback antigo sem PO
+// - v36.46: adiciona coluna Report no cronograma do cliente e exportação Excel por BSP
+// - v36.47: remove a coluna Report da lista e exibe o report dentro da visão executiva principal
 const APP_SHELL = [
   "/",
   "/app.css",
