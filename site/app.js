@@ -2221,16 +2221,18 @@ function getStageTrackingInfo(item) {
   const current = Number(item?.trackingProgress);
   const hasCurrent = Number.isFinite(current);
   const matched = Boolean(item?.trackingMatched) || (hasCurrent && current >= progress);
+  const status = String(item?.trackingStatus || '').trim().toLowerCase();
+  const checking = !hasCurrent && ['checking', 'timeout', 'pending_check'].includes(status);
 
   return {
     current: hasCurrent ? current : null,
     matched,
     label: hasCurrent
       ? (matched ? `Tracking OK ${formatPercent(current)}` : `Aguardando tracking ${formatPercent(current)}/${formatPercent(progress)}`)
-      : 'Tracking não localizado',
+      : (checking ? 'Validando Tracking...' : 'Tracking não localizado'),
     className: hasCurrent
       ? (matched ? 'stage-badge--tracking-ok' : 'stage-badge--tracking-waiting')
-      : 'stage-badge--tracking-missing',
+      : (checking ? 'stage-badge--tracking-waiting' : 'stage-badge--tracking-missing'),
   };
 }
 

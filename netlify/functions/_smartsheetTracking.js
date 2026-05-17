@@ -2,6 +2,7 @@ const API_BASE = process.env.SMARTSHEET_API_BASE || 'https://api.smartsheet.com/
 const SHEET_NAME = process.env.SMARTSHEET_SHEET_NAME || 'Progress Tracking Sheet - Piping Fabrication';
 const SHEET_ID_ENV = process.env.SMARTSHEET_SHEET_ID || '';
 const TOKEN = process.env.SMARTSHEET_TOKEN || process.env.SMARTSHEET_ACCESS_TOKEN || process.env.SMARTSHEET_API_TOKEN || process.env.SMARTSHEET_BEARER_TOKEN || process.env.SMARTSHEET_PAT || process.env.SMARTSHEET_PERSONAL_ACCESS_TOKEN || '5pP36OjBaD1W2HWyxf6aoGxXasPvEl8gbqOmQ';
+const TRACKING_SHEET_CACHE_MS = Number(process.env.TRACKING_SHEET_CACHE_MS || 2 * 60 * 1000);
 
 const TRACKING_PROGRESS_BY_SECTOR = {
   engenharia: 'Drawing Execution Advance%',
@@ -215,7 +216,12 @@ function normalizeName(value) {
     .toLowerCase();
 }
 
-const cache = global.__STEP_TRACKING_WRITE_CACHE__ || { sheetId: null, sheetName: null };
+const cache = global.__STEP_TRACKING_WRITE_CACHE__ || {
+  sheetId: null,
+  sheetName: null,
+  sheet: null,
+  sheetFetchedAt: 0,
+};
 global.__STEP_TRACKING_WRITE_CACHE__ = cache;
 
 async function resolveSheetId() {
@@ -250,10 +256,17 @@ async function resolveSheetId() {
   throw new Error(`Sheet "${SHEET_NAME}" não encontrada.`);
 }
 
-async function fetchTrackingSheet() {
+async function fetchTrackingSheet(options = {}) {
   const sheetId = await resolveSheetId();
+  const force = Boolean(options.force);
+  const now = Date.now();
+  if (!force && cache.sheet && String(cache.sheetId || '') === String(sheetId) && now - Number(cache.sheetFetchedAt || 0) < TRACKING_SHEET_CACHE_MS) {
+    return { sheetId, sheet: cache.sheet, cached: true };
+  }
   const sheet = await apiFetch(`/sheets/${sheetId}?includeAll=true`);
-  return { sheetId, sheet };
+  cache.sheet = sheet;
+  cache.sheetFetchedAt = Date.now();
+  return { sheetId, sheet, cached: false };
 }
 
 function invalidateProjectCache() {
@@ -273,6 +286,8 @@ async function updateRows(sheetId, rowChangesMap) {
     method: 'PUT',
     body: JSON.stringify(rows),
   });
+  cache.sheet = null;
+  cache.sheetFetchedAt = 0;
   invalidateProjectCache();
   return { rows, response };
 }
@@ -633,6 +648,12 @@ async function applyStageUpdatesToTracking(updates, options = {}) {
   };
 }
 
+async function inspectStageUpdatesInTracking(updates) {
+  const list = Array.isArray(updates) ? updates : [];
+  if (!list.length) return { ok: true, results: [], errors: [], changedRows: 0, dryRun: true };
+  return applyStageUpdatesToTracking(list, { dryRun: true });
+}
+
 async function listHistoryDatePendencies(updates) {
   const source = Array.isArray(updates) ? updates : [];
   const history100 = source.filter((item) => {
@@ -696,5 +717,6 @@ module.exports = {
   parsePercentValue,
   fetchTrackingSheet,
   applyStageUpdatesToTracking,
+  inspectStageUpdatesInTracking,
   listHistoryDatePendencies,
 };

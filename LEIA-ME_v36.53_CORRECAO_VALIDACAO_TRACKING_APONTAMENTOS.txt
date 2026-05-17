@@ -1,0 +1,8 @@
+v36.53 - Correção da validação do Tracking em apontamentos PCP
+
+- A Validação PCP agora consulta diretamente a planilha de Tracking para localizar spools/apontamentos.
+- Remove dependência do payload completo do dashboard durante a abertura da tela de apontamentos.
+- Aumenta o tempo de cruzamento para evitar falso timeout.
+- Adiciona cache curto da planilha de Tracking em memória na função Netlify, acelerando F5 e reabertura.
+- Quando o Tracking ainda está em validação, a tela mostra "Validando Tracking..." em vez de falso "Tracking não localizado".
+- Não altera regras de cronograma, report, Portal do Cliente nem atualizações do Tracking.

@@ -2,14 +2,14 @@ const { jsonResponse, requireSession, normalizeSectorValue } = require('./_auth'
 const { readJson, writeJson } = require('./_githubStore');
 const { isSupabaseConfigured, listStageUpdates, createStageUpdate, updateStageUpdate, deleteStageUpdates } = require('./_supabase');
 const { findProjectAndSpool, loadProjectPayload } = require('./_projectLookup');
-const { applyStageUpdatesToTracking, listHistoryDatePendencies } = require('./_smartsheetTracking');
+const { applyStageUpdatesToTracking, inspectStageUpdatesInTracking, listHistoryDatePendencies } = require('./_smartsheetTracking');
 
 const DATA_PATH = 'data/stage-updates.json';
 const SUPPORTED_SECTORS = ['engenharia', 'suprimento', 'pintura', 'inspecao', 'pendente_envio', 'producao', 'calderaria', 'solda'];
 const PROGRESS_OPTIONS = [25, 50, 75, 100];
 const PENDING_STATUSES = ['pending', 'pending_advance', 'pending_review'];
 const RESOLVED_STATUSES = ['resolved', 'resolved_advance', 'resolved_review'];
-const STAGE_ENRICH_TIMEOUT_MS = Number(process.env.STAGE_ENRICH_TIMEOUT_MS || 2500);
+const STAGE_ENRICH_TIMEOUT_MS = Number(process.env.STAGE_ENRICH_TIMEOUT_MS || 12000);
 const STAGE_HISTORY_TIMEOUT_MS = Number(process.env.STAGE_HISTORY_TIMEOUT_MS || 6000);
 
 function withStageTimeout(promise, ms, message) {
@@ -503,11 +503,55 @@ function applyTrackingVerification(update, project, spool) {
 async function enrichUpdatesWithTracking(updates) {
   const list = Array.isArray(updates) ? updates : [];
   if (!list.length) return [];
+  const now = new Date().toISOString();
+
+  // v36.53: a validação PCP não deve depender do payload completo do dashboard
+  // (Tracking + Work in Progress + KPIs), porque esse cruzamento é mais pesado e
+  // gerava timeout antes de localizar os spools no Tracking. Para a coluna "Tracking"
+  // basta consultar diretamente a planilha Progress Tracking Sheet uma única vez e
+  // rodar um dry-run de atualização, sem gravar nada.
+  try {
+    const inspection = await inspectStageUpdatesInTracking(list);
+    const byId = new Map((inspection.results || []).map((result) => [String(result.id || ''), result]));
+    return list.map((item) => {
+      const result = byId.get(String(item.id || ''));
+      if (!result) {
+        return { ...item, trackingCheckedAt: now, trackingProgress: null, trackingMatched: false, trackingStatus: 'checking' };
+      }
+      if (!result.success || Number(result.rowCount || 0) <= 0) {
+        return { ...item, trackingCheckedAt: now, trackingProgress: null, trackingMatched: false, trackingStatus: 'not_found' };
+      }
+      const rawProgress = result.currentProgress == null ? 0 : Number(result.currentProgress);
+      const progress = Number.isFinite(rawProgress) ? Math.max(0, Math.min(100, rawProgress)) : 0;
+      const requested = Number(item?.progress || 0);
+      const matched = Boolean(result.trackingOk) || progress >= requested;
+      return {
+        ...item,
+        trackingCheckedAt: now,
+        trackingProgress: Number(progress.toFixed(2)),
+        trackingMatched: matched,
+        trackingStatus: matched ? 'matched' : 'waiting',
+        trackingRowCount: Number(result.rowCount || 0),
+        trackingColumn: result.progressColumn || item.trackingColumn || '',
+      };
+    });
+  } catch (directError) {
+    console.warn('Falha ao validar apontamentos diretamente no Tracking; tentando payload do dashboard:', directError.message);
+  }
+
+  // Fallback: mantém compatibilidade com a verificação antiga pelo payload de projetos,
+  // caso a API direta do Tracking esteja indisponível.
   let payload = null;
   try {
     payload = await loadProjectPayload({ allowFallback: false });
   } catch (_) {
-    payload = { projects: [] };
+    return list.map((item) => ({
+      ...item,
+      trackingCheckedAt: now,
+      trackingProgress: null,
+      trackingMatched: false,
+      trackingStatus: 'checking',
+    }));
   }
   const projects = Array.isArray(payload?.projects) ? payload.projects : [];
   return list.map((item) => {
@@ -516,7 +560,7 @@ async function enrichUpdatesWithTracking(updates) {
     if (!project || !spool) {
       return {
         ...item,
-        trackingCheckedAt: new Date().toISOString(),
+        trackingCheckedAt: now,
         trackingProgress: null,
         trackingMatched: false,
         trackingStatus: 'not_found',
@@ -923,6 +967,16 @@ exports.handler = async (event) => {
       } catch (error) {
         warning = error.message || 'Não foi possível cruzar apontamentos com o Tracking agora.';
         console.warn('Falha ao enriquecer apontamentos com Tracking:', warning);
+        autoResolved = {
+          changed: false,
+          updates: updates.map((item) => ({
+            ...item,
+            trackingCheckedAt: new Date().toISOString(),
+            trackingProgress: null,
+            trackingMatched: false,
+            trackingStatus: 'checking',
+          })),
+        };
       }
       return jsonResponse(200, {
         ok: true,
