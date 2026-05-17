@@ -13103,6 +13103,44 @@ async function handleLogout() {
 
 
 
+function waitStageUpdatesRetry(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+}
+
+async function fetchStageUpdatesPayloadWithRetry(attempts = 3) {
+  let lastError = null;
+  const maxAttempts = Math.max(1, Number(attempts) || 3);
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch('/api/stage-updates', { credentials: 'same-origin', cache: 'no-store' });
+      const raw = await response.text().catch(() => '');
+      let data = null;
+      try { data = raw ? JSON.parse(raw) : null; } catch (_) { data = null; }
+
+      if (response.ok && data?.ok) return data;
+
+      const detail = data?.error
+        || data?.warning
+        || (raw && !raw.trim().startsWith('<') ? raw.slice(0, 180) : '')
+        || 'Falha ao carregar apontamentos setoriais.';
+      const error = new Error(response.status === 401
+        ? 'Sessão expirada. Faça login novamente para carregar os apontamentos.'
+        : detail);
+      error.status = response.status;
+      error.offline = Boolean(data?.offline);
+      error.payload = data;
+      throw error;
+    } catch (error) {
+      lastError = error;
+      const status = Number(error?.status || 0);
+      const canRetry = error?.offline || !status || status >= 500;
+      if (!canRetry || attempt >= maxAttempts) break;
+      await waitStageUpdatesRetry(500 + attempt * 650);
+    }
+  }
+  throw lastError || new Error('Falha ao carregar apontamentos setoriais.');
+}
+
 async function loadStageUpdates(options = {}) {
   if (!state.user) {
     state.stageUpdates = [];
@@ -13115,11 +13153,14 @@ async function loadStageUpdates(options = {}) {
   const now = Date.now();
   if (!options.force && options.background && now - state.lastStageUpdatesFetchAt < ALERTS_REFRESH_MS) return;
   try {
-    const response = await fetch('/api/stage-updates', { credentials: 'same-origin', cache: 'no-store' });
-    const data = await response.json().catch(() => null);
-    if (!response.ok || !data?.ok) throw new Error(data?.error || 'Falha ao carregar apontamentos setoriais.');
+    const data = await fetchStageUpdatesPayloadWithRetry(options.force ? 3 : 2);
     state.lastStageUpdatesFetchAt = Date.now();
     state.stageUpdates = Array.isArray(data.updates) ? data.updates : [];
+    if (data.warning && stageUpdatesContentEl && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
+      state.stageUpdatesWarning = data.warning;
+    } else {
+      state.stageUpdatesWarning = '';
+    }
     if (normalizeSectorValue(state.user?.sector) === 'pcp') {
       const pendingForPcp = state.stageUpdates.filter((item) => isPendingStageStatus(item?.status));
       syncIncomingAlerts('stageUpdates', pendingForPcp);
@@ -13127,13 +13168,16 @@ async function loadStageUpdates(options = {}) {
   } catch (error) {
     // v35.7: não bloquear o apontamento do setor quando a consulta do histórico/validação falhar.
     // O setor ainda precisa conseguir abrir a tela, buscar a BSP e enviar o apontamento.
-    state.stageUpdates = [];
+    if (!Array.isArray(state.stageUpdates) || !state.stageUpdates.length || !options.background) {
+      state.stageUpdates = [];
+    }
+    state.stageUpdatesWarning = error.message || 'Histórico de apontamentos indisponível no momento; você ainda pode lançar novos apontamentos.';
     state.lastStageUpdatesFetchAt = Date.now();
     if (stageUpdatesContentEl && stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
       renderStageUpdatesModal();
       const warning = document.createElement('div');
       warning.className = 'stage-inline-warning';
-      warning.textContent = error.message || 'Histórico de apontamentos indisponível no momento; você ainda pode lançar novos apontamentos.';
+      warning.textContent = state.stageUpdatesWarning;
       stageUpdatesContentEl.prepend(warning);
     }
     return;
@@ -13148,6 +13192,7 @@ function renderStageSectorWorkspace() {
   if (isPcpPointing && !sector) {
     stageUpdatesContentEl.innerHTML = `
       <div class="stage-workspace-shell">
+        ${state.stageUpdatesWarning ? `<div class="stage-inline-warning">${escapeHtml(state.stageUpdatesWarning)}</div>` : ''}
         <section class="admin-card admin-card--wide">
           <div class="admin-card-head"><h4>Modo PCP de apontamento</h4></div>
           <label class="stack-field">
@@ -13167,6 +13212,7 @@ function renderStageSectorWorkspace() {
   const readyDrafts = getReadyStageDraftEntries(sector);
   stageUpdatesContentEl.innerHTML = `
     <div class="stage-workspace-shell">
+      ${state.stageUpdatesWarning ? `<div class="stage-inline-warning">${escapeHtml(state.stageUpdatesWarning)}</div>` : ''}
       ${isPcpPointing ? `
       <section class="admin-card admin-card--wide stage-pcp-pointing-card">
         <div class="admin-card-head">
@@ -13515,6 +13561,7 @@ function renderStageValidationWorkspace() {
 
   stageUpdatesContentEl.innerHTML = `
     <div class="stage-workspace-shell stage-validation-workspace" id="stage-validation">
+      ${state.stageUpdatesWarning ? `<div class="stage-inline-warning">${escapeHtml(state.stageUpdatesWarning)}</div>` : ''}
       <section class="admin-card admin-card--wide stage-validation-header-card">
         <div class="stage-toolbar">
           <label class="stack-field">

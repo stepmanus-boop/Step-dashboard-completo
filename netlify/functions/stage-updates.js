@@ -9,6 +9,22 @@ const SUPPORTED_SECTORS = ['engenharia', 'suprimento', 'pintura', 'inspecao', 'p
 const PROGRESS_OPTIONS = [25, 50, 75, 100];
 const PENDING_STATUSES = ['pending', 'pending_advance', 'pending_review'];
 const RESOLVED_STATUSES = ['resolved', 'resolved_advance', 'resolved_review'];
+const STAGE_ENRICH_TIMEOUT_MS = Number(process.env.STAGE_ENRICH_TIMEOUT_MS || 2500);
+const STAGE_HISTORY_TIMEOUT_MS = Number(process.env.STAGE_HISTORY_TIMEOUT_MS || 6000);
+
+function withStageTimeout(promise, ms, message) {
+  let timeoutId = null;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const err = new Error(message || 'A consulta demorou mais que o esperado.');
+      err.code = 'STAGE_TIMEOUT';
+      reject(err);
+    }, Math.max(500, Number(ms) || 2500));
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
 
 const TRACKING_FIELDS_BY_SECTOR = {
   engenharia: ['Drawing Execution Advance%'],
@@ -193,13 +209,16 @@ function ensureQualityCompetenceAllowed(project, spool, sector, session) {
 
 function getSpoolCompetenceSector(project, spool) {
   const stageValues = spool?.stageValues || project?.stageValues || {};
-  const text = normalizeStageWorkspaceText([
+  const spoolOwnText = normalizeStageWorkspaceText([
     spool?.currentStatus,
     spool?.stage,
     spool?.flow?.status,
     spool?.currentSector,
     spool?.operationalSector,
     spool?.flow?.sector,
+  ].filter(Boolean).join(' '));
+  const text = normalizeStageWorkspaceText([
+    spoolOwnText,
     project?.currentStage,
     project?.currentStatus,
     project?.currentSector,
@@ -209,6 +228,9 @@ function getSpoolCompetenceSector(project, spool) {
   ].filter(Boolean).join(' '));
 
   const finished = Boolean(spool?.finished || spool?.projectFinishedFlag)
+    || spoolOwnText.includes('finalizado')
+    || spoolOwnText.includes('concluido')
+    || spoolOwnText.includes('concluído')
     || text.includes('finalizado');
   if (finished) return '';
 
@@ -755,22 +777,35 @@ exports.handler = async (event) => {
       }
       if (mode === 'history-date-pending') {
         if (!canValidate(session)) return jsonResponse(403, { ok: false, error: 'Apenas PCP ou administrador pode consultar pendências.' });
-        const pendencies = await listHistoryDatePendencies(updates);
-        return jsonResponse(200, { ok: true, pendencies });
+        try {
+          const pendencies = await withStageTimeout(
+            listHistoryDatePendencies(updates),
+            STAGE_HISTORY_TIMEOUT_MS,
+            'A consulta de pendências demorou mais que o esperado. Tente novamente em alguns segundos.'
+          );
+          return jsonResponse(200, { ok: true, pendencies });
+        } catch (error) {
+          const warning = error.message || 'Não foi possível consultar pendências de datas agora.';
+          console.warn('Falha ao consultar pendências de datas:', warning);
+          return jsonResponse(200, { ok: true, pendencies: [], warning });
+        }
       }
-      let enriched = updates;
       let autoResolved = { changed: false, updates };
       let warning = '';
       try {
-        enriched = await enrichUpdatesWithTracking(updates);
-        autoResolved = await autoResolveTrackingMatchedUpdates(enriched, updates, session);
+        if (updates.length) {
+          autoResolved = await withStageTimeout((async () => {
+            const enriched = await enrichUpdatesWithTracking(updates);
+            return autoResolveTrackingMatchedUpdates(enriched, updates, session);
+          })(), STAGE_ENRICH_TIMEOUT_MS, 'O cruzamento com o Tracking demorou. A lista foi carregada sem validação automática neste momento.');
+        }
       } catch (error) {
         warning = error.message || 'Não foi possível cruzar apontamentos com o Tracking agora.';
         console.warn('Falha ao enriquecer apontamentos com Tracking:', warning);
       }
       return jsonResponse(200, {
         ok: true,
-        updates: autoResolved.updates,
+        updates: Array.isArray(autoResolved.updates) ? autoResolved.updates : updates,
         warning: [listWarning, warning].filter(Boolean).join(' | '),
         autoResolvedCount: autoResolved.changed
           ? autoResolved.updates.filter((item) => isResolvedStatus(item?.status) && String(item?.resolutionNote || '').includes('Tracking já estava OK')).length
