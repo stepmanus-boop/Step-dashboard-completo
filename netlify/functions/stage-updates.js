@@ -80,6 +80,41 @@ function normalizeStageWorkspaceText(value) {
     .trim();
 }
 
+
+function normalizeStageIdentity(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[–—−]/g, '-')
+    .toUpperCase()
+    .replace(/\([^)]*\)/g, '')
+    .replace(/[^A-Z0-9]+/g, '');
+}
+
+function stageIdentityMatches(left, right, minLength = 8) {
+  const a = normalizeStageIdentity(left);
+  const b = normalizeStageIdentity(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const min = Math.min(a.length, b.length);
+  if (min < minLength) return false;
+  return a.includes(b) || b.includes(a);
+}
+
+function uniqueStageTextCandidates(values = []) {
+  const seen = new Set();
+  const output = [];
+  for (const value of values.flatMap((item) => Array.isArray(item) ? item : [item])) {
+    const text = String(value || '').trim();
+    if (!text) continue;
+    const key = normalizeStageIdentity(text) || text.toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    output.push(text);
+  }
+  return output;
+}
+
 function inferStageSectorFromOwnText(value) {
   const text = normalizeStageWorkspaceText(value);
   if (!text || text.includes('finalizado') || text.includes('concluido') || text.includes('enviado')) return '';
@@ -339,19 +374,102 @@ function sectorLabel(value) {
   return labels[normalized] || value || '';
 }
 
-function findProjectInPayload(projects, projectRowId) {
-  const normalizedProjectId = String(projectRowId ?? '').trim();
-  return (Array.isArray(projects) ? projects : []).find((item) => {
-    const rowId = String(item?.rowId ?? '').trim();
-    const rowNumber = String(item?.rowNumber ?? '').trim();
-    return (rowId && rowId === normalizedProjectId) || (rowNumber && rowNumber === normalizedProjectId);
+function getProjectMatchCandidates(ref) {
+  if (ref && typeof ref === 'object') {
+    return uniqueStageTextCandidates([
+      ref.projectRowId,
+      ref.rowId,
+      ref.rowNumber,
+      ref.projectNumber,
+      ref.projectDisplay,
+      ref.project,
+      ref.bsp,
+    ]);
+  }
+  return uniqueStageTextCandidates([ref]);
+}
+
+function getProjectIdentityCandidates(project) {
+  return uniqueStageTextCandidates([
+    project?.rowId,
+    project?.rowNumber,
+    project?.projectNumber,
+    project?.projectDisplay,
+    project?.project,
+    project?.bsp,
+    project?.type,
+  ]);
+}
+
+function getSpoolMatchCandidates(ref) {
+  if (ref && typeof ref === 'object') {
+    return uniqueStageTextCandidates([
+      ref.spoolIso,
+      ref.spoolDescription,
+      ref.drawing,
+      ref.iso,
+      ref.lineNumber,
+    ]);
+  }
+  return uniqueStageTextCandidates([ref]);
+}
+
+function getSpoolIdentityCandidates(spool) {
+  return uniqueStageTextCandidates([
+    spool?.iso,
+    spool?.drawing,
+    spool?.lineNumber,
+    spool?.description,
+    spool?.tag,
+    spool?.spool,
+  ]);
+}
+
+function findSpoolInProject(project, spoolRef) {
+  const targets = getSpoolMatchCandidates(spoolRef);
+  const spools = Array.isArray(project?.spools) ? project.spools : [];
+  if (!targets.length || !spools.length) return null;
+  return spools.find((spool) => {
+    const candidates = getSpoolIdentityCandidates(spool);
+    return candidates.some((candidate) => targets.some((target) => stageIdentityMatches(candidate, target, 8)));
   }) || null;
 }
 
-function findSpoolInProject(project, spoolIso) {
-  const normalizedSpoolIso = String(spoolIso || '').trim().toLowerCase();
-  const spools = Array.isArray(project?.spools) ? project.spools : [];
-  return spools.find((item) => String(item?.iso || '').trim().toLowerCase() === normalizedSpoolIso) || null;
+function findProjectInPayload(projects, projectRef) {
+  const source = Array.isArray(projects) ? projects : [];
+  const targets = getProjectMatchCandidates(projectRef);
+  const normalizedProjectId = String((projectRef && typeof projectRef === 'object') ? (projectRef.projectRowId ?? projectRef.rowId ?? '') : (projectRef ?? '')).trim();
+
+  if (normalizedProjectId) {
+    const exact = source.find((item) => {
+      const rowId = String(item?.rowId ?? '').trim();
+      const rowNumber = String(item?.rowNumber ?? '').trim();
+      return (rowId && rowId === normalizedProjectId) || (rowNumber && rowNumber === normalizedProjectId);
+    });
+    if (exact) return exact;
+  }
+
+  if (targets.length) {
+    const byIdentity = source.find((project) => {
+      const candidates = getProjectIdentityCandidates(project);
+      return candidates.some((candidate) => targets.some((target) => stageIdentityMatches(candidate, target, 6)));
+    });
+    if (byIdentity) return byIdentity;
+  }
+
+  const spoolTargets = getSpoolMatchCandidates(projectRef);
+  if (spoolTargets.length) {
+    const candidates = source.filter((project) => findSpoolInProject(project, projectRef));
+    if (candidates.length === 1) return candidates[0];
+    if (candidates.length > 1 && targets.length) {
+      return candidates.find((project) => {
+        const projectCandidates = getProjectIdentityCandidates(project);
+        return projectCandidates.some((candidate) => targets.some((target) => stageIdentityMatches(candidate, target, 6)));
+      }) || candidates[0];
+    }
+  }
+
+  return null;
 }
 
 function isPendingStatus(status) {
@@ -368,14 +486,17 @@ function isReviewStatus(status) {
 
 function applyTrackingVerification(update, project, spool) {
   const progress = Number(update?.progress || 0);
-  const trackingProgress = getTrackingProgressForSector(spool, update?.sector);
-  const trackingMatched = trackingProgress != null && trackingProgress >= progress;
+  const rawTrackingProgress = getTrackingProgressForSector(spool, update?.sector);
+  // Quando a BSP/spool existe, campo vazio no Tracking significa 0%, não “não localizado”.
+  // Isso evita bloquear o PCP com falso “Tracking não localizado” em linhas recém-abertas ou sem avanço.
+  const trackingProgress = rawTrackingProgress == null ? 0 : rawTrackingProgress;
+  const trackingMatched = trackingProgress >= progress;
   return {
     ...update,
     trackingCheckedAt: new Date().toISOString(),
-    trackingProgress: trackingProgress == null ? null : Number(trackingProgress.toFixed(2)),
+    trackingProgress: Number(trackingProgress.toFixed(2)),
     trackingMatched,
-    trackingStatus: trackingProgress == null ? 'not_found' : (trackingMatched ? 'matched' : 'waiting'),
+    trackingStatus: trackingMatched ? 'matched' : 'waiting',
   };
 }
 
@@ -390,8 +511,8 @@ async function enrichUpdatesWithTracking(updates) {
   }
   const projects = Array.isArray(payload?.projects) ? payload.projects : [];
   return list.map((item) => {
-    const project = findProjectInPayload(projects, item?.projectRowId);
-    const spool = project ? findSpoolInProject(project, item?.spoolIso) : null;
+    const project = findProjectInPayload(projects, item);
+    const spool = project ? findSpoolInProject(project, item) : null;
     if (!project || !spool) {
       return {
         ...item,

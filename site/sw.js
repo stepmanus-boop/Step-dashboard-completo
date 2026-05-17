@@ -1,4 +1,4 @@
-const CACHE_NAME = 'step-dashboard-v36.51-corrige-apontamentos-pcp';
+const CACHE_NAME = 'step-dashboard-v36.52-corrige-match-tracking-apontamentos';
 // Versão v28: preserva cache local entre logouts e usa caminho rápido pós-login
 // - Mantém assets do app shell versionados para liberar app.js corrigido imediatamente
 // - API continua sem cache no Service Worker; dados operacionais usam cache local validado pelo app
@@ -8,6 +8,7 @@ const CACHE_NAME = 'step-dashboard-v36.51-corrige-apontamentos-pcp';
 // - v36.47: remove a coluna Report da lista e exibe o report dentro da visão executiva principal
 // - v36.48: Excel passa a exportar o painel executivo completo e remove destaque amarelo do report
 // - v36.51: corrige carregamento dos apontamentos PCP sem derrubar a tela quando Tracking/Smartsheet demora
+// - v36.52: corrige localização de Tracking por BSP/spool mesmo quando rowId antigo ou campo de avanço está vazio
 const APP_SHELL = [
   "/",
   "/app.css",
