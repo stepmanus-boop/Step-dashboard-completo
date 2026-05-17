@@ -3,6 +3,7 @@ const SHEET_NAME = process.env.SMARTSHEET_SHEET_NAME || 'Progress Tracking Sheet
 const SHEET_ID_ENV = process.env.SMARTSHEET_SHEET_ID || '';
 const TOKEN = process.env.SMARTSHEET_TOKEN || process.env.SMARTSHEET_ACCESS_TOKEN || process.env.SMARTSHEET_API_TOKEN || process.env.SMARTSHEET_BEARER_TOKEN || process.env.SMARTSHEET_PAT || process.env.SMARTSHEET_PERSONAL_ACCESS_TOKEN || '5pP36OjBaD1W2HWyxf6aoGxXasPvEl8gbqOmQ';
 const TRACKING_SHEET_CACHE_MS = Number(process.env.TRACKING_SHEET_CACHE_MS || 2 * 60 * 1000);
+const SMARTSHEET_REQUEST_TIMEOUT_MS = Number(process.env.SMARTSHEET_REQUEST_TIMEOUT_MS || 15000);
 
 const TRACKING_PROGRESS_BY_SECTOR = {
   engenharia: 'Drawing Execution Advance%',
@@ -191,20 +192,35 @@ function findColumn(sheet, canonicalName, extraAliases = []) {
 
 async function apiFetch(path, options = {}) {
   if (!TOKEN) throw new Error('SMARTSHEET_TOKEN não configurado no Netlify.');
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${TOKEN}`,
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  });
-  if (!response.ok) {
-    const message = await response.text().catch(() => '');
-    throw new Error(`Smartsheet ${response.status}: ${message}`);
+
+  const timeoutMs = Math.max(3000, Number(options.timeoutMs || SMARTSHEET_REQUEST_TIMEOUT_MS) || 15000);
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      signal: controller ? controller.signal : options.signal,
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      },
+    });
+    if (!response.ok) {
+      const message = await response.text().catch(() => '');
+      throw new Error(`Smartsheet ${response.status}: ${message}`);
+    }
+    const text = await response.text();
+    return text ? JSON.parse(text) : null;
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error(`Smartsheet demorou mais de ${Math.round(timeoutMs / 1000)}s para responder. Tente novamente ou atualize itens selecionados em lote menor.`);
+    }
+    throw error;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
-  const text = await response.text();
-  return text ? JSON.parse(text) : null;
 }
 
 function normalizeName(value) {

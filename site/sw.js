@@ -1,4 +1,4 @@
-const CACHE_NAME = 'step-dashboard-v36.53';
+const CACHE_NAME = 'step-dashboard-v36.54';
 // Versão v28: preserva cache local entre logouts e usa caminho rápido pós-login
 // - Mantém assets do app shell versionados para liberar app.js corrigido imediatamente
 // - API continua sem cache no Service Worker; dados operacionais usam cache local validado pelo app
@@ -9,6 +9,7 @@ const CACHE_NAME = 'step-dashboard-v36.53';
 // - v36.48: Excel passa a exportar o painel executivo completo e remove destaque amarelo do report
 // - v36.51: corrige carregamento dos apontamentos PCP sem derrubar a tela quando Tracking/Smartsheet demora
 // - v36.52: corrige localização de Tracking por BSP/spool mesmo quando rowId antigo ou campo de avanço está vazio
+// - v36.54: separa carregamento da Validação PCP da consulta Smartsheet para evitar timeout de 30s
 const APP_SHELL = [
   "/",
   "/app.css",

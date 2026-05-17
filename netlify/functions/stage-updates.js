@@ -9,7 +9,7 @@ const SUPPORTED_SECTORS = ['engenharia', 'suprimento', 'pintura', 'inspecao', 'p
 const PROGRESS_OPTIONS = [25, 50, 75, 100];
 const PENDING_STATUSES = ['pending', 'pending_advance', 'pending_review'];
 const RESOLVED_STATUSES = ['resolved', 'resolved_advance', 'resolved_review'];
-const STAGE_ENRICH_TIMEOUT_MS = Number(process.env.STAGE_ENRICH_TIMEOUT_MS || 12000);
+const STAGE_ENRICH_TIMEOUT_MS = Number(process.env.STAGE_ENRICH_TIMEOUT_MS || 17000);
 const STAGE_HISTORY_TIMEOUT_MS = Number(process.env.STAGE_HISTORY_TIMEOUT_MS || 6000);
 
 function withStageTimeout(promise, ms, message) {
@@ -571,6 +571,37 @@ async function enrichUpdatesWithTracking(updates) {
 }
 
 
+function prepareStageUpdatesFastResponse(updates) {
+  const now = new Date().toISOString();
+  return (Array.isArray(updates) ? updates : []).map((item) => {
+    if (!isPendingStatus(item?.status) || isReviewStatus(item?.status)) return item;
+    const progress = Number(item?.trackingProgress);
+    const hasProgress = Number.isFinite(progress);
+    const status = String(item?.trackingStatus || '').trim().toLowerCase();
+    if (hasProgress || status === 'matched' || status === 'waiting') return item;
+    return {
+      ...item,
+      trackingCheckedAt: item?.trackingCheckedAt || now,
+      trackingProgress: null,
+      trackingMatched: false,
+      trackingStatus: 'pending_check',
+    };
+  });
+}
+
+function selectUpdatesForTrackingCheck(updates, ids) {
+  const cleanIds = new Set((Array.isArray(ids) ? ids : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean));
+  const source = Array.isArray(updates) ? updates : [];
+  return source.filter((item) => {
+    if (!isPendingStatus(item?.status) || isReviewStatus(item?.status)) return false;
+    if (!cleanIds.size) return true;
+    return cleanIds.has(String(item?.id || ''));
+  });
+}
+
+
 async function autoResolveTrackingMatchedUpdates(enrichedUpdates, rawUpdates, session) {
   if (!canValidate(session)) return { changed: false, updates: Array.isArray(enrichedUpdates) ? enrichedUpdates : [] };
 
@@ -955,36 +986,57 @@ exports.handler = async (event) => {
           return jsonResponse(200, { ok: true, pendencies: [], warning });
         }
       }
-      let autoResolved = { changed: false, updates };
-      let warning = '';
-      try {
-        if (updates.length) {
-          autoResolved = await withStageTimeout((async () => {
-            const enriched = await enrichUpdatesWithTracking(updates);
-            return autoResolveTrackingMatchedUpdates(enriched, updates, session);
-          })(), STAGE_ENRICH_TIMEOUT_MS, 'O cruzamento com o Tracking demorou. A lista foi carregada sem validação automática neste momento.');
+      if (mode === 'tracking-check') {
+        if (!canValidate(session)) return jsonResponse(403, { ok: false, error: 'Apenas PCP ou administrador pode validar o Tracking.' });
+        const rawIds = String(event.queryStringParameters?.ids || '')
+          .split(',')
+          .map((id) => id.trim())
+          .filter(Boolean)
+          .slice(0, 25);
+        const selected = selectUpdatesForTrackingCheck(updates, rawIds);
+        if (!selected.length) {
+          return jsonResponse(200, { ok: true, updates: [], warning: listWarning, trackingValidationMode: 'empty' });
         }
-      } catch (error) {
-        warning = error.message || 'Não foi possível cruzar apontamentos com o Tracking agora.';
-        console.warn('Falha ao enriquecer apontamentos com Tracking:', warning);
-        autoResolved = {
-          changed: false,
-          updates: updates.map((item) => ({
-            ...item,
-            trackingCheckedAt: new Date().toISOString(),
-            trackingProgress: null,
-            trackingMatched: false,
-            trackingStatus: 'checking',
-          })),
-        };
+        try {
+          const enriched = await withStageTimeout(
+            enrichUpdatesWithTracking(selected),
+            STAGE_ENRICH_TIMEOUT_MS,
+            'O Smartsheet demorou para responder. A lista principal foi mantida e você pode tentar novamente com menos itens selecionados.'
+          );
+          return jsonResponse(200, {
+            ok: true,
+            updates: enriched,
+            warning: listWarning,
+            trackingValidationMode: 'direct',
+          });
+        } catch (error) {
+          const warning = error.message || 'Não foi possível validar o Tracking agora.';
+          console.warn('Falha na validação sob demanda do Tracking:', warning);
+          return jsonResponse(200, {
+            ok: true,
+            updates: selected.map((item) => ({
+              ...item,
+              trackingCheckedAt: new Date().toISOString(),
+              trackingProgress: null,
+              trackingMatched: false,
+              trackingStatus: 'pending_check',
+            })),
+            warning: [listWarning, warning].filter(Boolean).join(' | '),
+            trackingValidationMode: 'deferred',
+          });
+        }
       }
+
+      // v36.54: a abertura da Validação PCP precisa ser rápida e nunca pode depender
+      // do Smartsheet. A validação do Tracking agora roda em chamada separada
+      // (?mode=tracking-check), evitando timeout de 30s e preservando a tela aberta.
+      const fastUpdates = prepareStageUpdatesFastResponse(updates);
       return jsonResponse(200, {
         ok: true,
-        updates: Array.isArray(autoResolved.updates) ? autoResolved.updates : updates,
-        warning: [listWarning, warning].filter(Boolean).join(' | '),
-        autoResolvedCount: autoResolved.changed
-          ? autoResolved.updates.filter((item) => isResolvedStatus(item?.status) && String(item?.resolutionNote || '').includes('Tracking já estava OK')).length
-          : 0,
+        updates: fastUpdates,
+        warning: [listWarning].filter(Boolean).join(' | '),
+        trackingValidationDeferred: true,
+        autoResolvedCount: 0,
         permissions: {
           canCreate: canCreate(session),
           canValidate: canValidate(session),

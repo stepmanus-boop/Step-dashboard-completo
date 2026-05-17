@@ -2229,7 +2229,7 @@ function getStageTrackingInfo(item) {
     matched,
     label: hasCurrent
       ? (matched ? `Tracking OK ${formatPercent(current)}` : `Aguardando tracking ${formatPercent(current)}/${formatPercent(progress)}`)
-      : (checking ? 'Validando Tracking...' : 'Tracking não localizado'),
+      : (checking ? 'Validando Tracking...' : 'Conferir Tracking'),
     className: hasCurrent
       ? (matched ? 'stage-badge--tracking-ok' : 'stage-badge--tracking-waiting')
       : (checking ? 'stage-badge--tracking-waiting' : 'stage-badge--tracking-missing'),
@@ -13143,6 +13143,64 @@ async function fetchStageUpdatesPayloadWithRetry(attempts = 3) {
   throw lastError || new Error('Falha ao carregar apontamentos setoriais.');
 }
 
+
+function mergeStageUpdatesById(incoming = []) {
+  const current = Array.isArray(state.stageUpdates) ? state.stageUpdates : [];
+  const incomingList = Array.isArray(incoming) ? incoming : [];
+  if (!incomingList.length) return current;
+  const incomingById = new Map(incomingList.map((item) => [String(item?.id || ''), item]).filter(([id]) => id));
+  const merged = current.map((item) => incomingById.has(String(item?.id || '')) ? { ...item, ...incomingById.get(String(item?.id || '')) } : item);
+  for (const item of incomingList) {
+    const id = String(item?.id || '');
+    if (id && !current.some((row) => String(row?.id || '') === id)) merged.unshift(item);
+  }
+  return merged;
+}
+
+function shouldValidateStageTrackingItem(item) {
+  if (!item || !isPendingStageStatus(item.status) || isReviewStageStatus(item.status)) return false;
+  if (item.trackingMatched === true) return false;
+  const status = String(item.trackingStatus || '').trim().toLowerCase();
+  return !status || ['checking', 'pending_check', 'timeout', 'not_found', 'waiting'].includes(status);
+}
+
+async function validateStageTrackingInBackground() {
+  if (!state.user || !canValidateStageWorkspace()) return;
+  if (state.stageTrackingValidationRunning) return;
+  const pending = (Array.isArray(state.stageUpdates) ? state.stageUpdates : [])
+    .filter(shouldValidateStageTrackingItem)
+    .slice(0, 25);
+  if (!pending.length) return;
+
+  state.stageTrackingValidationRunning = true;
+  const previousWarning = state.stageUpdatesWarning || '';
+  if (stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
+    state.stageUpdatesWarning = 'Validando Tracking em segundo plano. A tela permanece aberta mesmo se o Smartsheet demorar.';
+    renderStageUpdatesModal();
+  }
+
+  try {
+    const ids = pending.map((item) => encodeURIComponent(String(item.id || ''))).join(',');
+    const response = await fetch(`/api/stage-updates?mode=tracking-check&ids=${ids}`, { credentials: 'same-origin', cache: 'no-store' });
+    const raw = await response.text().catch(() => '');
+    let data = null;
+    try { data = raw ? JSON.parse(raw) : null; } catch (_) { data = null; }
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.error || data?.warning || raw || 'Falha ao validar Tracking em segundo plano.');
+    }
+    state.stageUpdates = mergeStageUpdatesById(Array.isArray(data.updates) ? data.updates : []);
+    state.stageUpdatesWarning = data.warning || '';
+  } catch (error) {
+    state.stageUpdatesWarning = error.message || previousWarning || 'O Smartsheet demorou para validar o Tracking. A lista permanece disponível.';
+  } finally {
+    state.stageTrackingValidationRunning = false;
+    state.lastStageUpdatesFetchAt = Date.now();
+    if (stageUpdatesModalEl && !stageUpdatesModalEl.classList.contains('hidden')) {
+      renderStageUpdatesModal();
+    }
+  }
+}
+
 async function loadStageUpdates(options = {}) {
   if (!state.user) {
     state.stageUpdates = [];
@@ -13166,6 +13224,9 @@ async function loadStageUpdates(options = {}) {
     if (normalizeSectorValue(state.user?.sector) === 'pcp') {
       const pendingForPcp = state.stageUpdates.filter((item) => isPendingStageStatus(item?.status));
       syncIncomingAlerts('stageUpdates', pendingForPcp);
+    }
+    if (data?.trackingValidationDeferred && canValidateStageWorkspace()) {
+      window.setTimeout(() => validateStageTrackingInBackground().catch(() => {}), 250);
     }
   } catch (error) {
     // v35.7: não bloquear o apontamento do setor quando a consulta do histórico/validação falhar.
