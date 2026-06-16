@@ -1,4 +1,4 @@
-/* STEP Dashboard v37.73 - Pesquisa, visualização, download e impressão Zebra de QR Codes por ISO. */
+/* STEP Dashboard v37.74 - Pesquisa, visualização, download e impressão Zebra ZD230 203dpi de QR Codes por ISO. */
 const isoQrModalEl = document.getElementById('iso-qr-modal');
 const isoQrCloseEl = document.getElementById('iso-qr-close');
 const isoQrSearchEl = document.getElementById('iso-qr-search');
@@ -189,6 +189,7 @@ function printIsoQrItems(items = []) {
     window.alert('O navegador bloqueou a janela de impressão. Permita pop-ups para imprimir as etiquetas.');
     return;
   }
+
   const pages = chunkIsoQrItemsForZebra(list, 3).map((chunk) => {
     const slots = [0, 1, 2].map((slotIndex) => {
       const item = chunk[slotIndex];
@@ -196,12 +197,13 @@ function printIsoQrItems(items = []) {
       const isoName = item.isoFullName || item.iso || 'ISO';
       return `
         <section class="qr-slot">
-          <div class="qr-box"><img src="${escapeHtml(isoQrImageUrl(item, 520))}" alt="QR Code ${escapeHtml(isoName)}" /></div>
+          <div class="qr-box"><img src="${escapeHtml(isoQrImageUrl(item, 900))}" alt="QR Code ${escapeHtml(isoName)}" /></div>
           <strong>${escapeHtml(isoName)}</strong>
         </section>`;
     }).join('');
     return `<main class="zebra-sheet">${slots}</main>`;
   }).join('');
+
   printWindow.document.open();
   printWindow.document.write(`<!doctype html>
 <html lang="pt-BR">
@@ -209,16 +211,32 @@ function printIsoQrItems(items = []) {
 <meta charset="utf-8" />
 <title>Etiquetas QR Code ISO</title>
 <style>
-  /* v37.73: layout Zebra fixo com 3 quadros por etiqueta/faixa.
-     Ajuste LABEL_WIDTH_MM e LABEL_HEIGHT_MM aqui se a etiqueta física tiver outra medida. */
-  @page { size: 50mm 90mm; margin: 0; }
+  /* v37.74 - Zebra ZD230 203dpi ZPL
+     IMPORTANTE: o tamanho físico fica no driver ZDesigner (Paper Size = Custom da etiqueta).
+     O HTML não força 50x90mm para não brigar com o Custom da Zebra/Chrome.
+     A página sempre tem 3 quadros fixos: se selecionar 1 ou 2, os demais saem em branco. */
+  @page { margin: 0; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; }
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    overflow: hidden !important;
+    background: #fff;
+    color: #000;
+    font-family: Arial, Helvetica, sans-serif;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
   .zebra-sheet {
-    width: 50mm;
-    height: 90mm;
+    width: 100vw;
+    height: 100vh;
+    min-height: 100vh;
+    max-height: 100vh;
     display: grid;
-    grid-template-rows: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 33.333333vh);
     overflow: hidden;
     break-after: page;
     page-break-after: always;
@@ -226,45 +244,93 @@ function printIsoQrItems(items = []) {
   }
   .zebra-sheet:last-child { break-after: auto; page-break-after: auto; }
   .qr-slot {
-    width: 50mm;
-    height: 30mm;
-    display: flex;
-    flex-direction: column;
+    width: 100%;
+    height: 33.333333vh;
+    display: grid;
+    grid-template-rows: 1fr auto;
     align-items: center;
-    justify-content: center;
-    gap: 1mm;
-    padding: 1.5mm 2mm 1mm;
+    justify-items: center;
+    gap: 0.7mm;
+    padding: 1.4mm 1mm 1mm;
     overflow: hidden;
     background: #fff;
   }
-  .qr-slot + .qr-slot { border-top: 0.2mm dashed #d0d0d0; }
   .qr-slot--empty { color: transparent; }
-  .qr-box { width: 20mm; height: 20mm; display: grid; place-items: center; flex: 0 0 auto; }
-  .qr-box img { width: 20mm; height: 20mm; object-fit: contain; display: block; image-rendering: pixelated; }
+  .qr-box {
+    width: 22mm;
+    height: 22mm;
+    max-width: 88%;
+    max-height: calc(33.333333vh - 7mm);
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+  }
+  .qr-box img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
   .qr-slot strong {
     display: block;
-    width: 100%;
-    max-height: 7mm;
+    width: 96%;
+    max-height: 5.5mm;
     overflow: hidden;
     text-align: center;
-    font-size: 6.7pt;
+    font-size: 5.6pt;
     line-height: 1.05;
     font-weight: 700;
     word-break: break-word;
+    white-space: normal;
   }
   @media screen {
-    body { padding: 12px; background: #e5e7eb; }
-    .zebra-sheet { margin: 0 auto 12px; border: 1px solid #cfcfcf; box-shadow: 0 8px 28px rgba(0,0,0,.16); }
+    body { padding: 10px !important; background: #e5e7eb; overflow: auto !important; }
+    .zebra-sheet {
+      width: 50mm;
+      height: 90mm;
+      min-height: 90mm;
+      max-height: none;
+      grid-template-rows: repeat(3, 30mm);
+      margin: 0 auto 12px;
+      border: 1px solid #cfcfcf;
+      box-shadow: 0 8px 28px rgba(0,0,0,.16);
+    }
+    .qr-slot { height: 30mm; }
   }
   @media print {
-    html, body { width: 50mm; }
-    .qr-slot + .qr-slot { border-top-color: transparent; }
+    .zebra-sheet { position: relative; }
+    .qr-slot { page-break-inside: avoid; break-inside: avoid; }
   }
 </style>
 </head>
 <body>
   ${pages}
-  <script>window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 550); });<\/script>
+  <script>
+    (function(){
+      function waitForImages(timeoutMs){
+        var imgs = Array.prototype.slice.call(document.images || []);
+        if (!imgs.length) return Promise.resolve();
+        var done = imgs.map(function(img){
+          if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+          return new Promise(function(resolve){
+            var finished = false;
+            function end(){ if (!finished) { finished = true; resolve(); } }
+            img.addEventListener('load', end, { once: true });
+            img.addEventListener('error', end, { once: true });
+            setTimeout(end, timeoutMs || 3500);
+          });
+        });
+        return Promise.all(done).then(function(){ return undefined; });
+      }
+      window.addEventListener('load', function(){
+        waitForImages(4500).then(function(){
+          setTimeout(function(){ window.focus(); window.print(); }, 350);
+        });
+      });
+    })();
+  <\/script>
 </body>
 </html>`);
   printWindow.document.close();

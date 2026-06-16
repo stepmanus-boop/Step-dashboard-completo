@@ -1,0 +1,15 @@
+STEP Dashboard v37.74 - Correção impressão Zebra ZD230-203dpi ZPL
+
+Alterações:
+- Ajustado o módulo Pesquisar QR Code para impressão em etiquetadora Zebra ZD230 203dpi ZPL.
+- Removido o tamanho físico fixo 50mm x 90mm do CSS de impressão para não brigar com o papel Custom configurado no driver ZDesigner.
+- A impressão agora usa a área Custom selecionada no Chrome/driver Zebra e divide sempre em 3 quadros fixos.
+- Se imprimir 1 QR, apenas o primeiro quadro é preenchido e os outros 2 saem em branco.
+- Se imprimir 2 QR, os dois primeiros quadros são preenchidos e o terceiro sai em branco.
+- Se imprimir 3 QR, os 3 quadros são preenchidos.
+- Mais de 3 QR Codes quebram em novas folhas/etiquetas em grupos de 3.
+- Incluído espera real do carregamento das imagens SVG antes de chamar window.print(), evitando impressão incompleta.
+- Mantido o layout minimalista: QR Code + nome completo do ISO.
+
+Observação de uso:
+No Chrome, manter Destino = Zebra/ZDesigner ZD230, Tamanho do papel = Custom da etiqueta, Escala = 100 e, se possível, Margens = Nenhuma.

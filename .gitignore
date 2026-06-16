@@ -1,8 +1,0 @@
-node_modules/
-.netlify/
-.env
-.env.*
-.env.example
-*.log
-dist/
-build/
