@@ -1,0 +1,18 @@
+v37.70 - Contagem dos cards pela etapa mais atrasada
+
+Correção aplicada:
+- A coluna/visual Etapa Atual continua exibindo todas as etapas encontradas na BSP, por exemplo: Produção: 2 • Pintura: 1.
+- A contagem dos cards operacionais agora usa somente a etapa mais atrasada entre os ISOs abertos da BSP.
+- Exemplo: se a mesma BSP possui ISO em Pintura e ISO em Solda, ela conta no card de Produção/Solda, não em Pintura.
+- Isso elimina sobreposição nos cards de Produção, Qualidade, Pintura e Envio.
+
+Regras principais:
+1. On Hold continua entrando somente em On Hold.
+2. Finalizado/Enviado continua entrando somente em Enviado/Finalizado.
+3. Engenharia/Suprimento entram como Não Iniciado.
+4. Produção/Solda/Calderaria entram como Produção.
+5. Qualidade/Inspeção/END/TH entram como Qualidade.
+6. Pintura/Coating/HDG/FBE entram como Pintura.
+7. Logística/Unitização/Envio entram como Preparado para Envio.
+
+Após deploy, usar Ctrl+F5 para carregar o Service Worker v37.70.

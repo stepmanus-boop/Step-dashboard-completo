@@ -1,0 +1,13 @@
+STEP Track v37.29 - Cards exclusivos PCP
+
+Alterações:
+- Adicionados 2 cards visíveis apenas para usuário com setor PCP:
+  1) PCP • Vencidas
+  2) PCP • A vencer
+- Vencidas considera BSPs abertas com Término Planejado anterior à data atual do Brasil.
+- A vencer considera BSPs abertas com Término Planejado de hoje até os próximos 15 dias.
+- Clique no card abre popup agrupado por cliente.
+- Popup mostra BSP, unidade, término planejado, situação, PM responsável, etapa atual e status.
+- Clique na linha seleciona a BSP no painel.
+- Dois cliques na linha abrem o detalhamento completo da BSP.
+- Não altera SQL, ENV, cache Supabase, agendador ou lógica do Yinson.

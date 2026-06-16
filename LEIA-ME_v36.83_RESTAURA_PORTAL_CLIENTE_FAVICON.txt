@@ -1,0 +1,13 @@
+STEP Dashboard v36.83
+
+Correção:
+- Restaurado carregamento estável do Portal do Cliente usando base v36.80.
+- Removido bloqueio obrigatório de PO da v36.81 que podia deixar o cliente vazio.
+- Mantida atualização de POs em segundo plano para não travar abertura do painel.
+- Mantido Drawing Detail isolado.
+- Mantida favicon/ícones STEP.
+
+Após subir no Netlify:
+1) Trigger deploy > Clear cache and deploy site
+2) CTRL + F5 no navegador
+3) Sair e entrar novamente no painel se houver sessão antiga

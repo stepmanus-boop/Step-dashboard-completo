@@ -1,0 +1,12 @@
+STEP Dashboard v37.42 - Revisão final após Yinson/PCP
+
+Base: v37.41
+
+Ajustes:
+- Removido texto residual TEMP do modal/lista de sinalizações ao PCP.
+- Mantidos Yinson com carregamento leve/cache/imagens lazy.
+- Mantidos cards PCP, popup por cliente expansível e alerta de 7 dias.
+- Atualizado cache PWA para forçar atualização dos arquivos.
+
+Sem SQL novo.
+Sem ENV nova.

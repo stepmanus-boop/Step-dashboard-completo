@@ -1,0 +1,25 @@
+Versão v36.51 - Correção segura do carregamento de apontamentos PCP
+
+Correções aplicadas:
+
+1) API de apontamentos mais resiliente
+- A tela de Validação PCP não fica dependente do cruzamento completo com Tracking/Smartsheet para abrir.
+- Se o Tracking/Smartsheet demorar, a API retorna os apontamentos disponíveis e mostra aviso, em vez de derrubar a tela.
+- Foi adicionado limite de tempo para o enriquecimento automático dos apontamentos.
+
+2) Correção de erro interno na validação de setor
+- Corrigida referência interna `spoolOwnText` no backend da função `stage-updates.js`.
+- Isso evita falha ao lançar/validar apontamentos por setor quando a regra precisa identificar a etapa do spool.
+
+3) Front-end com retry seguro
+- A tela tenta recarregar a API de apontamentos novamente quando ocorre falha temporária, erro 5xx ou resposta offline.
+- Não há refresh automático da página.
+- Os painéis/modais abertos não são fechados.
+
+4) Cache atualizado
+- Atualizado `sw.js` para forçar a entrega da nova versão do app.js e da função corrigida.
+
+Arquivos principais alterados:
+- site/app.js
+- site/sw.js
+- netlify/functions/stage-updates.js

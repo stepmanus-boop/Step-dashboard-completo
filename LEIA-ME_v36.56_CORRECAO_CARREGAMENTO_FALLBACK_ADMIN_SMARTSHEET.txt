@@ -1,0 +1,40 @@
+VERSÃO v36.56 - CORREÇÃO DA FALHA AO PUXAR INFORMAÇÕES
+
+Problema identificado:
+- A rota /api/projects rejeitava o fallback local quando a base estava sem PO.
+- Como o fallback era rejeitado, o painel ficava 100% dependente do Smartsheet no carregamento inicial.
+- Se o Smartsheet falhasse por token, permissão, sheet ID, nome da planilha ou timeout, o painel operacional abria com "Falha ao carregar projetos" e cards em "--".
+
+Correções aplicadas:
+1. Separação entre Painel Operacional/Admin e Portal do Cliente:
+   - Admin/operacional pode abrir usando o fallback local mesmo se a PO ainda não estiver carregada.
+   - Portal do Cliente continua exigindo payload completo com PO/base complementar válida, para não exibir BSPs sem identificação correta.
+
+2. Correção do projects-fast:
+   - O endpoint rápido agora delega diretamente para projects.js.
+   - A regra de fallback fica centralizada e não quebra antes de chegar na lógica principal.
+
+3. Timeout controlado no Smartsheet dentro de projects.js:
+   - Criada variável SMARTSHEET_REQUEST_TIMEOUT_MS.
+   - Padrão: 15000 ms.
+   - Evita chamada presa indefinidamente quando a API do Smartsheet demora.
+
+4. Mensagens de erro mais claras:
+   - Token/permissão: orienta verificar SMARTSHEET_TOKEN.
+   - Planilha não encontrada: orienta verificar SMARTSHEET_SHEET_ID e SMARTSHEET_SHEET_NAME.
+   - Timeout: orienta verificar conexão/API ou aumentar SMARTSHEET_REQUEST_TIMEOUT_MS.
+
+5. Regra de segurança preservada:
+   - Cliente/API externa não recebe fallback incompleto.
+   - Apenas admin/operacional usa fallback incompleto para evitar painel fora do ar.
+
+Variáveis recomendadas no Netlify:
+- SMARTSHEET_TOKEN
+- SMARTSHEET_SHEET_ID
+- SMARTSHEET_SHEET_NAME
+- SMARTSHEET_WIP_STEP_SHEET_ID
+- SMARTSHEET_WIP_STEP_SHEET_NAME
+- SMARTSHEET_REQUEST_TIMEOUT_MS=15000
+
+Observação:
+O botão "Atualizar agora" continua buscando dados frescos do Smartsheet. Se o Smartsheet estiver indisponível, ele mostrará o erro real, mas o painel operacional não fica mais inutilizável no carregamento inicial quando existe fallback local.

@@ -1,0 +1,18 @@
+STEP Track v37.40 - Yinson resolve rapido sem timeout
+
+Correcoes principais:
+1. O endpoint client-under-dev nao tenta mais abrir IDs candidatos pesados antes de procurar a planilha pelo link/hash.
+2. Quando a URL da planilha Yinson e informada, a function lista as sheets acessiveis e procura o permalink/hash primeiro.
+3. Reduzidas tentativas em cascata que faziam a Netlify Function estourar 30 segundos.
+4. Leitura inicial do Yinson ficou leve e paginada, sem objectValue/attachments na abertura.
+5. Row attachment fallback foi desligado por padrao; imagens continuam por demanda.
+6. Mantidos cards PCP, popup PCP expansivel e alerta de 7 dias.
+
+ENVs recomendadas:
+SMARTSHEET_YINSON_UNDER_DEV_SHEET_ID=7523600180400004
+SMARTSHEET_YINSON_UNDER_DEV_SHEET_URL=https://app.smartsheet.com/sheets/Vc4FwJfQ7XMpGfWv9HvWhJC6xf743r3FM7cMjQ41
+YINSON_UNDER_DEV_REQUEST_TIMEOUT_MS=6500
+YINSON_UNDER_DEV_PAGE_SIZE=2500
+YINSON_UNDER_DEV_MAX_PAGES=4
+YINSON_UNDER_DEV_LIST_MAX_PAGES=6
+YINSON_UNDER_DEV_DISABLE_HEAVY_FALLBACKS=1

@@ -1,0 +1,29 @@
+[
+  {
+    "workOrder": "WO-001",
+    "location": "Macaé",
+    "description": "Instalação de equipamento A numa estrutura offshore",
+    "tagNumber": "TAG-001",
+    "type": "Elétrica",
+    "status": "Em andamento",
+    "image": "assets/offshore-login-bg.png"
+  },
+  {
+    "workOrder": "WO-002",
+    "location": "Rio das Ostras",
+    "description": "Soldagem de tubulação de aço carbono",
+    "tagNumber": "TAG-002",
+    "type": "Soldagem",
+    "status": "Não iniciado",
+    "image": "assets/offshore-login-bg.png"
+  },
+  {
+    "workOrder": "WO-003",
+    "location": "Bacia de Campos",
+    "description": "Pintura e revestimento de superfície em módulo industrial",
+    "tagNumber": "TAG-003",
+    "type": "Pintura",
+    "status": "Concluído",
+    "image": "assets/offshore-login-bg.png"
+  }
+]

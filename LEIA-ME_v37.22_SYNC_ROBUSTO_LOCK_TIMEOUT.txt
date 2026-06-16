@@ -1,0 +1,19 @@
+STEP Track v37.22 - Sync robusto sem travar cache
+
+Base: v37.21.
+
+Correções:
+- Botão Atualizar e rotina agendada não deixam mais lock preso quando o Smartsheet demora.
+- Lock operacional agora tem limpeza automática quando fica antigo por timeout.
+- Checagem leve de versão usa timeout curto para não estourar Function.
+- Se o Smartsheet não responder, o sistema mantém o cache atual e não quebra a tela.
+- Se a versão não mudou, o timestamp do cache é atualizado normalmente.
+- Se a versão mudou, tenta baixar a sheet completa dentro de orçamento curto.
+- Login continua cache-only pelo Supabase.
+- Sem SQL novo obrigatório se o SQL v37.15 já foi aplicado.
+
+ENV opcional:
+TRACKING_CACHE_MAX_LOCK_HOLD_MS=90000
+TRACKING_CACHE_VERSION_CHECK_TIMEOUT_MS=4500
+TRACKING_CACHE_SYNC_FULL_SHEET_TIMEOUT_MS=8500
+TRACKING_CACHE_SYNC_WIP_PO_TIMEOUT_MS=4500

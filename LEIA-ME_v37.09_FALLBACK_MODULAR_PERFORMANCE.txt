@@ -1,0 +1,49 @@
+STEP Dashboard Brasil v37.09 - Fallback seguro + app.js modularizado
+
+Correções principais:
+1. Evita tela vazia/falha quando o Supabase cache ainda está vazio.
+   - Se Smartsheet falhar e não existir cache persistente, a API usa a última base empacotada como fallback seguro.
+   - O painel abre com base válida/stale e dispara sincronização em segundo plano.
+
+2. Supabase Free protegido.
+   - Cache persistente continua usando apenas uma linha: projects:BR:current.
+   - Não cria histórico por login.
+   - Não cria cache por cliente.
+   - Limite de payload atualizado para 24MB.
+   - Intervalo mínimo de gravação padrão: 15 minutos.
+
+3. app.js dividido em módulos.
+   - site/js/app-01-core.js
+   - site/js/app-02-client-portal.js
+   - site/js/app-03-dashboard-render.js
+   - site/js/app-04-data-auth-admin.js
+   - site/js/app-05-stage-login-init.js
+   - site/app.js virou apenas carregador de compatibilidade para index antigo/cache antigo.
+
+4. Service Worker atualizado.
+   - Nova chave de cache: step-dashboard-37.09-fast-safe-modular.
+   - Inclui os novos módulos JS no cache do app shell.
+
+5. Segurança preservada.
+   - Login admin/admin123 continua removido.
+   - Login depende somente do Supabase.
+   - SESSION_SECRET continua obrigatório em produção.
+
+SQL obrigatório/recomendado:
+- supabase/SQL-CRIAR-TRACKING-CACHE-FREE-PLAN-v37.09.sql
+
+Variáveis recomendadas no Netlify:
+SESSION_SECRET
+SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
+SMARTSHEET_TOKEN
+TRACKING_CACHE_ENABLED=1
+PERSISTENT_TRACKING_CACHE_MAX_AGE_MS=43200000
+TRACKING_CACHE_MIN_WRITE_INTERVAL_MS=900000
+TRACKING_CACHE_MAX_PAYLOAD_BYTES=25165824
+SMARTSHEET_FETCH_TIMEOUT_MS=8500
+SMARTSHEET_FETCH_RETRIES=1
+
+Observação:
+A tabela step_tracking_cache pode ficar vazia até a primeira sincronização bem-sucedida com o Smartsheet.
+Mesmo vazia, a v37.09 não deve deixar o painel em falha estrutural: ela usa fallback seguro e tenta revalidar em segundo plano.

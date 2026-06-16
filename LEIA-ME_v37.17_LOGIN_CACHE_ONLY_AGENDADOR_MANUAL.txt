@@ -1,0 +1,29 @@
+STEP Track v37.17 - Login cache-only Supabase + atualização manual/agendada
+
+Objetivo:
+- Login e carregamento normal NÃO consultam mais o Smartsheet.
+- Todos os usuários leem diretamente a última base válida salva no Supabase.
+- Atualização pesada do Smartsheet acontece somente por:
+  1) Netlify Scheduled Function a cada 15 minutos;
+  2) botão Atualizar, que chama sync-tracking-cache com lock.
+
+Fluxo:
+- /api/projects sem force => cache Supabase/Function/local, sem Smartsheet.
+- /api/sync-tracking-cache?force=1&manual=1 => atualização manual com lock.
+- scheduled-sync-tracking-cache => atualização agendada a cada 15 minutos com lock.
+
+Proteções:
+- Lock no Supabase evita múltiplas atualizações simultâneas.
+- Cliente com carteira vazia por escopo exato não trava login.
+- BW ENERGY continua separado de BW LNG.
+- PWA/cache versionado para forçar atualização dos módulos.
+
+SQL:
+- Não precisa SQL novo se o SQL v37.15 do lock já foi executado.
+
+ENV recomendadas:
+TRACKING_CACHE_SCHEDULE_ENABLED=1
+TRACKING_CACHE_AUTO_REFRESH_AFTER_MS=900000
+TRACKING_CACHE_REFRESH_LOCK_TTL_MS=300000
+TRACKING_CACHE_MANUAL_REFRESH_MIN_AGE_MS=120000
+PROJECTS_ALLOW_SMARTSHEET_ON_CACHE_MISS=0

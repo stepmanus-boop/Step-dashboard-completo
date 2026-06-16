@@ -1,0 +1,15 @@
+STEP Dashboard BR v36.38 - Curva S com progresso dentro do desvio
+
+Base: v36.37_REPLANEJAMENTO_WIP_CURVA_S.
+
+Correção aplicada:
+- A linha verde Realizado agora para no início do prazo de desvio.
+- A partir do término planejado/replanejado, o progresso realizado dentro da área amarela é desenhado com uma linha laranja suave.
+- A faixa amarela continua demonstrando o período de desvio.
+- O gráfico mantém tooltip, rolagem horizontal, replanejamento e curva crescente.
+- A linha superior de desvio foi suavizada para não competir visualmente com a curva de progresso.
+
+Arquivos alterados:
+- site/app.js
+- site/app.css
+- site/sw.js

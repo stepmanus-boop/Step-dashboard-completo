@@ -1,0 +1,24 @@
+STEP Dashboard v36.72
+
+Correção aplicada:
+- O editor do Painel do Cliente agora permite ajustar datas desde o início do cronograma:
+  * Drawings Start Date
+  * Drawings Finish Date
+  * Procurement Start Date
+  * Procurement Finish Date
+  * Fabrication Start Date
+  * Boilermaker Finish Date
+  * Welding Finish Date
+  * Inspection Finish Date (QC)
+  * TH Finish Date
+  * Coating Finish Date
+  * Project Finish / Envio
+
+Detalhe técnico:
+- As novas datas de Drawings e Procurement são salvas dentro de custom_fields da tabela client_bsp_overrides.
+- Não é necessário criar novas colunas no Supabase.
+- O cronograma executivo, a Curva S e os blocos Engineering/Procurement passam a respeitar esses ajustes.
+
+Após subir no Netlify:
+Deploys > Trigger deploy > Clear cache and deploy site
+Depois no navegador: CTRL + F5

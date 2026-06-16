@@ -1,0 +1,29 @@
+FASE 2 - PORTAL DO CLIENTE: VISÃO EXECUTIVA DA BSP
+
+Alterações aplicadas:
+1. No Portal do Cliente, 1 clique na BSP continua selecionando e abrindo o detalhamento simples na parte inferior.
+2. Dois cliques na BSP abrem a nova tela "Visão Executiva da BSP".
+3. O botão do detalhamento da BSP foi alterado para "Abrir visão executiva".
+4. A Visão Executiva da BSP inclui:
+   - Cabeçalho da BSP com cliente, unidade, status, início, término e planejado até hoje.
+   - Cards KPI: progresso, peso programado, peso soldado, peso restante, tags, m² e etapa atual.
+   - Gráfico Overall Progress.
+   - Gráfico Fabrication Progress.
+   - Gráfico Progress by Production Stage.
+   - Curva S Planejado x Realizado baseada na data inicial e data final da BSP.
+   - Resumo de tags/spools.
+   - Peso programado x soldado.
+   - Timeline operacional.
+   - Pontos de atenção automáticos.
+
+Observações:
+- Os gráficos foram feitos em HTML/SVG puro, sem biblioteca externa.
+- A Curva S planejada usa a data inicial e final da BSP e distribui o cronograma em:
+  Engineering 15%, Procurement 15%, Fabrication 60%, Package/Delivery 5%, Databook 5%.
+- O realizado usa os percentuais existentes na planilha/tracking.
+- O visual foi aplicado somente ao Portal do Cliente.
+- O painel interno/admin não foi alterado visualmente.
+
+Após publicar no Netlify:
+- Use CTRL + F5.
+- Se estiver usando como PWA instalado, limpe o cache ou reinstale o app.

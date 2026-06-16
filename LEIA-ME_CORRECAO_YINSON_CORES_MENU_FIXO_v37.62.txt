@@ -1,0 +1,27 @@
+Correção v37.62 — Projetos em Desenvolvimento / Yinson
+
+Arquivo principal alterado:
+- site/client-under-development.html
+
+O que foi ajustado:
+1. O topo da página e a barra de busca/botões ficam fora da área de rolagem.
+2. A tabela agora rola dentro do card, mantendo fixo o cabeçalho:
+   VESSEL | WORK ORDER | ID REPAIR | TAG NUMBER | SOB | DESCRIPTION | STATUS | IMAGEM
+3. Cores aplicadas na linha inteira conforme status:
+   - FABRICATION/REPAIR ONGOING: cinza claro
+   - UNDER VERIFICATION STEP: amarelo claro com letras escuras
+   - UNDER VERIFICATION YINSON: azul escuro com letras claras
+   - COMPLETED: mantém a cor verde clara usada anteriormente para REPAIR COMPLETED
+4. Normalização visual dos status:
+   - REPAIR COMPLETED passa a aparecer como COMPLETED
+   - ONGOING passa a aparecer como FABRICATION/REPAIR ONGOING
+5. A exportação Excel e a busca também passam a considerar os status normalizados exibidos no painel.
+6. Service Worker atualizado para renovar o cache do frontend:
+   - step-dashboard-37.62-yinson-cores-menu-fixo
+
+Validações realizadas:
+- node --check no script inline de site/client-under-development.html
+- node --check em site/app.js
+- node --check em site/js/app-04-data-auth-admin.js
+- node --check em netlify/functions/client-under-dev.js
+- node --check em site/sw.js

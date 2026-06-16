@@ -1,0 +1,1212 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Projetos em Desenvolvimento – Yinson</title>
+    <!-- Usa a folha de estilos principal para manter o visual consistente -->
+    <link rel="stylesheet" href="./app.css" />
+    <style>
+      :root {
+        --yinson-bg: #041a2d;
+        --yinson-panel: rgba(6, 47, 78, 0.76);
+        --yinson-panel-strong: rgba(3, 18, 32, 0.94);
+        --yinson-border: rgba(123, 213, 255, 0.22);
+        --yinson-cyan: #7bd5ff;
+        --yinson-text: #dcecf6;
+        --status-completed-bg: #dff7ea;
+        --status-completed-border: #8fd9af;
+        --status-completed-text: #17683a;
+        --status-under-step-bg: #fff2b8;
+        --status-under-step-border: #e5c854;
+        --status-under-step-text: #463600;
+        --status-under-yinson-bg: #0d3c5f;
+        --status-under-yinson-border: #5bbce8;
+        --status-under-yinson-text: #f2fbff;
+        --status-client-bg: #fff5cf;
+        --status-client-border: #ead47c;
+        --status-client-text: #785f0b;
+        --status-hold-bg: #dff5ff;
+        --status-hold-border: #9bdcf3;
+        --status-hold-text: #176279;
+        --status-approved-bg: #f0e8ff;
+        --status-approved-border: #cdb9f3;
+        --status-approved-text: #5a3a91;
+        --status-fabrication-bg: #e8ebef;
+        --status-fabrication-border: #b9c1ca;
+        --status-fabrication-text: #26313b;
+        --status-default-bg: rgba(123, 213, 255, 0.10);
+        --status-default-border: rgba(123, 213, 255, 0.26);
+        --status-default-text: #b9eaff;
+      }
+      html {
+        height: 100%;
+      }
+      body {
+        height: 100vh;
+        min-height: 100vh;
+        margin: 0;
+        padding: 18px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at top left, rgba(82, 227, 154, 0.12), transparent 34%),
+          radial-gradient(circle at top right, rgba(123, 213, 255, 0.18), transparent 36%),
+          linear-gradient(180deg, #041a2d 0%, #031220 100%);
+        color: var(--yinson-text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      .page-title {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(1.35rem, 2vw, 1.9rem);
+        color: var(--yinson-cyan);
+        letter-spacing: -0.02em;
+      }
+      .page-subtitle {
+        margin: 5px 0 0;
+        color: #a9cde4;
+        font-size: .88rem;
+      }
+      /* Barra de progresso */
+      .progress-container {
+        width: 100%;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.1);
+        margin-bottom: 16px;
+        overflow: hidden;
+        border-radius: 2px;
+      }
+      .progress-bar {
+        width: 0%;
+        height: 100%;
+        background: #7bd5ff;
+        transition: width 0.2s ease;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 1240px;
+      }
+      body {
+        overflow: hidden;
+      }
+      th, td {
+        padding: 8px 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        text-align: left;
+      }
+      th {
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        letter-spacing: 0.05em;
+        background: rgba(4, 26, 45, 0.85);
+        color: #7bd5ff;
+      }
+      tbody tr:hover {
+        background: rgba(80, 180, 240, 0.12);
+      }
+      tbody tr.project-row td {
+        transition: background .14s ease, color .14s ease, box-shadow .14s ease;
+      }
+      tbody tr.row-status-completed td {
+        background: #e7f8ef;
+        color: #073b22;
+        border-bottom-color: rgba(23, 104, 58, .18);
+      }
+      tbody tr.row-status-under-step td {
+        background: var(--status-under-step-bg);
+        color: var(--status-under-step-text);
+        border-bottom-color: rgba(70, 54, 0, .18);
+      }
+      tbody tr.row-status-under-yinson td {
+        background: var(--status-under-yinson-bg);
+        color: var(--status-under-yinson-text);
+        border-bottom-color: rgba(242, 251, 255, .18);
+      }
+      tbody tr.row-status-under-client td {
+        background: #fff6d7;
+        color: #473707;
+        border-bottom-color: rgba(120, 95, 11, .18);
+      }
+      tbody tr.row-status-on-hold td {
+        background: #e2f6ff;
+        color: #083e50;
+        border-bottom-color: rgba(23, 98, 121, .18);
+      }
+      tbody tr.row-status-approved td {
+        background: #f1eaff;
+        color: #35205f;
+        border-bottom-color: rgba(90, 58, 145, .18);
+      }
+      tbody tr.row-status-fabrication-ongoing td {
+        background: var(--status-fabrication-bg);
+        color: var(--status-fabrication-text);
+        border-bottom-color: rgba(38, 49, 59, .16);
+      }
+      tbody tr.project-row:hover td {
+        box-shadow: inset 0 0 0 9999px rgba(255, 255, 255, .16);
+      }
+      tbody tr.project-row .view-link {
+        color: #7bd5ff;
+        font-weight: 850;
+      }
+      tbody tr.row-status-completed .view-link {
+        color: #17683a;
+      }
+      tbody tr.row-status-under-step .view-link {
+        color: #6b5200;
+      }
+      tbody tr.row-status-under-yinson .view-link {
+        color: #c9f1ff;
+      }
+      tbody tr.row-status-under-client .view-link {
+        color: #785f0b;
+      }
+      tbody tr.row-status-on-hold .view-link {
+        color: #176279;
+      }
+      tbody tr.row-status-approved .view-link {
+        color: #5a3a91;
+      }
+      tbody tr.row-status-fabrication-ongoing .view-link {
+        color: #275d74;
+      }
+      .page-title,
+      .toolbar-panel,
+      .progress-container {
+        flex: 0 0 auto;
+      }
+      .table-card {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        position: relative;
+        border: 1px solid var(--yinson-border);
+        border-radius: 18px;
+        background: rgba(2, 14, 26, .34);
+        box-shadow: 0 20px 46px rgba(0, 0, 0, .20);
+      }
+      .table-card table {
+        margin: 0;
+      }
+      .status-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 118px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--status-default-border);
+        background: var(--status-default-bg);
+        color: var(--status-default-text);
+        font-size: .72rem;
+        font-weight: 900;
+        letter-spacing: .035em;
+        line-height: 1.15;
+        text-transform: uppercase;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.32);
+        white-space: normal;
+      }
+      .status-completed {
+        background: var(--status-completed-bg);
+        border-color: var(--status-completed-border);
+        color: var(--status-completed-text);
+      }
+      .status-under-step {
+        background: var(--status-under-step-bg);
+        border-color: var(--status-under-step-border);
+        color: var(--status-under-step-text);
+      }
+      .status-under-yinson {
+        background: var(--status-under-yinson-bg);
+        border-color: var(--status-under-yinson-border);
+        color: var(--status-under-yinson-text);
+      }
+      .status-under-client {
+        background: var(--status-client-bg);
+        border-color: var(--status-client-border);
+        color: var(--status-client-text);
+      }
+      .status-on-hold {
+        background: var(--status-hold-bg);
+        border-color: var(--status-hold-border);
+        color: var(--status-hold-text);
+      }
+      .status-approved {
+        background: var(--status-approved-bg);
+        border-color: var(--status-approved-border);
+        color: var(--status-approved-text);
+      }
+      .status-fabrication-ongoing {
+        background: var(--status-fabrication-bg);
+        border-color: var(--status-fabrication-border);
+        color: var(--status-fabrication-text);
+      }
+      .status-summary {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(150px, 1fr));
+        gap: 10px;
+        margin: 0 0 16px;
+      }
+      .status-card {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 66px;
+        padding: 12px 14px;
+        border: 1px solid var(--status-default-border);
+        border-radius: 18px;
+        background: var(--status-default-bg);
+        color: var(--status-default-text);
+        box-shadow: 0 12px 26px rgba(0,0,0,.14), inset 0 1px 0 rgba(255,255,255,.30);
+      }
+      .status-card.status-completed {
+        background: linear-gradient(135deg, var(--status-completed-bg), #f4fff8);
+        border-color: var(--status-completed-border);
+        color: var(--status-completed-text);
+      }
+      .status-card.status-under-step {
+        background: linear-gradient(135deg, var(--status-under-step-bg), #fff9df);
+        border-color: var(--status-under-step-border);
+        color: var(--status-under-step-text);
+      }
+      .status-card.status-under-yinson {
+        background: linear-gradient(135deg, var(--status-under-yinson-bg), #0f4f7b);
+        border-color: var(--status-under-yinson-border);
+        color: var(--status-under-yinson-text);
+      }
+      .status-card.status-under-client {
+        background: linear-gradient(135deg, var(--status-client-bg), #fffbed);
+        border-color: var(--status-client-border);
+        color: var(--status-client-text);
+      }
+      .status-card.status-on-hold {
+        background: linear-gradient(135deg, var(--status-hold-bg), #f2fbff);
+        border-color: var(--status-hold-border);
+        color: var(--status-hold-text);
+      }
+      .status-card.status-approved {
+        background: linear-gradient(135deg, var(--status-approved-bg), #faf7ff);
+        border-color: var(--status-approved-border);
+        color: var(--status-approved-text);
+      }
+      .status-card.status-fabrication-ongoing {
+        background: linear-gradient(135deg, var(--status-fabrication-bg), #f7f8fa);
+        border-color: var(--status-fabrication-border);
+        color: var(--status-fabrication-text);
+      }
+      .status-card-title {
+        display: block;
+        font-size: .66rem;
+        font-weight: 900;
+        letter-spacing: .055em;
+        line-height: 1.2;
+        text-transform: uppercase;
+      }
+      .status-card-count {
+        font-size: 1.45rem;
+        font-weight: 950;
+        line-height: 1;
+      }
+      .placeholder {
+        padding: 16px;
+        text-align: center;
+        color: #7bd5ff;
+      }
+      .view-link {
+        color: #7bd5ff;
+        text-decoration: underline;
+        cursor: pointer;
+      }
+      /* Estilos para o campo de busca */
+      .search-container {
+        margin-bottom: 16px;
+        display: flex;
+        gap: 8px;
+      }
+
+      /* Modal para visualizar imagens */
+      .modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.7);
+        z-index: 1000;
+      }
+      .modal.active {
+        display: flex;
+      }
+      .modal-content {
+        position: relative;
+        background: #062f4e;
+        padding: 16px;
+        border-radius: 4px;
+        max-width: 90%;
+        max-height: 90%;
+        overflow: auto;
+      }
+      .modal-content img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin: 0 auto;
+      }
+      .modal-close {
+        position: absolute;
+        top: 8px;
+        right: 12px;
+        font-size: 24px;
+        color: #7bd5ff;
+        cursor: pointer;
+      }
+      .search-container input[type="text"] {
+        flex: 1;
+        padding: 8px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        background-color: #062f4e;
+        color: #dcecf6;
+      }
+      .search-container button {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        background-color: #7bd5ff;
+        color: #041a2d;
+        font-weight: bold;
+        cursor: pointer;
+      }
+      .toolbar-panel {
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        margin-bottom: 16px;
+        padding: 14px;
+        border: 1px solid var(--yinson-border);
+        border-radius: 18px;
+        background: linear-gradient(135deg, var(--yinson-panel), var(--yinson-panel-strong));
+        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
+      }
+      .search-container {
+        margin-bottom: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .search-container input[type="text"] {
+        min-width: min(560px, 100%);
+        border-radius: 12px;
+      }
+      .search-container button,
+      .export-action-button {
+        border-radius: 999px;
+        letter-spacing: .02em;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, .16);
+        transition: transform .14s ease, filter .14s ease, opacity .14s ease;
+        white-space: nowrap;
+      }
+      .search-container button:hover:not(:disabled),
+      .export-action-button:hover:not(:disabled) {
+        transform: translateY(-1px);
+        filter: brightness(1.05);
+      }
+      .search-container button:disabled,
+      .export-action-button:disabled {
+        opacity: .48;
+        cursor: not-allowed;
+        transform: none;
+      }
+      .export-action-button {
+        padding: 9px 16px;
+        border: 1px solid rgba(123, 213, 255, .36);
+        background: linear-gradient(135deg, #23d1ff, #52e39a);
+        color: #021626;
+        font-weight: 900;
+        text-transform: uppercase;
+        cursor: pointer;
+      }
+      .export-action-button.secondary {
+        background: rgba(123, 213, 255, .08);
+        color: #aee8ff;
+      }
+      .export-status {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+        color: #a9cde4;
+        font-size: .78rem;
+        letter-spacing: .02em;
+      }
+      .export-status strong {
+        color: #7bd5ff;
+      }
+      @media (max-width: 720px) {
+        body { padding: 10px; }
+        .search-container { flex-direction: column; align-items: stretch; }
+        .search-container input[type="text"],
+        .search-container button,
+        .export-action-button { width: 100%; }
+        .status-summary { grid-template-columns: 1fr; }
+        .status-card { min-height: 54px; }
+      }
+
+      /* Fix table header when scrolling. Each <th> in the header will stick to
+         the top of the viewport so that column titles remain visible as the
+         user scrolls down the list of projects. A z-index ensures the
+         header stays above the table body. */
+      table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 25;
+        background: #061d31;
+        box-shadow: 0 1px 0 rgba(123, 213, 255, .22), 0 8px 18px rgba(0, 0, 0, .22);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page-title">
+      <div>
+        <h1>Projetos em Desenvolvimento – Yinson</h1>
+        <p class="page-subtitle">Visão rápida por status, busca, exportação e imagens dos projetos.</p>
+      </div>
+    </div>
+    <!-- Campo de busca + exportação. O Excel respeita o filtro atual; sem filtro, baixa tudo. -->
+    <div class="toolbar-panel">
+      <div class="search-container">
+        <input type="text" id="search-input" placeholder="Buscar Vessel, Priority Level, Work Order, ID Repair, Tag Number, SOB, Description ou Status" />
+        <button id="search-button" type="button">Buscar</button>
+        <button id="clear-search-button" type="button" class="export-action-button secondary">Limpar</button>
+        <button id="export-excel-button" type="button" class="export-action-button" disabled>Baixar Excel</button>
+        <button id="download-images-button" type="button" class="export-action-button secondary" disabled>Baixar imagens</button>
+        <button id="refresh-yinson-button" type="button" class="export-action-button secondary">Atualizar dados</button>
+      </div>
+      <div id="export-status" class="export-status">
+        <span><strong>Excel:</strong> baixa tudo ou somente o filtro aplicado.</span>
+        <span><strong>Imagens:</strong> baixa os anexos do resultado atual quando disponíveis.</span>
+        <span id="yinson-cache-status"><strong>Cache:</strong> aguardando carregamento.</span>
+      </div>
+    </div>
+    <div class="progress-container" id="progress-container" hidden>
+      <div class="progress-bar" id="progress-bar"></div>
+    </div>
+    <div class="table-card">
+      <table>
+        <thead>
+          <tr>
+            <th>VESSEL</th>
+            <th>PRIORITY LEVEL</th>
+            <th>WORK ORDER</th>
+            <th>ID REPAIR</th>
+            <th>TAG NUMBER</th>
+            <th>SOB</th>
+            <th>DESCRIPTION</th>
+            <th>STATUS</th>
+            <th>IMAGEM</th>
+          </tr>
+        </thead>
+        <tbody id="projects-body">
+          <tr><td colspan="9" class="placeholder">Carregando dados…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Modal de visualização de imagens -->
+    <div id="image-modal" class="modal">
+      <div class="modal-content">
+        <span class="modal-close" id="modal-close">&times;</span>
+        <img id="modal-img" src="" alt="Imagem" />
+      </div>
+    </div>
+
+    <script>
+      // Função para mostrar uma barra de progresso simples enquanto os dados são carregados
+      function startProgressBar() {
+        const container = document.getElementById('progress-container');
+        const bar = document.getElementById('progress-bar');
+        container.hidden = false;
+        bar.style.width = '0%';
+        let percent = 0;
+        const timer = setInterval(() => {
+          percent = Math.min(percent + Math.random() * 10, 90);
+          bar.style.width = percent + '%';
+        }, 200);
+        return () => {
+          clearInterval(timer);
+          bar.style.width = '100%';
+          setTimeout(() => { container.hidden = true; }, 400);
+        };
+      }
+
+      // Variáveis globais para armazenar os projetos carregados e o recorte filtrado na tela
+      let allProjects = [];
+      let visibleProjects = [];
+      let lastMeta = null;
+      let imageLookupRunning = false;
+      let lastYinsonCacheStatusHtml = '<strong>Cache:</strong> aguardando carregamento.';
+
+      function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#039;'
+        }[char]));
+      }
+
+      function xmlEscape(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&apos;'
+        }[char]));
+      }
+
+      function sanitizeFileName(value, fallback = 'arquivo') {
+        const safe = String(value || fallback)
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-zA-Z0-9._-]+/g, '_')
+          .replace(/^_+|_+$/g, '')
+          .slice(0, 90);
+        return safe || fallback;
+      }
+
+      function normalizeStatus(value) {
+        return String(value || '')
+          .normalize('NFD')
+          .replace(/[̀-ͯ]/g, '')
+          .toUpperCase()
+          .replace(/[^A-Z0-9]+/g, ' ')
+          .trim()
+          .replace(/\s+/g, ' ');
+      }
+
+      function getStatusInfo(value) {
+        const raw = String(value || '').trim();
+        const normalized = normalizeStatus(raw);
+        if (!normalized) return { className: 'status-default', label: 'Sem status' };
+        if (normalized.includes('UNDER VERIFICATION STEP')) return { className: 'status-under-step', label: 'UNDER VERIFICATION STEP' };
+        if (normalized.includes('UNDER VERIFICATION YINSON')) return { className: 'status-under-yinson', label: 'UNDER VERIFICATION YINSON' };
+        if (normalized.includes('REPAIR COMPLETED') || normalized === 'COMPLETED' || normalized.endsWith(' COMPLETED')) {
+          return { className: 'status-completed', label: 'COMPLETED' };
+        }
+        if (normalized.includes('FABRICATION REPAIR ONGOING') || normalized.includes('FABRICATION ONGOING') || normalized.includes('REPAIR ONGOING') || normalized === 'ONGOING') {
+          return { className: 'status-fabrication-ongoing', label: 'FABRICATION/REPAIR ONGOING' };
+        }
+        if (normalized.includes('PROPOSAL UNDER APPROVAL BY CLIENT')) return { className: 'status-under-client', label: 'PROPOSAL UNDER APPROVAL BY CLIENT' };
+        if (normalized.includes('ON HOLD')) return { className: 'status-on-hold', label: 'ON HOLD' };
+        if (normalized.includes('PROPOSAL APPROVED')) return { className: 'status-approved', label: 'PROPOSAL APPROVED' };
+        return { className: 'status-default', label: raw || 'Sem status' };
+      }
+
+      function getDisplayStatus(value) {
+        return getStatusInfo(value).label;
+      }
+
+      function getPriorityLevel(proj) {
+        return String(proj?.priorityLevel || proj?.priority || proj?.prioridade || '').trim();
+      }
+
+      function renderStatusBadge(value) {
+        const rawText = String(value || 'Sem status').trim() || 'Sem status';
+        const info = getStatusInfo(rawText);
+        const title = info.label === rawText ? rawText : `${info.label} (original: ${rawText})`;
+        return `<span class="status-badge ${info.className}" title="${escapeHtml(title)}">${escapeHtml(info.label)}</span>`;
+      }
+
+      function currentSearchTerm() {
+        const inputEl = document.getElementById('search-input');
+        return (inputEl?.value || '').trim();
+      }
+
+      function getCurrentRows() {
+        return Array.isArray(visibleProjects) ? visibleProjects : allProjects;
+      }
+
+      function getImageHref(img, options = {}) {
+        if (!img) return '';
+        const directUrl = String(img.url || '').trim();
+        if (directUrl) return directUrl;
+        const id = String(img.id || '').trim();
+        const rowId = String(img.rowId || '').trim();
+        if (!id && !rowId) return '';
+        const params = new URLSearchParams();
+        if (id) params.set('id', id);
+        else params.set('rowId', rowId);
+        if (img.sheetId) params.set('sheetId', String(img.sheetId));
+        if (options.download) params.set('download', '1');
+        if (options.filename) params.set('filename', options.filename);
+        return `${location.origin}/api/client-under-dev-image?${params.toString()}`;
+      }
+
+      function buildImageInfos(rows = []) {
+        const list = [];
+        rows.forEach((proj) => {
+          (proj.images || []).forEach((img, index) => {
+            const baseName = sanitizeFileName([
+              proj.vessel,
+              proj.workOrder,
+              proj.tagNumber,
+              proj.idRepair,
+              `imagem_${index + 1}`
+            ].filter(Boolean).join('_'), `imagem_${index + 1}`);
+            const sourceName = String(img.name || '').trim();
+            const extMatch = sourceName.match(/\.(png|jpe?g|webp|gif|bmp|heic|heif)$/i);
+            const extension = extMatch ? extMatch[0].toLowerCase() : '.jpg';
+            const filename = `${baseName}${extension}`;
+            const href = getImageHref(img, { download: true, filename });
+            const viewHref = getImageHref(img);
+            if (href || viewHref) {
+              list.push({ proj, img, index, filename, href: href || viewHref, viewHref: viewHref || href });
+            }
+          });
+        });
+        return list;
+      }
+
+      function updateExportControls() {
+        const rows = getCurrentRows();
+        const imageCount = buildImageInfos(rows).length;
+        const excelBtn = document.getElementById('export-excel-button');
+        const imageBtn = document.getElementById('download-images-button');
+        const refreshBtn = document.getElementById('refresh-yinson-button');
+        const statusEl = document.getElementById('export-status');
+        if (excelBtn) {
+          excelBtn.disabled = !rows.length;
+          excelBtn.textContent = rows.length ? `Baixar Excel (${rows.length})` : 'Baixar Excel';
+        }
+        if (imageBtn) {
+          imageBtn.disabled = !imageCount;
+          imageBtn.textContent = imageCount ? `Baixar imagens (${imageCount})` : 'Baixar imagens';
+        }
+        if (statusEl) {
+          const term = currentSearchTerm();
+          const scope = term ? `Filtro aplicado: "${term}"` : 'Sem filtro: exportação completa';
+          statusEl.innerHTML = `<span><strong>${escapeHtml(scope)}</strong></span><span>${rows.length} projeto(s) na tela</span><span>${imageCount} imagem(ns) disponível(is)</span><span id="yinson-cache-status">${lastYinsonCacheStatusHtml}</span>`;
+        }
+      }
+
+      function excelCell(value, style = 'Normal', type = 'String', href = '') {
+        const attrs = [`ss:StyleID="${xmlEscape(style)}"`];
+        if (href) attrs.push(`ss:HRef="${xmlEscape(href)}"`);
+        if (type === 'Number') {
+          const numeric = Number(value);
+          const data = Number.isFinite(numeric) ? String(numeric) : '0';
+          return `<Cell ${attrs.join(' ')}><Data ss:Type="Number">${data}</Data></Cell>`;
+        }
+        return `<Cell ${attrs.join(' ')}><Data ss:Type="String">${xmlEscape(value == null || value === '' ? '—' : value)}</Data></Cell>`;
+      }
+
+      function excelRow(cells = [], height = '') {
+        const attr = height ? ` ss:Height="${height}"` : '';
+        return `<Row${attr}>${cells.join('')}</Row>`;
+      }
+
+      function countBy(rows, key) {
+        const map = new Map();
+        rows.forEach((item) => {
+          const sourceValue = key === 'status' ? getDisplayStatus(item?.[key]) : item?.[key];
+          const value = String(sourceValue || 'Sem informação').trim() || 'Sem informação';
+          map.set(value, (map.get(value) || 0) + 1);
+        });
+        return [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      }
+
+      function updateStatusSummary(rows = []) {
+        const summaryEl = document.getElementById('status-summary');
+        if (!summaryEl) return;
+        const watchedStatuses = [
+          { label: 'COMPLETED', className: 'status-completed' },
+          { label: 'FABRICATION/REPAIR ONGOING', className: 'status-fabrication-ongoing' },
+          { label: 'UNDER VERIFICATION STEP', className: 'status-under-step' },
+          { label: 'UNDER VERIFICATION YINSON', className: 'status-under-yinson' },
+          { label: 'PROPOSAL APPROVED', className: 'status-approved' },
+        ];
+        const counts = watchedStatuses.map((item) => {
+          const count = rows.filter((proj) => getStatusInfo(proj?.status).className === item.className).length;
+          return { ...item, count };
+        });
+        summaryEl.innerHTML = counts.map((item) => `
+          <div class="status-card ${item.className}">
+            <span class="status-card-title">${escapeHtml(item.label)}</span>
+            <strong class="status-card-count">${item.count}</strong>
+          </div>
+        `).join('');
+      }
+
+      function buildExcelWorkbook(rows) {
+        const now = new Date();
+        const generatedAt = now.toLocaleString('pt-BR');
+        const term = currentSearchTerm();
+        const scope = term ? `Filtro aplicado: ${term}` : 'Exportação completa';
+        const imageInfos = buildImageInfos(rows);
+        const sheetName = lastMeta?.sheetName || 'Projetos em Desenvolvimento';
+        const projectRows = rows.map((proj) => {
+          const firstImage = (proj.images || [])[0];
+          const imageLinks = (proj.images || []).map((img, idx) => getImageHref(img)).filter(Boolean);
+          return excelRow([
+            excelCell(proj.vessel, 'Data'),
+            excelCell(getPriorityLevel(proj), 'Data'),
+            excelCell(proj.workOrder, 'Data'),
+            excelCell(proj.idRepair, 'Data'),
+            excelCell(proj.tagNumber, 'Data'),
+            excelCell(proj.sob, 'Data'),
+            excelCell(proj.description, 'DataWrap'),
+            excelCell(getDisplayStatus(proj.status), 'Status'),
+            excelCell((proj.images || []).length, 'Number', 'Number'),
+            excelCell(firstImage ? 'Abrir imagem principal' : '—', firstImage ? 'Link' : 'Muted', 'String', firstImage ? getImageHref(firstImage) : ''),
+            excelCell(imageLinks.join(' | ') || '—', imageLinks.length ? 'LinkText' : 'Muted'),
+          ]);
+        }).join('');
+        const statusRows = countBy(rows, 'status').map(([label, count]) => excelRow([
+          excelCell(label, 'Data'),
+          excelCell(count, 'Number', 'Number'),
+        ])).join('');
+        const vesselRows = countBy(rows, 'vessel').map(([label, count]) => excelRow([
+          excelCell(label, 'Data'),
+          excelCell(count, 'Number', 'Number'),
+        ])).join('');
+        const imageRows = imageInfos.length ? imageInfos.map((item) => excelRow([
+          excelCell(item.proj.vessel, 'Data'),
+          excelCell(item.proj.workOrder, 'Data'),
+          excelCell(item.proj.tagNumber, 'Data'),
+          excelCell(item.img.name || item.filename, 'Data'),
+          excelCell(item.img.mimeType || item.img.source || 'Imagem', 'Data'),
+          excelCell('Abrir imagem', 'Link', 'String', item.viewHref),
+        ])).join('') : excelRow([excelCell('Nenhuma imagem disponível no recorte exportado.', 'Muted')]);
+
+        return `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" xmlns:html="http://www.w3.org/TR/REC-html40">
+  <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+    <Author>STEP Track</Author>
+    <Created>${now.toISOString()}</Created>
+    <Company>STEP Integrated Solutions</Company>
+  </DocumentProperties>
+  <Styles>
+    <Style ss:ID="Title"><Font ss:Bold="1" ss:Size="18" ss:Color="#FFFFFF"/><Interior ss:Color="#0B3152" ss:Pattern="Solid"/><Alignment ss:Vertical="Center"/></Style>
+    <Style ss:ID="Subtitle"><Font ss:Bold="1" ss:Size="11" ss:Color="#7BD5FF"/><Interior ss:Color="#062F4E" ss:Pattern="Solid"/></Style>
+    <Style ss:ID="Header"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#1F6FA8" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#0B3152"/></Borders></Style>
+    <Style ss:ID="Data"><Font ss:Color="#0B1F33"/><Interior ss:Color="#F7FBFF" ss:Pattern="Solid"/><Alignment ss:Vertical="Top"/></Style>
+    <Style ss:ID="DataWrap"><Font ss:Color="#0B1F33"/><Interior ss:Color="#F7FBFF" ss:Pattern="Solid"/><Alignment ss:Vertical="Top" ss:WrapText="1"/></Style>
+    <Style ss:ID="Status"><Font ss:Bold="1" ss:Color="#0B3152"/><Interior ss:Color="#E8F5FF" ss:Pattern="Solid"/><Alignment ss:Vertical="Top" ss:WrapText="1"/></Style>
+    <Style ss:ID="Number"><Font ss:Bold="1" ss:Color="#0B3152"/><Interior ss:Color="#F7FBFF" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center"/></Style>
+    <Style ss:ID="Muted"><Font ss:Color="#6C7A89"/><Interior ss:Color="#F7FBFF" ss:Pattern="Solid"/></Style>
+    <Style ss:ID="Link"><Font ss:Bold="1" ss:Color="#0563C1" ss:Underline="Single"/><Interior ss:Color="#F7FBFF" ss:Pattern="Solid"/></Style>
+    <Style ss:ID="LinkText"><Font ss:Color="#0563C1"/><Interior ss:Color="#F7FBFF" ss:Pattern="Solid"/><Alignment ss:WrapText="1"/></Style>
+  </Styles>
+  <Worksheet ss:Name="Resumo">
+    <Table>
+      <Column ss:Width="210"/><Column ss:Width="120"/><Column ss:Width="210"/><Column ss:Width="120"/>
+      ${excelRow([excelCell('STEP Track | Projetos em Desenvolvimento', 'Title'), excelCell('', 'Title'), excelCell('', 'Title'), excelCell('', 'Title')], 30)}
+      ${excelRow([excelCell(`Fonte: ${sheetName}`, 'Subtitle'), excelCell(`Gerado em: ${generatedAt}`, 'Subtitle'), excelCell(scope, 'Subtitle'), excelCell(`${rows.length} projeto(s)`, 'Subtitle')], 22)}
+      ${excelRow([excelCell('Resumo por Status', 'Header'), excelCell('Qtd.', 'Header'), excelCell('Resumo por Vessel', 'Header'), excelCell('Qtd.', 'Header')], 22)}
+      ${(() => {
+        const status = countBy(rows, 'status');
+        const vessels = countBy(rows, 'vessel');
+        const total = Math.max(status.length, vessels.length, 1);
+        let out = '';
+        for (let i = 0; i < total; i += 1) {
+          out += excelRow([
+            excelCell(status[i]?.[0] || '', status[i] ? 'Data' : 'Muted'),
+            excelCell(status[i]?.[1] || '', status[i] ? 'Number' : 'Muted', status[i] ? 'Number' : 'String'),
+            excelCell(vessels[i]?.[0] || '', vessels[i] ? 'Data' : 'Muted'),
+            excelCell(vessels[i]?.[1] || '', vessels[i] ? 'Number' : 'Muted', vessels[i] ? 'Number' : 'String'),
+          ]);
+        }
+        return out;
+      })()}
+    </Table>
+    <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><FrozenNoSplit/><SplitHorizontal>3</SplitHorizontal><TopRowBottomPane>3</TopRowBottomPane></WorksheetOptions>
+  </Worksheet>
+  <Worksheet ss:Name="Projetos">
+    <Table>
+      <Column ss:Width="120"/><Column ss:Width="120"/><Column ss:Width="125"/><Column ss:Width="110"/><Column ss:Width="145"/><Column ss:Width="95"/><Column ss:Width="380"/><Column ss:Width="150"/><Column ss:Width="80"/><Column ss:Width="150"/><Column ss:Width="420"/>
+      ${excelRow([
+        excelCell('VESSEL', 'Header'),
+        excelCell('PRIORITY LEVEL', 'Header'),
+        excelCell('WORK ORDER', 'Header'),
+        excelCell('ID REPAIR', 'Header'),
+        excelCell('TAG NUMBER', 'Header'),
+        excelCell('SOB', 'Header'),
+        excelCell('DESCRIPTION', 'Header'),
+        excelCell('STATUS', 'Header'),
+        excelCell('QTD. IMAGENS', 'Header'),
+        excelCell('IMAGEM PRINCIPAL', 'Header'),
+        excelCell('TODOS OS LINKS DE IMAGEM', 'Header'),
+      ], 26)}
+      ${projectRows || excelRow([excelCell('Nenhum projeto encontrado para exportação.', 'Muted')])}
+    </Table>
+    <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><FrozenNoSplit/><SplitHorizontal>1</SplitHorizontal><TopRowBottomPane>1</TopRowBottomPane></WorksheetOptions>
+  </Worksheet>
+  <Worksheet ss:Name="Imagens">
+    <Table>
+      <Column ss:Width="120"/><Column ss:Width="125"/><Column ss:Width="145"/><Column ss:Width="260"/><Column ss:Width="120"/><Column ss:Width="150"/>
+      ${excelRow([excelCell('VESSEL', 'Header'), excelCell('WORK ORDER', 'Header'), excelCell('TAG NUMBER', 'Header'), excelCell('ARQUIVO', 'Header'), excelCell('TIPO', 'Header'), excelCell('LINK', 'Header')], 26)}
+      ${imageRows}
+    </Table>
+    <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><FrozenNoSplit/><SplitHorizontal>1</SplitHorizontal><TopRowBottomPane>1</TopRowBottomPane></WorksheetOptions>
+  </Worksheet>
+</Workbook>`;
+      }
+
+      function downloadBlob(content, filename, mimeType) {
+        const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+      }
+
+      function exportVisibleProjectsToExcel() {
+        const rows = getCurrentRows();
+        if (!rows.length) return;
+        const term = currentSearchTerm();
+        const fileSuffix = term ? `filtro_${sanitizeFileName(term)}` : 'completo';
+        const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
+        const xml = buildExcelWorkbook(rows);
+        downloadBlob(xml, `STEP_Track_Projetos_Desenvolvimento_${fileSuffix}_${stamp}.xls`, 'application/vnd.ms-excel;charset=utf-8');
+      }
+
+      async function downloadVisibleImages() {
+        const rows = getCurrentRows();
+        const images = buildImageInfos(rows);
+        if (!images.length) return;
+        const button = document.getElementById('download-images-button');
+        const originalText = button?.textContent || 'Baixar imagens';
+        if (button) {
+          button.disabled = true;
+          button.textContent = `Preparando ${images.length} imagem(ns)...`;
+        }
+        try {
+          for (let i = 0; i < images.length; i += 1) {
+            const item = images[i];
+            const link = document.createElement('a');
+            link.href = item.href;
+            link.download = item.filename;
+            link.rel = 'noopener';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            // Pequeno intervalo para evitar bloqueio do navegador em downloads múltiplos.
+            await new Promise((resolve) => setTimeout(resolve, 350));
+          }
+        } finally {
+          if (button) {
+            button.textContent = originalText;
+            updateExportControls();
+          }
+        }
+      }
+
+      // Renderiza a lista de projetos no corpo da tabela
+      function renderProjects(list, options = {}) {
+        const tbody = document.getElementById('projects-body');
+        visibleProjects = Array.isArray(list) ? list : [];
+        tbody.innerHTML = '';
+        visibleProjects.forEach((proj) => {
+          const tr = document.createElement('tr');
+          const statusInfo = getStatusInfo(proj.status);
+          tr.className = `project-row row-${statusInfo.className}`;
+          let imageLinks = '';
+          if (proj.images && proj.images.length) {
+            imageLinks = proj.images.map((img, idx) => {
+              const label = (proj.images.length > 1) ? `Ver ${idx + 1}` : 'Ver imagem';
+              const href = getImageHref(img);
+              return href ? `<a href="${escapeHtml(href)}" class="view-link image-link" data-img-name="${escapeHtml(img.name || 'Imagem')}">${escapeHtml(label)}</a>` : '';
+            }).filter(Boolean).join(', ');
+          } else if (proj.rowId && !proj._imagesChecked) {
+            imageLinks = '<span class="image-checking">consultando...</span>';
+          } else {
+            imageLinks = '<span class="image-empty">—</span>';
+          }
+          tr.innerHTML = `
+            <td>${escapeHtml(proj.vessel || '')}</td>
+            <td>${escapeHtml(getPriorityLevel(proj))}</td>
+            <td>${escapeHtml(proj.workOrder || '')}</td>
+            <td>${escapeHtml(proj.idRepair || '')}</td>
+            <td>${escapeHtml(proj.tagNumber || '')}</td>
+            <td>${escapeHtml(proj.sob || '')}</td>
+            <td>${escapeHtml(proj.description || '')}</td>
+            <td>${renderStatusBadge(proj.status)}</td>
+            <td>${imageLinks}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+        if (!list.length) {
+          tbody.innerHTML = '<tr><td colspan="9" class="placeholder">Nenhum projeto em desenvolvimento foi encontrado.</td></tr>';
+        }
+        // Após renderizar a tabela, vincule os eventos de clique às imagens e atualize ações.
+        bindImageLinkEvents();
+        updateExportControls();
+        if (!options.skipImageLookup) scheduleImageLookupForVisibleRows();
+      }
+
+      function mergeImageLookupResults(rowImages = {}) {
+        const applyTo = (proj) => {
+          const rowId = String(proj?.rowId || '');
+          if (!rowId || !Object.prototype.hasOwnProperty.call(rowImages, rowId)) return;
+          const images = Array.isArray(rowImages[rowId]) ? rowImages[rowId] : [];
+          proj.images = images;
+          proj._imagesChecked = true;
+        };
+        allProjects.forEach(applyTo);
+        visibleProjects.forEach(applyTo);
+      }
+
+      async function fetchImageMetadataBatch(rowIds = []) {
+        const url = new URL('/api/client-under-dev-image', location.origin);
+        url.searchParams.set('mode', 'list');
+        url.searchParams.set('sheetId', '7523600180400004');
+        url.searchParams.set('rowIds', rowIds.join(','));
+        url.searchParams.set('limit', String(rowIds.length));
+        const res = await fetch(url.toString(), { cache: 'no-store' });
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json || json.ok === false) throw new Error(json?.error || 'Falha ao consultar imagens.');
+        return json.rowImages || {};
+      }
+
+      async function scheduleImageLookupForVisibleRows() {
+        if (imageLookupRunning) return;
+        const rows = (visibleProjects || []).filter((proj) => proj?.rowId && !proj._imagesChecked);
+        if (!rows.length) return;
+        imageLookupRunning = true;
+        try {
+          const batchSize = 25;
+          for (let i = 0; i < rows.length; i += batchSize) {
+            const batch = rows.slice(i, i + batchSize);
+            const rowIds = batch.map((proj) => String(proj.rowId)).filter(Boolean);
+            try {
+              const rowImages = await fetchImageMetadataBatch(rowIds);
+              rowIds.forEach((rowId) => {
+                if (!Object.prototype.hasOwnProperty.call(rowImages, rowId)) rowImages[rowId] = [];
+              });
+              mergeImageLookupResults(rowImages);
+              renderProjects(visibleProjects, { skipImageLookup: true });
+            } catch (err) {
+              console.warn('[Yinson Under Dev] Falha ao consultar imagens do lote:', err);
+              const empty = Object.fromEntries(rowIds.map((rowId) => [rowId, []]));
+              mergeImageLookupResults(empty);
+              renderProjects(visibleProjects, { skipImageLookup: true });
+            }
+          }
+        } finally {
+          imageLookupRunning = false;
+        }
+      }
+
+      function formatBrazilDateTime(value) {
+        if (!value) return '--';
+        const date = new Date(value);
+        if (!Number.isFinite(date.getTime())) return '--';
+        return date.toLocaleString('pt-BR', {
+          timeZone: 'America/Sao_Paulo',
+          day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
+      }
+
+      function formatAge(ms) {
+        const value = Number(ms);
+        if (!Number.isFinite(value) || value < 0) return '';
+        const minutes = Math.floor(value / 60000);
+        if (minutes < 1) return 'agora';
+        if (minutes < 60) return `há ${minutes} min`;
+        const hours = Math.floor(minutes / 60);
+        const rest = minutes % 60;
+        if (hours < 24) return rest ? `há ${hours}h ${rest}min` : `há ${hours}h`;
+        const days = Math.floor(hours / 24);
+        return `há ${days} dia${days > 1 ? 's' : ''}`;
+      }
+
+      function updateYinsonCacheStatus(meta) {
+        const el = document.getElementById('yinson-cache-status');
+        if (!el) return;
+        const cacheAt = meta?.cacheUpdatedAt || meta?.lastSync || null;
+        const ageText = formatAge(meta?.cacheAgeMs);
+        const source = meta?.servedFromPersistentCache ? 'Supabase' : 'Smartsheet';
+        const refreshInfo = meta?.refreshFailed ? ' • última tentativa falhou, cache mantido' : '';
+        const staleInfo = meta?.staleCacheKept ? ' • cache preservado' : '';
+        if (!cacheAt) {
+          lastYinsonCacheStatusHtml = '<strong>Cache:</strong> sem base salva ainda.';
+          el.innerHTML = lastYinsonCacheStatusHtml;
+          return;
+        }
+        lastYinsonCacheStatusHtml = `<strong>Cache:</strong> ${formatBrazilDateTime(cacheAt)} (BR)${ageText ? ' • ' + ageText : ''} • ${source}${refreshInfo}${staleInfo}`;
+        el.innerHTML = lastYinsonCacheStatusHtml;
+      }
+
+      // Carrega projetos a partir do endpoint Netlify /api/client-under-dev
+      async function loadProjectsFromApi(options = {}) {
+        const tbody = document.getElementById('projects-body');
+        tbody.innerHTML = '<tr><td colspan="9" class="placeholder">Carregando dados...</td></tr>';
+        const stopProgress = startProgressBar();
+        try {
+          const url = new URL('/api/client-under-dev', location.origin);
+          url.searchParams.set('sheetId', '7523600180400004');
+          url.searchParams.set('sheetHash', 'Vc4FwJfQ7XMpGfWv9HvWhJC6xf743r3FM7cMjQ41');
+          if (options.forceRefresh) url.searchParams.set('force', '1');
+          const res = await fetch(url.toString(), { cache: 'no-store' });
+          const json = await res.json().catch(() => null);
+          if (!res.ok || !json || json.ok === false) {
+            const detail = json?.error || json?.details?.message || 'Erro ao carregar dados';
+            throw new Error(detail);
+          }
+          lastMeta = json.meta || null;
+          updateYinsonCacheStatus(lastMeta);
+          if (json.meta) console.info('[Yinson Under Dev] Mapeamento Smartsheet:', json.meta);
+          const projects = (json && Array.isArray(json.data)) ? json.data : [];
+          allProjects = projects;
+          renderProjects(projects);
+        } catch (err) {
+          console.error(err);
+          const message = escapeHtml(err?.message || 'Falha ao carregar os dados.');
+          visibleProjects = [];
+          updateStatusSummary([]);
+          updateExportControls();
+          tbody.innerHTML = `<tr><td colspan="9" class="placeholder">Falha ao carregar os dados.<br><small>${message}</small><br><small>Abra /api/client-under-dev?sheetId=7523600180400004&sheetHash=Vc4FwJfQ7XMpGfWv9HvWhJC6xf743r3FM7cMjQ41&debug=1&force=1 para ver o mapeamento das colunas retornado pela API.</small></td></tr>`;
+        } finally {
+          stopProgress();
+        }
+      }
+
+      // Filtra os projetos com base no termo de busca (Vessel, Priority Level, Work Order, ID Repair, Tag Number, SOB, Description ou Status)
+      function searchProjects() {
+        const inputEl = document.getElementById('search-input');
+        const term = (inputEl.value || '').trim().toLowerCase();
+        if (!term) {
+          renderProjects(allProjects);
+          return;
+        }
+        const filtered = allProjects.filter((proj) => {
+          const fields = [
+            proj.vessel,
+            getPriorityLevel(proj),
+            proj.workOrder,
+            proj.idRepair,
+            proj.tagNumber,
+            proj.sob,
+            proj.description,
+            proj.status,
+            getDisplayStatus(proj.status)
+          ];
+          return fields.some((value) => String(value || '').toLowerCase().includes(term));
+        });
+        renderProjects(filtered);
+      }
+
+      // Associa os eventos de busca após o carregamento do DOM
+      document.addEventListener('DOMContentLoaded', () => {
+        const searchBtn = document.getElementById('search-button');
+        const searchInput = document.getElementById('search-input');
+        const clearBtn = document.getElementById('clear-search-button');
+        const exportBtn = document.getElementById('export-excel-button');
+        const imageBtn = document.getElementById('download-images-button');
+        const refreshBtn = document.getElementById('refresh-yinson-button');
+        if (searchBtn) searchBtn.addEventListener('click', searchProjects);
+        if (clearBtn) clearBtn.addEventListener('click', () => {
+          if (searchInput) searchInput.value = '';
+          renderProjects(allProjects);
+        });
+        if (exportBtn) exportBtn.addEventListener('click', exportVisibleProjectsToExcel);
+        if (imageBtn) imageBtn.addEventListener('click', downloadVisibleImages);
+        if (refreshBtn) refreshBtn.addEventListener('click', async () => {
+          const original = refreshBtn.textContent;
+          refreshBtn.disabled = true;
+          refreshBtn.textContent = 'Atualizando...';
+          try {
+            await loadProjectsFromApi({ forceRefresh: true });
+          } finally {
+            refreshBtn.disabled = false;
+            refreshBtn.textContent = original;
+          }
+        });
+        if (searchInput) {
+          searchInput.addEventListener('keypress', (ev) => {
+            if (ev.key === 'Enter') {
+              ev.preventDefault();
+              searchProjects();
+            }
+          });
+        }
+      });
+
+      // Função para associar handlers de clique nos links de imagem. Quando
+      // clicado, abre a imagem em um modal para visualização ao invés de
+      // iniciar um download ou abrir nova guia.
+      function bindImageLinkEvents() {
+        // Seleciona todos os links de imagem criados dinamicamente.
+        const links = document.querySelectorAll('.image-link');
+        links.forEach((link) => {
+          link.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const href = link.getAttribute('href');
+            const name = link.dataset.imgName || 'Imagem';
+            showImageModal(href, name);
+          });
+        });
+      }
+
+      // Exibe a imagem em um modal. Usa o href para carregar a imagem via
+      // proxy interno (que redireciona para a URL temporária). Define o
+      // atributo alt com o nome do arquivo para acessibilidade.
+      function showImageModal(src, name) {
+        const modal = document.getElementById('image-modal');
+        const imgEl = document.getElementById('modal-img');
+        const closeBtn = document.getElementById('modal-close');
+        if (!modal || !imgEl) return;
+        imgEl.src = src;
+        imgEl.alt = name;
+        modal.classList.add('active');
+        // Ajusta overflow do corpo para evitar rolagem de fundo
+        document.body.style.overflow = 'hidden';
+        const closeHandler = () => {
+          modal.classList.remove('active');
+          imgEl.src = '';
+          document.body.style.overflow = '';
+          closeBtn.removeEventListener('click', closeHandler);
+          modal.removeEventListener('click', outsideHandler);
+        };
+        const outsideHandler = (ev) => {
+          if (ev.target === modal) {
+            closeHandler();
+          }
+        };
+        closeBtn.addEventListener('click', closeHandler);
+        modal.addEventListener('click', outsideHandler);
+      }
+
+      // Os links de imagens usam a tag <a> com target="_blank", então o navegador abre
+      // a imagem em nova guia automaticamente. Nenhum manipulador de clique é necessário.
+
+      // Carrega os dados automaticamente quando a página abre
+      document.addEventListener('DOMContentLoaded', () => {
+        loadProjectsFromApi();
+      });
+    </script>
+  </body>
+</html>

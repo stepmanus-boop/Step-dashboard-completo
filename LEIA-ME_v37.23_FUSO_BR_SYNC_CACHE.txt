@@ -1,0 +1,11 @@
+STEP Track v37.23
+
+Correções aplicadas:
+- A hora do cache exibida no painel agora é sempre convertida para horário de Brasília (America/Sao_Paulo) e marcada como (BR).
+- Supabase continua gravando timestamps em UTC (+00), como é o comportamento correto de timestamptz.
+- A diferença de 3 horas entre Supabase e painel não é erro; agora fica claro na tela.
+- O botão Atualizar não deve mais abrir popup de falha quando já existe cache válido e apenas uma tentativa de sync não concluiu.
+- Sync manual/agendado preserva a base atual quando Smartsheet/Supabase demora e evita popup falso.
+
+Sem SQL novo.
+Sem ENV nova obrigatória.

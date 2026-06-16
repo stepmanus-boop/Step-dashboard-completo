@@ -1,0 +1,14 @@
+Versão v36.43 - Correção da visão executiva do cliente
+
+Correção aplicada:
+- Corrigida a abertura da Visão Executiva da Carteira ao clicar no card BSPs / Abrir visão executiva.
+- Corrigida a abertura da Visão Executiva da Unidade ao clicar duas vezes nas unidades/plataformas.
+
+Causa encontrada:
+- A curva S macro/carteira/unidade estava tentando calcular o desvio usando uma variável `project` que não existe nesse escopo.
+- Isso gerava erro JavaScript e impedia o modal da visão executiva de abrir.
+
+Ajuste:
+- A Curva S macro continua renderizando Planejado x Realizado normalmente.
+- O desvio individual permanece somente na visão executiva da BSP, onde existe uma BSP específica para calcular prazo/desvio.
+- Atualizado cache do PWA para forçar atualização dos arquivos.

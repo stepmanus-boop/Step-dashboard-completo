@@ -1,0 +1,9 @@
+v37.72 - Tradução completa do fluxo operacional para inglês
+
+Correções aplicadas:
+- Ampliado i18n.js para traduzir etapas/status dinâmicos do Tracking no Portal do Cliente.
+- Corrigidas traduções de: Verificando estoque, Corte e Limpeza, Pré - Montagem, Aguardando END, Unitização e Inspeção, Unitização, Aguardando início de pintura, Inspeção e variações.
+- Status compostos com contagem, exemplo "Corte e Limpeza: 1 • Pré - Montagem: 6", agora traduzem por fragmento quando o idioma está em inglês.
+- Módulo Pesquisar QR Code também recebeu tradução completa para inglês.
+- Horários/datas do topo passam a respeitar o idioma selecionado.
+- Service Worker atualizado para v37.72 para forçar carregamento dos arquivos novos.

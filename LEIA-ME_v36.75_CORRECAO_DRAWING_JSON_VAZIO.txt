@@ -1,0 +1,14 @@
+v36.75 - Correção Drawing Detail resposta vazia / JSON
+
+Correções aplicadas:
+- O painel não usa mais response.json() direto para a função drawing-detail.
+- Agora lê response.text(), valida se veio vazio e só depois converte para JSON.
+- Quando a função não responder, mostra o erro real: status HTTP, retorno não JSON ou resposta vazia.
+- A chamada ao Drawing Detail usa force=1 para evitar cache antigo durante testes.
+- A função drawing-detail também passou a tratar retorno vazio/não JSON do Smartsheet com mensagem clara.
+- Service Worker atualizado para 36.75.
+
+Após subir no Netlify:
+1. Deploys > Trigger deploy > Clear cache and deploy site
+2. CTRL + F5
+3. Abrir novamente a TAG/ISO.

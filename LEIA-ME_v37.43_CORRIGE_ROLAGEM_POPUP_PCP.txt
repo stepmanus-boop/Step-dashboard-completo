@@ -1,0 +1,13 @@
+STEP Track v37.43 - Correção de rolagem do popup PCP
+
+Base: v37.42 revisada.
+
+Alteração aplicada:
+- Corrigida a rolagem vertical do popup de Controle PCP.
+- Quando houver muitos clientes no modal de BSPs vencidas/a vencer, a área de clientes agora possui scrollbar própria.
+- Mantidos cards PCP, popup por clientes expansíveis, alerta PCP 7 dias e Yinson com imagens lazy.
+- Sem SQL novo.
+- Sem ENV nova.
+
+Após deploy no Netlify:
+- Usar Clear cache and deploy site.

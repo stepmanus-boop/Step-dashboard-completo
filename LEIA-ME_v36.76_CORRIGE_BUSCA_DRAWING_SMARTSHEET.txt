@@ -1,0 +1,16 @@
+VERSÃO v36.76 - CORREÇÃO BUSCA DRAWING DOCUMENTATION CONTROL
+
+Correções:
+- Quando a TAG/ISO não é encontrada na primeira planilha resolvida, o sistema agora varre as planilhas candidatas de Drawing Documentation Control acessíveis pelo token Smartsheet.
+- Corrige casos em que o link do Smartsheet não resolve direto pelo permalink listado pela API.
+- Melhora diagnóstico retornando planilhas verificadas, total indexado e dica de configuração.
+- Mantém suporte à coluna com typo: Last client comments recieved via PM (Rev. B).
+- Atualiza cache local/service worker para v36.76.
+
+Variáveis recomendadas no Netlify:
+SMARTSHEET_DRAWING_CONTROL_SHEET_URL=https://app.smartsheet.com/sheets/VR7wQWfHW6vPWG6VV7W8QVHx9p2WQ8c7Q3vM2gC1
+SMARTSHEET_DRAWING_CONTROL_SHEET_NAME=DRAWING DOCUMENTATION CONTROL
+
+Após subir:
+Deploys > Trigger deploy > Clear cache and deploy site
+CTRL + F5

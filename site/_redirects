@@ -1,0 +1,4 @@
+/api/projects-warmup  /.netlify/functions/projects-warmup  200
+/api/projects-fast    /.netlify/functions/projects-fast    200
+/api/*                /.netlify/functions/:splat          200
+/*                    /index.html                         200

@@ -1,0 +1,51 @@
+STEP Dashboard Brasil - v37.64
+
+ALTERAÇÕES APLICADAS
+
+1) Cache de 15 minutos
+- Corrigido o heartbeat/touch do cache em:
+  - netlify/functions/scheduled-sync-tracking-cache.js
+  - netlify/functions/sync-tracking-cache.js
+- Foram removidos os bloqueios "false &&" que impediam o Supabase de atualizar o horário de checagem do cache.
+- Quando a versão do Smartsheet não muda, o sistema passa a tocar o updated_at do cache para o painel não ficar mostrando 50min/1h sem atualização.
+
+2) QR Code automático por ISO
+- Criada geração automática de QR Codes únicos por ISO durante atualização do cache do Tracking.
+- Quando entrar uma BSP nova ou ISO novo, a rotina compara com o Supabase e cria somente os QR Codes que ainda não existem.
+- Não existe botão "Gerar QR Code" para o usuário final.
+- O botão do painel é somente: "Pesquisar QR Code".
+
+3) Pesquisa, visualização e impressão
+- Adicionado botão no topo do painel: "Pesquisar QR Code".
+- O módulo permite pesquisar por ISO, BSP, Work Order, Vessel, Tag ou Cliente.
+- Permite visualizar, baixar SVG, imprimir individualmente e imprimir selecionados.
+- A etiqueta de impressão é minimalista: apenas QR Code + nome completo do ISO.
+
+4) Tela de rastreamento
+- Criada página pública por token:
+  /qr-tracking.html?token=TOKEN_DO_QR
+- O QR Code aponta para essa página.
+
+5) Supabase
+- Adicionado SQL:
+  supabase/SQL-v37.64-QR-CODE-ISO-E-CACHE-15MIN.sql
+- Execute esse SQL antes ou junto do deploy.
+- Ele cria a tabela public.iso_qr_codes.
+- Ele também ajusta a constraint do cache para aceitar:
+  - projects:BR:current
+  - yinson:under-dev:current
+
+IMPORTANTE
+
+Depois de executar o SQL e subir o deploy:
+1. Clique em "Atualizar agora" no painel.
+2. A atualização vai recriar/validar o cache.
+3. Os QR Codes dos ISOs existentes serão criados automaticamente.
+4. Depois abra "Pesquisar QR Code" e busque por uma BSP ou ISO.
+
+DEPENDÊNCIA NOVA
+
+Foi adicionada a dependência NPM:
+- qrcode
+
+O Netlify instalará automaticamente no próximo deploy.

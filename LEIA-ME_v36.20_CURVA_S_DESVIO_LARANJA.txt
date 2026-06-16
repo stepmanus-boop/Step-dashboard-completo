@@ -1,0 +1,21 @@
+Versão v36.20 - Curva S com desvio de prazo em laranja
+
+Base: v36.19 estável.
+
+Alterações:
+- Incluída faixa/linha laranja na Curva S quando a data real de envio ultrapassar o término planejado.
+- O desvio é calculado do término planejado até a data real de envio.
+- Se a BSP ainda não tiver envio real e já tiver passado do término planejado, a faixa laranja mostra atraso em andamento até a data atual.
+- Tooltip interativo do desvio mostra:
+  - Status do prazo
+  - Término planejado
+  - Envio real ou data atual
+  - Quantidade de dias de atraso
+- Mantida Curva S crescente.
+- Mantido carregamento principal da v36.19.
+- Mantidas as regras de Hydro Testing somente para Spool e exclusão por OBSERVATIONS com solda de campo/sem TH.
+
+Arquivos alterados:
+- site/app.js
+- site/app.css
+- site/sw.js

@@ -1,0 +1,16 @@
+STEP Dashboard Brasil v36.70
+
+Correção solicitada:
+- Adicionado botão pequeno e discreto "Atualizar" no Portal do Cliente.
+- O botão limpa o cache local do navegador e força nova consulta em /api/projects?force=1.
+- Isso permite puxar BSPs recém-criadas no Smartsheet sem depender do ciclo automático de cache.
+- Atualizado PROJECTS_CACHE_KEY para v36.70 para evitar reaproveitamento de cache antigo.
+- Atualizado service worker para step-dashboard-36.70.
+- Mantidas as correções de v36.68 da logo do cliente sem bordas brancas.
+- Mantido o botão/permissão de v36.69 para visualizar Painel do Cliente por usuário.
+
+Como usar:
+1. Subir o ZIP no Netlify.
+2. Fazer Deploys > Trigger deploy > Clear cache and deploy site.
+3. No navegador, usar CTRL + F5.
+4. No Portal do Cliente, clicar em "Atualizar" para buscar novas BSPs.

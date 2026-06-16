@@ -1,0 +1,60 @@
+STEP Dashboard Brasil – v37.03
+
+Correção principal:
+- Ampliação da tradução do Painel do Cliente, principalmente na visão executiva, painel individual da BSP, Curva S, Report do Cliente, cards de progresso e detalhamento da obra.
+
+Pontos corrigidos:
+1. Textos compostos agora são traduzidos:
+   - Realizado X contra planejado Y: desvio de Z
+   - Package / Delivery sem progresso registrado
+   - X tag(s) • Y kg programado
+   - X kg soldado • Y%
+
+2. Novos textos adicionados ao dicionário PT/EN/ES:
+   - Peso restante
+   - Tags totais
+   - Tags restantes
+   - Curva S | Planejado x Realizado
+   - Report do Cliente
+   - Dados do Tracking + Work in Progress exibidos dentro da visão principal
+   - Baixar Excel do Cronograma
+   - Detalhamento da obra
+   - Processos da BSP e evolução por etapa
+   - Descrição
+   - Observação
+   - Etapa
+   - Peso
+   - Aguardando início de pintura
+   - AG. Emissão de detalhamento
+   - Verificando estoque
+   - Separação de material
+   - Aguardando END
+   - Unitização e Inspeção
+
+3. O mecanismo de tradução por fragmentos agora aceita textos sem acento e com caixa diferente:
+   - exemplo: PESO / SOLDADO / OBSERVAÇÃO / DESCRIÇÃO
+
+4. O Service Worker foi versionado para evitar cache antigo:
+   - step-dashboard-37.03-traducao-cliente-completa
+   - sw.js?v=38
+   - i18n.js?v=3
+
+Arquivos alterados:
+- site/i18n.js
+- site/index.html
+- site/app.js
+- site/sw.js
+
+Validações:
+- node --check site/i18n.js: OK
+- node --check site/app.js: OK
+- node --check site/sw.js: OK
+- node --check netlify/functions/stage-updates.js: OK
+- node --check netlify/functions/client-under-dev.js: OK
+- node --check netlify/functions/client-under-dev-image.js: OK
+- node --check netlify/functions/auth-login.js: OK
+- node --check netlify/functions/auth-logout.js: OK
+- npm run lint: OK
+
+Observação:
+- npm run validate em ambiente local continua acusando ausência de SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY e token Smartsheet, esperado fora do Netlify.

@@ -1,0 +1,33 @@
+STEP Dashboard Brasil – v37.06
+
+Correção aplicada:
+- Corrige falha ao abrir o modal Imagens da BSP no Painel Brasil.
+
+Causa provável:
+- A função client-bsp-images.js usava apenas SMARTSHEET_API_KEY.
+- O restante do painel aceita SMARTSHEET_TOKEN e outros aliases.
+- Se o Netlify estiver configurado com SMARTSHEET_TOKEN, a API de imagens retornava erro e o modal mostrava “Falha ao carregar imagens.”
+
+Ajustes:
+1. client-bsp-images.js agora aceita:
+   - SMARTSHEET_API_KEY
+   - SMARTSHEET_TOKEN
+   - SMARTSHEET_ACCESS_TOKEN
+   - SMARTSHEET_API_TOKEN
+   - SMARTSHEET_BEARER_TOKEN
+   - SMARTSHEET_PAT
+   - SMARTSHEET_PERSONAL_ACCESS_TOKEN
+2. client-bsp-upload-image.js recebeu o mesmo resolver de token para manter importação funcionando.
+3. client-bsp-images.js agora respeita SMARTSHEET_TRACKING_SHEET_ID/SMARTSHEET_SHEET_ID quando existirem.
+4. O frontend exibe a mensagem real da API quando houver erro, facilitando diagnóstico.
+5. Service Worker atualizado para liberar a nova função/JS no navegador.
+
+Validações executadas:
+- node --check site/app.js
+- node --check site/sw.js
+- node --check site/i18n.js
+- node --check netlify/functions/client-bsp-images.js
+- node --check netlify/functions/client-bsp-upload-image.js
+- node --check netlify/functions/client-under-dev.js
+- node --check netlify/functions/client-under-dev-image.js
+- node --check netlify/functions/stage-updates.js

@@ -1,0 +1,19 @@
+STEP Track v37.30 - Cards PCP e alerta de 7 dias
+
+Base: v37.29, preservando cache/login/agendador/Yinson.
+
+Correções:
+1. Corrige exibição dos cards exclusivos para o setor PCP:
+   - PCP • Vencidas
+   - PCP • A vencer
+
+2. Os cards agora são renderizados junto com os KPIs principais, portanto aparecem no painel do usuário cujo setor seja PCP.
+
+3. O popup de lembrete PCP foi adicionado para BSPs com término planejado de hoje até os próximos 7 dias.
+   - Aparece apenas para setor PCP.
+   - Usa o modal de alerta já existente.
+   - Ao clicar em "Abrir BSPs a vencer", abre a lista agrupada por cliente com PM responsável.
+   - Evita repetir o mesmo lembrete várias vezes no mesmo dia para o mesmo usuário, salvo mudança na lista de BSPs.
+
+4. Nenhum SQL novo.
+5. Nenhuma ENV nova.

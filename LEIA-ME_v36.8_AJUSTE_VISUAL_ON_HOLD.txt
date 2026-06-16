@@ -1,0 +1,16 @@
+Versão v36.8 - Ajuste visual do aviso ON HOLD no Portal do Cliente
+
+Correção aplicada:
+- O aviso ON HOLD dentro da Visão Executiva da BSP estava com pouco contraste no modal claro.
+- Foi alterado para um banner amarelo/laranja de alto contraste, com ícone de alerta, texto escuro e destaque visual.
+- O texto principal agora aparece como: "BSP EM ON HOLD — em espera operacional".
+- A regra de exibição permanece igual: aparece somente se a BSP estiver ON HOLD.
+- A regra de Em Tratativa por observações permanece mantida.
+
+Arquivos alterados:
+- site/app.css
+- site/app.js
+- site/sw.js
+
+Observação:
+- O cache do PWA foi versionado para forçar atualização dos arquivos novos.

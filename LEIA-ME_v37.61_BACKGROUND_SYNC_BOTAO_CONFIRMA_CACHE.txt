@@ -1,0 +1,22 @@
+Versao v37.61 - Atualizacao real em background e botao com confirmacao
+
+Problema confirmado:
+- O endpoint manual /api/sync-tracking-cache expirou no Netlify com:
+  Task timed out after 30.00 seconds
+- O Supabase ficava com last_write_reason = refresh-lock-acquired.
+- O botao voltava para "Atualizar agora", mas o cache continuava antigo.
+
+Correcoes:
+- Criada a funcao Netlify background:
+  netlify/functions/sync-tracking-cache-background.js
+- O botao Atualizar agora chama a atualizacao em background.
+- A tela fica aguardando e consulta o cache ate confirmar que o Supabase recebeu um horario novo.
+- O botao so mostra "Atualizado" depois da confirmacao.
+- Se nao houver confirmacao, o botao mostra "Tentar novamente" e a tela informa que o cache antigo foi mantido.
+
+Tambem mantido:
+- Leitura otimizada do Tracking por colunas.
+- Reconstrucao completa do payload.
+- Cache como espelho do Tracking: inclui BSP nova e remove BSP excluida.
+
+Nao requer SQL novo no Supabase.

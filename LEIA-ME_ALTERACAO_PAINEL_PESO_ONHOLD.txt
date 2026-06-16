@@ -1,0 +1,33 @@
+Alteração aplicada no painel
+============================
+
+1) Card "Peso total soldado"
+- Agora ficou clicável, igual ao card "Total de projetos".
+- Ao clicar, abre o detalhamento por cliente.
+- Cada cliente mostra o peso soldado que compete a ele.
+- Ao clicar no cliente, abre a lista de projetos/BSPs com:
+  - BSP / Projeto
+  - Tipo
+  - Etapa atual
+  - Status
+  - Peso programado
+  - Peso soldado
+
+2) Card "Projetos Em Hold"
+- Agora ficou clicável.
+- Ao clicar, abre o detalhamento por cliente.
+- Cada cliente mostra a quantidade de projetos em On Hold e as tags vinculadas.
+- Ao clicar no cliente, abre a lista dos projetos em On Hold com:
+  - BSP / Projeto
+  - Tipo
+  - Etapa atual
+  - Status
+  - Tags
+  - Motivo On Hold identificado
+
+3) Total de projetos
+- Mantida a regra anterior: Total de Projetos continua excluindo Pending, On Hold e Finalizados.
+
+Arquivos alterados:
+- site/index.html
+- site/app.js

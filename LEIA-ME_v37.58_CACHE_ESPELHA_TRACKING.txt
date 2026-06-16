@@ -1,0 +1,20 @@
+Versao v37.58 - Cache espelha o Tracking
+
+Regra aplicada:
+- O cache operacional do Supabase deve representar o Tracking atual completo.
+- BSP nova no Tracking entra no cache na proxima reconciliacao completa.
+- BSP removida do Tracking sai do cache na proxima reconciliacao completa.
+
+Como funciona:
+- A tabela do Supabase continua usando uma unica linha para a base atual.
+- A sincronizacao monta um payload completo a partir do Smartsheet.
+- Esse payload completo substitui o payload anterior no Supabase.
+- Nao ha merge parcial de projetos antigos com projetos novos.
+
+Correcoes desta versao:
+- Refresh manual sempre forca gravacao completa do payload reconstruido.
+- Rotina agendada tambem grava reconciliacao completa.
+- A escrita nao deve ser bloqueada por "mesma versao" quando uma reconciliacao completa foi executada.
+- O cache local do navegador e ignorado apos o botao Atualizar agora.
+
+Nao requer SQL novo no Supabase.

@@ -1,0 +1,38 @@
+STEP Dashboard Brasil - v37.08
+Correção: cache persistente seguro para Supabase Free
+
+OBJETIVO
+- Reduzir lentidão no login e evitar falha/tela vazia quando o Smartsheet estiver lento.
+- Proteger o plano Free do Supabase contra crescimento de banco, histórico pesado ou gravações excessivas.
+
+ALTERAÇÕES PRINCIPAIS
+1. Login admin/admin123 removido. A autenticação usa somente Supabase.
+2. O cache persistente agora usa UMA ÚNICA LINHA no Supabase:
+   projects:BR:current
+3. O sistema NÃO grava cache por cliente no Supabase.
+   O backend lê a base única e filtra a carteira do cliente antes de responder.
+4. O cache tem limite padrão de tamanho: 8 MB.
+   Variável opcional: TRACKING_CACHE_MAX_PAYLOAD_BYTES
+5. O cache tem intervalo mínimo de regravação da mesma versão: 10 minutos.
+   Variável opcional: TRACKING_CACHE_MIN_WRITE_INTERVAL_MS
+6. Se o Supabase falhar, o painel não quebra: a escrita/leitura de cache é ignorada e o sistema tenta Smartsheet/cache em memória.
+7. App shell/PWA atualizado para v37.08 para evitar navegador usando arquivos antigos.
+
+SQL OBRIGATÓRIO
+Execute no Supabase:
+  supabase/SQL-CRIAR-TRACKING-CACHE-FREE-PLAN-v37.08.sql
+
+VARIÁVEIS RECOMENDADAS NO NETLIFY
+SESSION_SECRET=<segredo forte>
+SUPABASE_URL=<sua url>
+SUPABASE_SERVICE_ROLE_KEY=<service role key>
+TRACKING_CACHE_ENABLED=1
+PERSISTENT_TRACKING_CACHE_MAX_AGE_MS=43200000
+TRACKING_CACHE_MIN_WRITE_INTERVAL_MS=600000
+TRACKING_CACHE_MAX_PAYLOAD_BYTES=8388608
+SMARTSHEET_FETCH_TIMEOUT_MS=8500
+SMARTSHEET_FETCH_RETRIES=1
+
+OBSERVAÇÃO
+O primeiro acesso após deploy pode ainda depender do Smartsheet se a tabela estiver vazia.
+Depois da primeira leitura válida, o sistema passa a ter fallback persistente no Supabase.

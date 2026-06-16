@@ -1,0 +1,20 @@
+STEP Track v37.34 - Correção Yinson HTTP 500
+
+Base: v37.33.
+
+Correção aplicada:
+- Projetos em Desenvolvimento / Yinson não depende mais apenas do GET rico do Smartsheet com include=objectValue,attachments.
+- Se o Smartsheet retornar HTTP 500 nessa chamada, a function tenta automaticamente:
+  1) include=objectValue,attachments
+  2) include=objectValue
+  3) include=attachments
+  4) chamada básica sem include
+- Os anexos continuam sendo buscados em endpoints próprios depois, reduzindo risco de erro 500 no carregamento da tabela.
+- Mantidos os cards PCP, popup expansível por cliente e alerta 7 dias.
+- Sem SQL novo.
+- Sem ENV nova obrigatória.
+
+Recomendado no Netlify:
+SMARTSHEET_YINSON_UNDER_DEV_SHEET_ID=7523600180400004
+
+Depois do deploy: Clear cache and deploy site.

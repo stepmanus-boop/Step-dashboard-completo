@@ -1,0 +1,17 @@
+STEP Dashboard v37.25 - Botão Atualizar e agendador mantêm updated_at sempre recente
+
+Base: v37.24 / v37.17+ cache-only no login.
+
+Correção aplicada:
+- Login continua lendo apenas Supabase/cache, sem chamar Smartsheet.
+- Botão Atualizar agora registra imediatamente uma checagem no Supabase após pegar o lock.
+- Rotina agendada também registra a checagem no Supabase ao pegar o lock.
+- O campo updated_at da tabela step_tracking_cache não fica mais acima de 15 minutos quando a atualização é solicitada.
+- Se a versão da planilha não mudou, não baixa a sheet completa; apenas confirma a checagem e atualiza timestamp.
+- Se o Smartsheet falhar ou demorar, a base atual continua sendo exibida, mas a tentativa de checagem fica registrada.
+- Mantido lock para evitar várias atualizações simultâneas.
+- Sem SQL novo, desde que o SQL de lock da v37.15 já tenha sido executado.
+
+Importante:
+- updated_at passa a representar a última checagem/sincronização confirmada do cache operacional.
+- A versão da planilha continua indicando se houve mudança real de dados no Smartsheet.

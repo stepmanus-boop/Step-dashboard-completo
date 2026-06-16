@@ -1,0 +1,14 @@
+STEP Track v37.21 - Atualização leve com checagem de versão
+
+Base: v37.20.
+
+Correção aplicada:
+- O botão Atualizar e a rotina agendada agora consultam primeiro apenas a versão do Smartsheet.
+- Se a versão do Smartsheet for igual à versão salva no Supabase, o sistema apenas atualiza o timestamp da linha de cache.
+- Isso evita baixar a sheet completa quando nada mudou, reduz timeout e consumo no Netlify/Supabase Free.
+- Se a versão mudou, aí sim a rotina busca a sheet completa e regrava o payload.
+- Mantém login lendo direto do Supabase/cache, sem chamar Smartsheet.
+- Mantém lock no Supabase para impedir múltiplas atualizações simultâneas.
+
+SQL: não precisa SQL novo, desde que o SQL v37.15 do lock já tenha sido executado.
+ENV: não precisa ENV nova.

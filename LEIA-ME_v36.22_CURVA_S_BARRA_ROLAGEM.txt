@@ -1,0 +1,14 @@
+Versão v36.22 - Curva S com barra de rolagem horizontal
+
+Base: v36.21, mantendo o layout da Curva S com desvio laranja.
+
+Ajuste aplicado:
+- Para prazos longos, o SVG da Curva S aumenta a largura automaticamente.
+- O card da Curva S passa a ter barra de rolagem horizontal.
+- O objetivo é evitar que a curva fique achatada ou poluída quando o período planejado for grande.
+- Mantidos tooltip, desvio laranja, Hydro apenas para Spool e exclusão por OBSERVATIONS/solda de campo.
+
+Arquivos alterados:
+- site/app.js
+- site/app.css
+- site/sw.js

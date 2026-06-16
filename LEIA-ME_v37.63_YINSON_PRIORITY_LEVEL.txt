@@ -1,0 +1,11 @@
+v37.63 - Projetos em Desenvolvimento / Yinson
+
+Alterações aplicadas:
+- Adicionada a coluna PRIORITY LEVEL como segunda coluna, logo após VESSEL.
+- Backend /api/client-under-dev passa a mapear a coluna Priority Level da Smartsheet com aliases flexíveis.
+- Busca passa a considerar Priority Level.
+- Exportação Excel passa a incluir Priority Level na aba Projetos.
+- Atualizado o Service Worker para nova chave de cache, forçando o navegador a baixar a versão nova.
+
+Observação:
+- Se houver cache antigo do Supabase sem Priority Level, a função tenta atualizar a base na próxima carga; o botão Atualizar dados também força essa atualização.

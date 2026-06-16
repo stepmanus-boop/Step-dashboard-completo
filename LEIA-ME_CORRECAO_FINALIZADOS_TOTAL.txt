@@ -1,0 +1,22 @@
+Correção aplicada: projetos finalizados fora do Total de Projetos
+
+Regras finais do card Total de Projetos:
+- PROJECT STATUS = PENDING não entra no Total de Projetos.
+- PROJECT STATUS = ON HOLD / ON-HOLD / ONHOLD não entra no Total de Projetos.
+- Observações contendo “on hold” não entram no Total de Projetos.
+- Projetos finalizados também não entram no Total de Projetos.
+
+Critérios considerados como finalizado:
+- project.finished = true
+- uiState = completed
+- operationalState = completed
+- flow.state = completed no front-end
+- status/texto contendo “finalizado” no front-end
+
+Arquivos alterados:
+- netlify/functions/projects.js
+- site/app.js
+
+Validação feita:
+- node --check netlify/functions/projects.js
+- node --check site/app.js

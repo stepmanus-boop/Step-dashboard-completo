@@ -1,0 +1,11 @@
+v37.46 - Correção da Validação PCP x Tracking
+
+Correções aplicadas:
+1. A validação do PCP passa a consultar a sheet do Tracking de forma fresca, sem reaproveitar cache de 2 minutos da Function.
+2. Corrigido o match de linhas do Tracking para priorizar a identidade exata do spool/ISO. Isso evita pegar linha-pai da BSP com 0% quando a linha do spool já está com 50/100%.
+3. Concluir OK também usa conferência fresca do Tracking.
+4. Reduzido cooldown da checagem em segundo plano para 30s dentro da Validação PCP.
+5. Mantidas as alterações anteriores de Yinson, cards PCP, alertas e cache principal.
+
+Sem SQL novo.
+Sem ENV nova.

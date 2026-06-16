@@ -1,0 +1,18 @@
+STEP Dashboard Brasil - v37.48
+
+Ajuste aplicado em Projetos em Desenvolvimento - Yinson:
+
+1. Correção visual da tabela
+- A cor agora é aplicada na linha inteira da tabela, não somente no badge da coluna STATUS.
+- REPAIR COMPLETED: linha verde suave.
+- PROPOSAL UNDER APPROVAL BY CLIENT: linha amarela suave.
+- ON HOLD: linha azul claro suave.
+- PROPOSAL APPROVED: linha lilás claro suave.
+
+2. Mantido
+- Badges de status continuam discretos.
+- Cards/resumo por status no topo continuam funcionando.
+- Busca, exportação, imagens, cache Supabase e leitura Smartsheet não foram alterados.
+
+3. Cache/PWA
+- Service Worker atualizado para step-dashboard-37.48-yinson-linhas-status-suaves, forçando o navegador a puxar a nova versão.

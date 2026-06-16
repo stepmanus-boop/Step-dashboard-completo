@@ -1,0 +1,185 @@
+================================================================================
+RESUMO DE ALTERAÇÕES - PORTAL DO CLIENTE v24
+================================================================================
+
+DATA: 2026-05-09
+VERSÃO: v24 - Correção de Reidratação de Sessão Cliente
+
+================================================================================
+PROBLEMA IDENTIFICADO
+================================================================================
+
+O Portal do Cliente apresentava dados vazios ("--") nos cards porque:
+
+1. Usuários com sessões antigas não tinham clientKey/clientName no cookie
+2. A chave de cache local podia ser compartilhada entre usuários diferentes
+3. A normalização de filtros era muito restritiva
+4. Cache vazio não era detectado e reutilizado indefinidamente
+
+================================================================================
+ARQUIVOS MODIFICADOS
+================================================================================
+
+1. site/app.js
+   - Função getProjectsCacheKey(): Melhorada para usar user.id/sub como fallback
+   - Função shouldIgnoreCachedProjectsPayload(): Validação mais robusta
+   - Função loadProjects(): Adicionado debug e validação de dados vazios
+
+2. netlify/functions/projects.js
+   - Função normalizeClientScopeValue(): Normalização mais tolerante
+   - Função projectBelongsToClientScope(): Três níveis de teste de compatibilidade
+
+3. site/sw.js
+   - CACHE_NAME: Atualizado de v23 para v24
+   - Comentários explicativos adicionados
+
+================================================================================
+DETALHES DAS CORREÇÕES
+================================================================================
+
+CORREÇÃO 1: Chave de Cache Melhorada
+-----------------------------------
+Arquivo: site/app.js
+Função: getProjectsCacheKey()
+
+ANTES:
+  const client = normalizeText(user?.clientKey || user?.clientName || '').replace(/[^a-z0-9]+/g, '_');
+  return `${PROJECTS_CACHE_KEY}:${role}:${username}:${client}`;
+
+DEPOIS:
+  let client = normalizeText(user?.clientKey || user?.clientName || '').replace(/[^a-z0-9]+/g, '_');
+  if (!client && user?.id) {
+    client = normalizeText(user.id).replace(/[^a-z0-9]+/g, '_').substring(0, 16);
+  }
+  if (!client && user?.sub) {
+    client = normalizeText(user.sub).replace(/[^a-z0-9]+/g, '_').substring(0, 16);
+  }
+  return `${PROJECTS_CACHE_KEY}:${role}:${username}:${client}`;
+
+BENEFÍCIO: Cada usuário cliente terá chave de cache única, evitando compartilhamento
+
+
+CORREÇÃO 2: Validação de Cache Vazio
+-------------------------------------
+Arquivo: site/app.js
+Função: shouldIgnoreCachedProjectsPayload()
+
+ADICIONADO:
+  - Validação se cache tem meta.clientPortal=true mas sem projetos
+  - Logs de debug para facilitar diagnóstico
+
+BENEFÍCIO: Detecta cache corrompido e força nova requisição à API
+
+
+CORREÇÃO 3: Lógica de Carregamento Melhorada
+---------------------------------------------
+Arquivo: site/app.js
+Função: loadProjects()
+
+ADICIONADO:
+  - Variável shouldUseCache para melhor controle
+  - Logs quando cache é rejeitado para usuário cliente
+  - Validação se usuário cliente recebeu 0 projetos da API
+
+BENEFÍCIO: Garante que dados vazios sejam detectados e tratados
+
+
+CORREÇÃO 4: Normalização Mais Tolerante
+----------------------------------------
+Arquivo: netlify/functions/projects.js
+Função: normalizeClientScopeValue()
+
+ANTES:
+  .replace(/[^a-zA-Z0-9]+/g, ' ')
+
+DEPOIS:
+  .replace(/[^a-zA-Z0-9\s]/g, '')
+  .replace(/\s+/g, ' ')
+
+BENEFÍCIO: Tolera variações de formatação (espaços extras, hífens, etc.)
+
+
+CORREÇÃO 5: Lógica de Filtro Aprimorada
+-----------------------------------------
+Arquivo: netlify/functions/projects.js
+Função: projectBelongsToClientScope()
+
+ADICIONADO:
+  - Teste 1: Igualdade exata
+  - Teste 2: Containment (um está contido no outro)
+  - Teste 3: Palavras-chave compartilhadas (pelo menos 1 palavra em comum)
+
+BENEFÍCIO: Mais tolerante com variações de nomes, reduz falsos negativos
+
+
+CORREÇÃO 6: Atualização de Cache do PWA
+-----------------------------------------
+Arquivo: site/sw.js
+Constante: CACHE_NAME
+
+ANTES:
+  const CACHE_NAME = "step-gerencia-pwa-v23-cliente-dados-scope-fix";
+
+DEPOIS:
+  const CACHE_NAME = "step-gerencia-pwa-v24-client-session-hydration";
+
+BENEFÍCIO: Força invalidação de cache em todos os clientes
+
+
+================================================================================
+INSTRUÇÕES DE IMPLANTAÇÃO
+================================================================================
+
+1. BACKUP
+   cp -r netlify/functions/projects.js netlify/functions/projects.js.backup
+   cp -r site/app.js site/app.js.backup
+   cp -r site/sw.js site/sw.js.backup
+
+2. DEPLOY
+   netlify deploy --prod
+
+3. VALIDAÇÃO NO CLIENTE
+   - Fazer logout e login novamente
+   - Limpar cache do navegador (Ctrl+Shift+Delete)
+   - Reinstalar PWA se estiver usando
+   - Verificar console (F12 → Console) para logs
+
+4. SINAIS DE SUCESSO
+   ✅ Portal do Cliente carrega com dados visíveis
+   ✅ Cards mostram números em vez de "--"
+   ✅ Filtro de cliente funciona corretamente
+   ✅ Cache local é reutilizado corretamente
+   ✅ Logs mostram "cache econômico" quando apropriado
+
+================================================================================
+DEBUGGING
+================================================================================
+
+Se o problema persistir, verifique:
+
+1. Console do navegador (F12 → Console):
+   - Procure por mensagens [LoadProjects]
+   - Procure por mensagens [Cache]
+
+2. Network tab (F12 → Network):
+   - Verifique se /api/projects retorna dados
+   - Verifique se projects array não está vazio
+
+3. Application tab (F12 → Application → Local Storage):
+   - Procure por chaves começando com step_dashboard_projects_cache_v4_client_scope
+   - Verifique se o payload tem projetos
+
+4. Supabase (se configurado):
+   - Verifique se usuário cliente tem clientKey e clientName preenchidos
+   - Verifique se allowed_clients está correto
+
+================================================================================
+ROLLBACK
+================================================================================
+
+Se necessário reverter para versão anterior:
+
+git revert HEAD
+netlify deploy --prod
+
+================================================================================

@@ -1,0 +1,14 @@
+v36.7 - Correção do Portal do Cliente e observações em tratativa
+
+Base utilizada: v36.4, que mantinha o carregamento do Portal do Cliente funcionando.
+
+Correções aplicadas:
+1. Revertidas as mudanças de carregamento/filtro do Portal do Cliente introduzidas na v36.6.
+2. Mantido o fluxo antigo de API/cache do cliente para não quebrar clientes já cadastrados.
+3. Corrigida a perda de OBSERVATIONS em BSPs com linhas duplicadas/variações da mesma Tag/ISO.
+4. Quando uma Tag/ISO duplicada é escolhida como linha principal, as observações da linha descartada agora são mescladas.
+5. A regra Em tratativa continua ativa para: Revisão de P.O, Aguardando liberação para envio e Entrega parcial.
+6. O duplo clique/visão executiva exibe ON HOLD apenas quando existir e exibe a observação crítica quando existir.
+
+Observação técnica:
+A v36.5/v36.6 tentou procurar várias variações de colunas de observação em todas as linhas. Em bases grandes do Smartsheet isso poderia pesar a função e causar falha de carregamento. Nesta versão a correção foi feita de forma pontual, preservando o desempenho da versão que já funcionava.

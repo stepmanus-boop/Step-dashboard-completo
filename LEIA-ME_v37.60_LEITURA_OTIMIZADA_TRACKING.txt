@@ -1,0 +1,23 @@
+Versao v37.60 - Leitura otimizada do Tracking para evitar timeout
+
+Problema confirmado no painel publicado:
+- Login funcionou.
+- /api/projects retornou cache com 158 projetos, mas sem a BSP 26-535-01.
+- /api/sync-tracking-cache?force=1&manual=1 expirou com "Inactivity Timeout".
+
+Causa operacional:
+- A reconciliacao completa estava tentando baixar a sheet inteira do Smartsheet.
+- A funcao Netlify expirava antes de reconstruir e gravar o payload novo no Supabase.
+
+Correcao:
+- A reconstrucao completa agora busca as colunas da planilha e baixa somente as colunas necessarias para o painel:
+  - Project, Item, Drawing, Client, Vessel, PM, pesos, linha, tamanho, status, progresso e etapas.
+- Isso reduz o payload trafegado do Smartsheet e aumenta a chance de concluir dentro do limite da Function.
+
+Mantido:
+- Cache como espelho do Tracking.
+- BSP nova entra na proxima reconciliacao completa.
+- BSP removida sai na proxima reconciliacao completa.
+- Botao Atualizar agora limpa lock travado quando for acionamento manual.
+
+Nao requer SQL novo no Supabase.

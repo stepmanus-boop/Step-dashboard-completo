@@ -1,0 +1,15 @@
+v36.34 - Brasil separado de Portugal
+
+Correção baseada na premissa correta:
+- Brasil e Portugal são dois sistemas/sites separados.
+- Eles compartilham apenas a base Supabase.
+- Esta build é do BRASIL e nunca deve alternar para PT pelo frontend, querystring ou localStorage.
+
+Alterações:
+- Painel Brasil fixado em BR.
+- Cadastro administrativo do Brasil grava operation_region/site_key/portal_site = BR.
+- Login do Brasil autentica apenas no ambiente BR.
+- Removida opção operacional de Portugal no cadastro do painel Brasil.
+- Lista administrativa do Brasil mostra usuários do ambiente BR.
+- Overrides do painel do cliente ficam filtrados para BR/nulos.
+- Mantidas as correções anteriores: Curva S, API do cliente, PM/Admin edita painel do cliente, Hydro/TH.

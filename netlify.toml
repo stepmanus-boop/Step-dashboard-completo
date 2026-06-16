@@ -1,0 +1,34 @@
+[build]
+  publish = "site"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["netlify/functions/fallback-projects.json", "netlify/data/fallback-projects.json", "data/stage-updates.json", "netlify/data/stage-updates.json"]
+
+[functions."scheduled-sync-tracking-cache"]
+  schedule = "*/15 * * * *"
+
+[functions."scheduled-sync-yinson-under-dev-cache"]
+  schedule = "*/15 * * * *"
+
+[functions."scheduled-cache-heartbeat"]
+  schedule = "*/15 * * * *"
+
+[functions."scheduled-yinson-under-dev-heartbeat"]
+  schedule = "*/15 * * * *"
+
+[[redirects]]
+  from = "/api/projects-warmup"
+  to = "/.netlify/functions/projects-warmup"
+  status = 200
+
+[[redirects]]
+  from = "/api/projects-fast"
+  to = "/.netlify/functions/projects-fast"
+  status = 200
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200

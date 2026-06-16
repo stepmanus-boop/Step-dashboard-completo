@@ -1,0 +1,18 @@
+STEP Dashboard v37.65 - Cache watchdog + Scheduled Function moderna
+
+Correções desta versão:
+1. Mantém a Pesquisa QR Code automática por ISO da v37.64.
+2. Adiciona fallback automático no painel: se o cache passar de 15 minutos sem atualização, o painel logado chama /api/sync-tracking-cache em modo leve e atualiza o timestamp no Supabase.
+3. Adiciona wrappers modernos de Scheduled Function com export const config schedule:
+   - netlify/functions/scheduled-cache-heartbeat.mjs
+   - netlify/functions/scheduled-yinson-under-dev-heartbeat.mjs
+4. Mantém também os agendadores antigos via netlify.toml, com lock para evitar conflito.
+
+Como validar no Netlify:
+- Após deploy publicado em produção, abra Site configuration / Functions ou Logs & Metrics / Functions.
+- Confirme se scheduled-cache-heartbeat aparece com badge Scheduled e próximo horário de execução.
+- Use Run now na função scheduled-cache-heartbeat para testar manualmente.
+- Depois atualize o painel e confira se a idade do cache volta para agora.
+
+Observação:
+Scheduled Functions do Netlify só rodam automaticamente em published deploy. Deploy Preview/branch deploy não dispara a agenda automaticamente.

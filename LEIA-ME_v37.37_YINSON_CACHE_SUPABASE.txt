@@ -1,0 +1,19 @@
+v37.37 - Yinson com cache Supabase próprio
+
+Alterações principais:
+- Projetos em Desenvolvimento - Yinson passa a ler primeiro do cache persistente Supabase.
+- Cache separado: yinson:under-dev:current, na mesma tabela step_tracking_cache.
+- Se existir cache, a tela abre sem depender do Smartsheet ao vivo.
+- Botão Atualizar dados força sincronização do Yinson e grava nova base no Supabase.
+- Nova Scheduled Function scheduled-sync-yinson-under-dev-cache atualiza o cache a cada 15 minutos.
+- Se Smartsheet falhar, o sistema mantém a última base válida e mostra a origem/idade do cache no painel.
+- Mantidos cards PCP, popup por clientes expansíveis e alerta de 7 dias.
+- Sem SQL novo se a tabela step_tracking_cache e campos de lock da v37.15 já existem.
+
+ENV recomendadas opcionais:
+SMARTSHEET_YINSON_UNDER_DEV_SHEET_ID=7523600180400004
+SMARTSHEET_YINSON_UNDER_DEV_SHEET_URL=https://app.smartsheet.com/sheets/Vc4FwJfQ7XMpGfWv9HvWhJC6xf743r3FM7cMjQ41
+YINSON_UNDER_DEV_CACHE_ENABLED=1
+YINSON_UNDER_DEV_SCHEDULE_ENABLED=1
+YINSON_UNDER_DEV_AUTO_REFRESH_AFTER_MS=900000
+YINSON_UNDER_DEV_CACHE_MAX_AGE_MS=2592000000

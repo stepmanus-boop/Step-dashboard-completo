@@ -1,0 +1,42 @@
+STEP Dashboard Brasil – v37.04
+
+Correção principal:
+- Evita que o Portal do Cliente abra vazio com cards "--" quando a primeira resposta da API vem sem BSPs.
+
+Causa provável:
+- A API do Portal do Cliente podia cachear uma resposta vazia quando a sessão do cliente ainda não estava totalmente hidratada ou quando a consulta inicial ao Smartsheet oscilava.
+- Depois disso, o frontend reaproveitava o cache rápido e o cliente ficava com o painel sem dados.
+
+Correções aplicadas:
+1. netlify/functions/projects.js
+   - Não cacheia mais payload vazio do Portal do Cliente.
+   - Cache específico de cliente só é aceito quando possui pelo menos 1 BSP.
+   - Fallback de cache por cliente agora respeita melhor o escopo do cliente.
+
+2. site/app.js
+   - Se cliente abrir sem projetos, a validação força uma leitura limpa da API a partir da segunda tentativa.
+   - Evita preferir cache de servidor quando o Portal ainda não tem BSPs na tela.
+   - Mostra mensagem clara no Portal do Cliente se a API ainda estiver retornando vazio, em vez de deixar somente cards "--".
+   - Sincroniza nome/logo do cliente vindos do backend quando o backend reidrata a sessão.
+
+3. site/sw.js
+   - Atualizado cache para step-dashboard-37.04-client-data-retry.
+   - Service Worker registrado como sw.js?v=39.
+
+4. site/index.html
+   - i18n versionado como i18n.js?v=4 para evitar cache antigo.
+
+Validações locais:
+- node --check site/app.js: OK
+- node --check site/sw.js: OK
+- node --check site/i18n.js: OK
+- node --check netlify/functions/projects.js: OK
+- node --check netlify/functions/client-under-dev.js: OK
+- node --check netlify/functions/client-under-dev-image.js: OK
+- node --check netlify/functions/stage-updates.js: OK
+- node --check netlify/functions/auth-login.js: OK
+- node --check netlify/functions/auth-logout.js: OK
+- npm run lint: OK
+
+Observação:
+- npm run validate acusa ausência de variáveis de ambiente no sandbox local, como SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY, esperado fora do Netlify.

@@ -1,0 +1,19 @@
+Versao v37.59 - Correcao do botao Atualizar agora preso em lock
+
+Teste realizado no painel publicado:
+- Login via API funcionou com sucesso.
+- A chamada manual de atualizacao respondeu:
+  reason = supabase-lock-held
+- Isso significa que o botao Atualizar agora nao reconstruia o cache porque havia lock de refresh ativo/travado no Supabase.
+
+Correcao aplicada:
+- Quando o usuario clicar em Atualizar agora com force=1&manual=1 e o Supabase responder lock-held, a funcao limpa o lock de refresh e tenta adquirir novamente.
+- A rotina agendada continua respeitando lock para evitar concorrencia.
+- Depois de adquirir o lock, a funcao executa a reconciliacao completa do Tracking e grava o payload completo no cache.
+
+Resultado esperado:
+- O botao Atualizar agora deixa de ficar preso por lock antigo.
+- BSPs novas entram no cache.
+- BSPs removidas do Tracking saem do cache na reconciliacao completa.
+
+Nao requer SQL novo no Supabase.

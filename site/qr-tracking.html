@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#041a2d" />
+    <link rel="icon" type="image/x-icon" href="./assets/favicon.ico" />
+    <title>STEP • Rastreamento ISO</title>
+    <link rel="stylesheet" href="./app.css?v=37.64-qr-cache" />
+    <style>
+      body {
+        min-height: 100vh;
+        margin: 0;
+        padding: 22px;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at top left, rgba(82, 227, 154, .12), transparent 34%),
+          radial-gradient(circle at top right, rgba(123, 213, 255, .18), transparent 36%),
+          linear-gradient(180deg, #041a2d 0%, #031220 100%);
+        color: #dcecf6;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      .qr-track-card {
+        width: min(620px, 100%);
+        border: 1px solid rgba(123,213,255,.2);
+        border-radius: 22px;
+        padding: 24px;
+        background: rgba(3, 18, 32, .86);
+        box-shadow: 0 24px 70px rgba(0,0,0,.25);
+      }
+      .qr-track-logo { width: 118px; height: auto; display: block; margin-bottom: 18px; }
+      .qr-track-kicker { margin: 0 0 4px; color: #7bd5ff; text-transform: uppercase; letter-spacing: .12em; font-size: .72rem; font-weight: 700; }
+      .qr-track-title { margin: 0 0 8px; font-size: clamp(1.4rem, 5vw, 2rem); overflow-wrap: anywhere; }
+      .qr-track-subtitle { margin: 0 0 18px; color: #a9cde4; }
+      .qr-track-grid { display: grid; gap: 10px; margin-top: 16px; }
+      .qr-track-row { display: grid; grid-template-columns: 130px 1fr; gap: 10px; padding: 10px 0; border-top: 1px solid rgba(255,255,255,.08); }
+      .qr-track-row span { color: #8fb7cc; }
+      .qr-track-row strong { color: #ecf8ff; overflow-wrap: anywhere; }
+      .qr-track-status { display: inline-flex; align-items: center; width: fit-content; padding: 6px 10px; border-radius: 999px; background: rgba(82,227,154,.1); border: 1px solid rgba(82,227,154,.22); color: #baf7d9; font-weight: 700; }
+      .qr-track-error { color: #ffd8d8; background: rgba(255,80,80,.1); border: 1px solid rgba(255,80,80,.2); border-radius: 12px; padding: 12px; }
+      @media (max-width: 560px) { .qr-track-row { grid-template-columns: 1fr; gap: 3px; } }
+    </style>
+  </head>
+  <body>
+    <main class="qr-track-card">
+      <img class="qr-track-logo" src="./assets/step-logo.png" alt="STEP Oil & Gas" />
+      <p class="qr-track-kicker">Rastreamento ISO</p>
+      <h1 id="qr-track-title" class="qr-track-title">Carregando...</h1>
+      <p id="qr-track-subtitle" class="qr-track-subtitle">Consultando QR Code no painel STEP.</p>
+      <div id="qr-track-content"></div>
+    </main>
+    <script>
+      function escapeHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, function(char) {
+          return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[char];
+        });
+      }
+      function formatDate(value) {
+        if (!value) return '—';
+        var date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '—';
+        return date.toLocaleString('pt-BR');
+      }
+      async function loadQrTracking() {
+        var title = document.getElementById('qr-track-title');
+        var subtitle = document.getElementById('qr-track-subtitle');
+        var content = document.getElementById('qr-track-content');
+        var params = new URLSearchParams(window.location.search || '');
+        var token = params.get('token') || '';
+        if (!token) {
+          title.textContent = 'QR Code inválido';
+          subtitle.textContent = 'Token não informado.';
+          content.innerHTML = '<div class="qr-track-error">O link escaneado não contém um token válido.</div>';
+          return;
+        }
+        try {
+          var response = await fetch('/api/iso-qr-public?token=' + encodeURIComponent(token), { cache: 'no-store' });
+          var data = await response.json().catch(function(){ return null; });
+          if (!response.ok || !data || !data.ok) throw new Error((data && data.error) || 'QR Code não encontrado.');
+          var item = data.item || {};
+          var isoName = item.isoFullName || item.iso || 'ISO';
+          title.textContent = isoName;
+          subtitle.textContent = 'Identificação vinculada ao Tracking STEP.';
+          content.innerHTML = '<div class="qr-track-status">QR Code ativo</div>' +
+            '<section class="qr-track-grid">' +
+            '<div class="qr-track-row"><span>BSP</span><strong>' + escapeHtml(item.bsp || '—') + '</strong></div>' +
+            '<div class="qr-track-row"><span>Cliente</span><strong>' + escapeHtml(item.client || '—') + '</strong></div>' +
+            '<div class="qr-track-row"><span>Vessel</span><strong>' + escapeHtml(item.vessel || '—') + '</strong></div>' +
+            '<div class="qr-track-row"><span>Status</span><strong>' + escapeHtml(item.status || '—') + '</strong></div>' +
+            '<div class="qr-track-row"><span>Progresso</span><strong>' + escapeHtml(String(item.progress || 0)) + '%</strong></div>' +
+            '<div class="qr-track-row"><span>Atualizado</span><strong>' + escapeHtml(formatDate(item.updatedAt)) + '</strong></div>' +
+            '</section>';
+        } catch (error) {
+          title.textContent = 'QR Code não localizado';
+          subtitle.textContent = 'Não foi possível abrir o rastreamento.';
+          content.innerHTML = '<div class="qr-track-error">' + escapeHtml(error.message || 'Falha ao consultar QR Code.') + '</div>';
+        }
+      }
+      loadQrTracking();
+    </script>
+  </body>
+</html>

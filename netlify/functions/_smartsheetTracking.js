@@ -1,0 +1,778 @@
+const API_BASE = process.env.SMARTSHEET_API_BASE || 'https://api.smartsheet.com/2.0';
+const SHEET_NAME = process.env.SMARTSHEET_SHEET_NAME || 'Progress Tracking Sheet - Piping Fabrication';
+const SHEET_ID_ENV = process.env.SMARTSHEET_SHEET_ID || '';
+const TOKEN = process.env.SMARTSHEET_TOKEN || process.env.SMARTSHEET_ACCESS_TOKEN || process.env.SMARTSHEET_API_TOKEN || process.env.SMARTSHEET_BEARER_TOKEN || process.env.SMARTSHEET_PAT || process.env.SMARTSHEET_PERSONAL_ACCESS_TOKEN || '';
+const TRACKING_SHEET_CACHE_MS = Number(process.env.TRACKING_SHEET_CACHE_MS || 2 * 60 * 1000);
+const SMARTSHEET_REQUEST_TIMEOUT_MS = Number(process.env.SMARTSHEET_REQUEST_TIMEOUT_MS || 15000);
+
+const TRACKING_PROGRESS_BY_SECTOR = {
+  engenharia: 'Drawing Execution Advance%',
+  suprimento: 'Material Separation',
+  pintura: 'Surface preparation and/or coating',
+  solda: 'Full welding execution',
+  producao: 'Spool Assemble and tack weld',
+  calderaria: 'Spool Assemble and tack weld',
+  pre_montagem: 'Spool Assemble and tack weld',
+  pendente_envio: 'Package and Delivered',
+  logistica: 'Package and Delivered',
+};
+
+const TRACKING_DATE_BY_PROGRESS_COLUMN = {
+  'Surface preparation and/or coating': 'Coating Finish Date',
+  'Full welding execution': 'Welding Finish Date',
+  'Hydro Test Pressure (QC)': 'TH Finish Date',
+  'Final Dimensional Inpection/3D (QC)': 'Inspection Finish Date (QC)',
+  'Non Destructive Examination (QC)': 'Inspection Finish Date (QC)',
+  'Spool Assemble and tack weld': 'Boilermaker Finish Date',
+  'HDG / FBE.  (PAINT)': 'HDG / FBE DATE RETORNO (PAINT)',
+  'Final Inspection': 'Project Finish Date',
+  'Package and Delivered': 'Project Finish Date',
+};
+
+const COLUMN_ALIASES = {
+  'Package and Delivered': ['Package and Delivered', 'Package Delivered', 'Package & Delivered', 'Package'],
+  'Final Dimensional Inpection/3D (QC)': ['Final Dimensional Inpection/3D (QC)', 'Final Dimensional Inspection/3D (QC)', 'Final Dimensional Inspection 3D QC'],
+  'Non Destructive Examination (QC)': ['Non Destructive Examination (QC)', 'NDE', 'END'],
+  'Hydro Test Pressure (QC)': ['Hydro Test Pressure (QC)', 'Hydro Test', 'TH'],
+  'Drawing Execution Advance%': ['Drawing Execution Advance%', 'Drawing Execution Advance', 'Detalhamento', 'Emissão de detalhamento'],
+  'Procuremnt Status %': ['Procuremnt Status %', 'Procurement Status %', 'Procurement Status', 'Verificando estoque'],
+  'Material Release to Fabrication': ['Material Release to Fabrication', 'Material Release', 'Liberação de material'],
+  'Material Separation': ['Material Separation', 'Separação de material', 'Separacao de material'],
+  'Surface preparation and/or coating': ['Surface preparation and/or coating', 'Surface Preparation Coating', 'Coating', 'Pintura'],
+  'Spool Assemble and tack weld': ['Spool Assemble and tack weld', 'Spool Assemble', 'Tack weld', 'Pré Montagem', 'Pre Montagem'],
+  'Full welding execution': ['Full welding execution', 'Welding Execution', 'Solda'],
+  'Coating Finish Date': ['Coating Finish Date', 'Coating Finish', 'Data Pintura'],
+  'Welding Finish Date': ['Welding Finish Date', 'Welding Finish'],
+  'TH Finish Date': ['TH Finish Date', 'Hydro Test Finish Date'],
+  'Inspection Finish Date (QC)': ['Inspection Finish Date (QC)', 'Inspection Finish Date QC'],
+  'Boilermaker Finish Date': ['Boilermaker Finish Date', 'Boilermaker Finish'],
+  'HDG / FBE DATE RETORNO (PAINT)': ['HDG / FBE DATE RETORNO (PAINT)', 'HDG FBE DATE RETORNO PAINT', 'HDG FBE RETORNO'],
+  'Final Inspection': ['Final Inspection'],
+  'Project Finish Date': ['Project Finish Date', 'Finish Date Project'],
+  'Drawing': ['Drawing', 'Spool', 'ISO'],
+  'Project': ['Project', 'BSP'],
+};
+
+function normalizeColumnTitle(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '')
+    .toLowerCase();
+}
+
+function normalizeSectorValue(value) {
+  const normalized = String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (['qualidade', 'inspecao', 'inspecao_qualidade', 'qc'].includes(normalized)) return 'inspecao';
+  if (['engenharia', 'engineering'].includes(normalized)) return 'engenharia';
+  if (['suprimento', 'suprimentos', 'supply', 'supply_chain', 'procurement'].includes(normalized)) return 'suprimento';
+  if (['logistica', 'pendente_envio', 'envio', 'preparando_envio', 'em_tratativa'].includes(normalized)) return 'pendente_envio';
+  if (['producao', 'caldeiraria', 'calderaria'].includes(normalized)) return normalized === 'caldeiraria' ? 'calderaria' : normalized;
+  return normalized;
+}
+
+function normalizeSpoolIdentity(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[–—−]/g, '-')
+    .toUpperCase()
+    .replace(/\([^)]*\)/g, '')
+    .replace(/[^A-Z0-9]+/g, '');
+}
+
+function compactContainsMatch(a, b) {
+  const left = normalizeSpoolIdentity(a);
+  const right = normalizeSpoolIdentity(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const min = Math.min(left.length, right.length);
+  if (min < 8) return false;
+  return left.includes(right) || right.includes(left);
+}
+
+function parseNumberValue(input) {
+  if (input == null || input === '') return null;
+  if (typeof input === 'number') return Number.isFinite(input) ? input : null;
+  let str = String(input).trim();
+  if (!str) return null;
+  str = str.replace(/\s/g, '');
+  const hasComma = str.includes(',');
+  const hasDot = str.includes('.');
+  if (hasComma && hasDot) {
+    str = str.lastIndexOf(',') > str.lastIndexOf('.') ? str.replace(/\./g, '').replace(',', '.') : str.replace(/,/g, '');
+  } else if (hasComma) {
+    str = str.replace(',', '.');
+  }
+  str = str.replace(/[^\d.-]/g, '');
+  const num = Number(str);
+  return Number.isFinite(num) ? num : null;
+}
+
+function parsePercentValue(rawValue, displayValue) {
+  if (displayValue != null && String(displayValue).includes('%')) {
+    const value = parseNumberValue(String(displayValue).replace('%', ''));
+    return value == null ? null : value;
+  }
+  const parsed = parseNumberValue(rawValue ?? displayValue);
+  if (parsed == null) return null;
+  return parsed >= 0 && parsed <= 1 ? parsed * 100 : parsed;
+}
+
+function isEmptyCellValue(value) {
+  if (value == null) return true;
+  return String(value).trim() === '';
+}
+
+function getCell(row, column) {
+  if (!row || !column) return null;
+  return (row.cells || []).find((cell) => String(cell.columnId) === String(column.id)) || null;
+}
+
+function getCellDisplay(row, column) {
+  const cell = getCell(row, column);
+  if (!cell) return '';
+  return cell.displayValue ?? cell.value ?? '';
+}
+
+function getCellPercent(row, column) {
+  const cell = getCell(row, column);
+  if (!cell) return null;
+  return parsePercentValue(cell.value, cell.displayValue);
+}
+
+function getCellHasValue(row, column) {
+  const cell = getCell(row, column);
+  if (!cell) return false;
+  return !isEmptyCellValue(cell.value ?? cell.displayValue);
+}
+
+function buildColumnIndex(sheet) {
+  const columns = Array.isArray(sheet?.columns) ? sheet.columns : [];
+  const byNorm = new Map();
+  for (const column of columns) {
+    const norm = normalizeColumnTitle(column.title);
+    if (!byNorm.has(norm)) byNorm.set(norm, column);
+  }
+  return { columns, byNorm };
+}
+
+function findColumn(sheet, canonicalName, extraAliases = []) {
+  const { columns, byNorm } = buildColumnIndex(sheet);
+  const aliases = [canonicalName, ...(COLUMN_ALIASES[canonicalName] || []), ...(Array.isArray(extraAliases) ? extraAliases : [])]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+
+  for (const alias of aliases) {
+    const exact = byNorm.get(normalizeColumnTitle(alias));
+    if (exact) return exact;
+  }
+
+  const canonicalNorm = normalizeColumnTitle(canonicalName);
+  if (canonicalName === 'Package and Delivered') {
+    const safe = columns.find((column) => {
+      const norm = normalizeColumnTitle(column.title);
+      return norm.includes('package') && (norm.includes('delivered') || norm.includes('delivery') || norm.includes('envio'));
+    });
+    if (safe) return safe;
+    return byNorm.get('package') || null;
+  }
+
+  return columns.find((column) => {
+    const norm = normalizeColumnTitle(column.title);
+    return norm && canonicalNorm && norm.includes(canonicalNorm);
+  }) || null;
+}
+
+async function apiFetch(path, options = {}) {
+  if (!TOKEN) throw new Error('SMARTSHEET_TOKEN não configurado no Netlify.');
+
+  const timeoutMs = Math.max(3000, Number(options.timeoutMs || SMARTSHEET_REQUEST_TIMEOUT_MS) || 15000);
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      signal: controller ? controller.signal : options.signal,
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      },
+    });
+    if (!response.ok) {
+      const message = await response.text().catch(() => '');
+      throw new Error(`Smartsheet ${response.status}: ${message}`);
+    }
+    const text = await response.text();
+    return text ? JSON.parse(text) : null;
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error(`Smartsheet demorou mais de ${Math.round(timeoutMs / 1000)}s para responder. Tente novamente ou atualize itens selecionados em lote menor.`);
+    }
+    throw error;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+function normalizeName(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+const cache = global.__STEP_TRACKING_WRITE_CACHE__ || {
+  sheetId: null,
+  sheetName: null,
+  sheet: null,
+  sheetFetchedAt: 0,
+};
+global.__STEP_TRACKING_WRITE_CACHE__ = cache;
+
+async function resolveSheetId() {
+  if (cache.sheetId) return cache.sheetId;
+  if (SHEET_ID_ENV) {
+    cache.sheetId = String(SHEET_ID_ENV);
+    return cache.sheetId;
+  }
+  const target = normalizeName(SHEET_NAME);
+  let page = 1;
+  let fuzzyFound = null;
+  while (true) {
+    const response = await apiFetch(`/sheets?page=${page}&pageSize=100`);
+    const items = response?.data || [];
+    const exact = items.find((item) => normalizeName(item.name) === target);
+    if (exact) {
+      cache.sheetId = String(exact.id);
+      cache.sheetName = exact.name;
+      return cache.sheetId;
+    }
+    if (!fuzzyFound) {
+      fuzzyFound = items.find((item) => normalizeName(item.name).includes(target) || target.includes(normalizeName(item.name)));
+    }
+    if (!items.length || page >= (response.totalPages || 1)) break;
+    page += 1;
+  }
+  if (fuzzyFound) {
+    cache.sheetId = String(fuzzyFound.id);
+    cache.sheetName = fuzzyFound.name;
+    return cache.sheetId;
+  }
+  throw new Error(`Sheet "${SHEET_NAME}" não encontrada.`);
+}
+
+async function fetchTrackingSheet(options = {}) {
+  const sheetId = await resolveSheetId();
+  const force = Boolean(options.force);
+  const now = Date.now();
+  if (!force && cache.sheet && String(cache.sheetId || '') === String(sheetId) && now - Number(cache.sheetFetchedAt || 0) < TRACKING_SHEET_CACHE_MS) {
+    return { sheetId, sheet: cache.sheet, cached: true };
+  }
+  const sheet = await apiFetch(`/sheets/${sheetId}?includeAll=true`);
+  cache.sheet = sheet;
+  cache.sheetFetchedAt = Date.now();
+  return { sheetId, sheet, cached: false };
+}
+
+function invalidateProjectCache() {
+  if (global.__STEP_PROGRESS_CACHE__) {
+    global.__STEP_PROGRESS_CACHE__.version = null;
+    global.__STEP_PROGRESS_CACHE__.payload = null;
+    global.__STEP_PROGRESS_CACHE__.lastSync = null;
+  }
+}
+
+async function updateRows(sheetId, rowChangesMap) {
+  const rows = Array.from(rowChangesMap.values())
+    .map((entry) => ({ id: entry.id, cells: Array.from(entry.cells.values()) }))
+    .filter((row) => row.id && row.cells.length);
+  if (!rows.length) return { rows: [] };
+  const response = await apiFetch(`/sheets/${sheetId}/rows`, {
+    method: 'PUT',
+    body: JSON.stringify(rows),
+  });
+  cache.sheet = null;
+  cache.sheetFetchedAt = 0;
+  invalidateProjectCache();
+  return { rows, response };
+}
+
+function addCellChange(rowChangesMap, rowId, column, value) {
+  if (!rowId || !column?.id) return;
+  const key = String(rowId);
+  if (!rowChangesMap.has(key)) rowChangesMap.set(key, { id: rowId, cells: new Map() });
+  const entry = rowChangesMap.get(key);
+  const cellKey = String(column.id);
+  const existing = entry.cells.get(cellKey);
+  if (typeof value === 'number' && existing && typeof existing.value === 'number') {
+    entry.cells.set(cellKey, { columnId: column.id, value: Math.max(existing.value, value), strict: false });
+    return;
+  }
+  if (!existing || typeof value === 'number') {
+    entry.cells.set(cellKey, { columnId: column.id, value, strict: false });
+  }
+}
+
+function getDescendantRows(sheet, projectRowId) {
+  const id = String(projectRowId || '').trim();
+  if (!id) return [];
+  const rows = Array.isArray(sheet?.rows) ? sheet.rows : [];
+  const rowsById = new Map(rows.map((row) => [String(row.id), row]));
+  return rows.filter((row) => {
+    let parentId = row.parentId == null ? '' : String(row.parentId);
+    const seen = new Set();
+    while (parentId) {
+      if (parentId === id) return true;
+      if (seen.has(parentId)) return false;
+      seen.add(parentId);
+      const parent = rowsById.get(parentId);
+      parentId = parent?.parentId == null ? '' : String(parent.parentId);
+    }
+    return false;
+  });
+}
+
+function uniqueTrackingCandidates(values = []) {
+  const seen = new Set();
+  const output = [];
+  for (const value of values.flatMap((item) => Array.isArray(item) ? item : [item])) {
+    const text = String(value || '').trim();
+    if (!text) continue;
+    const key = normalizeSpoolIdentity(text) || text.toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    output.push(text);
+  }
+  return output;
+}
+
+function getProjectScopeRows(sheet, update) {
+  const rows = Array.isArray(sheet?.rows) ? sheet.rows : [];
+  const byId = new Map(rows.map((row) => [String(row.id), row]));
+  const scoped = new Map();
+
+  for (const row of getDescendantRows(sheet, update?.projectRowId)) {
+    scoped.set(String(row.id), row);
+  }
+
+  const projectColumn = findColumn(sheet, 'Project');
+  const projectTargets = uniqueTrackingCandidates([
+    update?.projectNumber,
+    update?.projectDisplay,
+    update?.project,
+    update?.bsp,
+  ]);
+
+  if (projectColumn && projectTargets.length) {
+    const projectMatchedRows = rows.filter((row) => {
+      const value = getCellDisplay(row, projectColumn);
+      return value && projectTargets.some((target) => compactContainsMatch(value, target));
+    });
+
+    for (const row of projectMatchedRows) {
+      scoped.set(String(row.id), row);
+      for (const child of getDescendantRows(sheet, row.id)) {
+        scoped.set(String(child.id), child);
+      }
+      // Se a linha encontrada for filha, inclui também os irmãos sob o mesmo pai.
+      const parentId = row.parentId == null ? '' : String(row.parentId);
+      if (parentId && byId.has(parentId)) {
+        scoped.set(parentId, byId.get(parentId));
+        for (const sibling of getDescendantRows(sheet, parentId)) {
+          scoped.set(String(sibling.id), sibling);
+        }
+      }
+    }
+  }
+
+  return Array.from(scoped.values());
+}
+
+function getDrawingMatchScore(value, targets = []) {
+  const candidate = normalizeSpoolIdentity(value);
+  if (!candidate || !Array.isArray(targets) || !targets.length) return 0;
+  let best = 0;
+  for (const targetRaw of targets) {
+    const target = normalizeSpoolIdentity(targetRaw);
+    if (!target) continue;
+    if (candidate === target) best = Math.max(best, 100000 + candidate.length);
+    else if (candidate.includes(target)) best = Math.max(best, 70000 + target.length);
+    else if (target.includes(candidate)) best = Math.max(best, 30000 + candidate.length);
+  }
+  return best;
+}
+
+function rowsMatchingDrawing(rows, drawingColumn, targets) {
+  if (!drawingColumn || !targets.length) return [];
+  const scored = (Array.isArray(rows) ? rows : [])
+    .map((row) => {
+      const drawing = getCellDisplay(row, drawingColumn);
+      const score = getDrawingMatchScore(drawing, targets);
+      return { row, score };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score);
+  if (!scored.length) return [];
+
+  // v37.46: evita falso positivo com linha-pai da BSP. Antes, uma busca por
+  // "BSP-26-106-53-ISO-001 SPL-01" também aceitava uma linha curta "BSP 26-106-53"
+  // como match e podia ler 0% da linha pai, mantendo a pendência no PCP mesmo
+  // quando a linha do spool já estava atualizada. Mantemos somente o melhor nível
+  // de identidade encontrado.
+  const bestScore = scored[0].score;
+  const bestBand = bestScore >= 100000 ? 100000 : bestScore >= 70000 ? 70000 : 30000;
+  return scored.filter((entry) => entry.score >= bestBand).map((entry) => entry.row);
+}
+
+function getMatchingTrackingRows(sheet, update) {
+  const drawingColumn = findColumn(sheet, 'Drawing');
+  const allRows = Array.isArray(sheet?.rows) ? sheet.rows : [];
+  const sourceRows = getProjectScopeRows(sheet, update);
+  const targets = uniqueTrackingCandidates([update?.spoolIso, update?.spoolDescription, update?.drawing]);
+
+  const scopedMatches = rowsMatchingDrawing(sourceRows, drawingColumn, targets);
+  if (scopedMatches.length) return scopedMatches;
+
+  // Fallback controlado: se o parentId salvo ficou antigo ou a hierarquia mudou,
+  // busca pelo Drawing no Tracking inteiro usando identidade compacta do spool/ISO.
+  const globalMatches = rowsMatchingDrawing(allRows, drawingColumn, targets);
+  if (globalMatches.length) return globalMatches;
+
+  // v37.45: alguns apontamentos antigos foram salvos sem spoolIso/drawing completo,
+  // mas com projectNumber/projectDisplay. Nesses casos, quando o escopo do projeto
+  // foi localizado no Tracking, usa as linhas desse projeto como última tentativa.
+  // A coluna/percentual do setor ainda será validada antes de considerar matched.
+  if (sourceRows.length && !targets.length) {
+    return sourceRows.filter((row) => {
+      if (drawingColumn && getCellDisplay(row, drawingColumn)) return true;
+      return Boolean(row?.id);
+    });
+  }
+  return [];
+}
+
+function resolveInspectionProgressColumn(sheet, row) {
+  const columns = {
+    finalInspection: findColumn(sheet, 'Final Inspection'),
+    hydro: findColumn(sheet, 'Hydro Test Pressure (QC)'),
+    nde: findColumn(sheet, 'Non Destructive Examination (QC)'),
+    finalDimensional: findColumn(sheet, 'Final Dimensional Inpection/3D (QC)'),
+    welding: findColumn(sheet, 'Full welding execution'),
+    coating: findColumn(sheet, 'Surface preparation and/or coating'),
+  };
+  const welding = getCellPercent(row, columns.welding) ?? 0;
+  const finalDimensional = getCellPercent(row, columns.finalDimensional) ?? 0;
+  const nde = getCellPercent(row, columns.nde);
+  const hydro = getCellPercent(row, columns.hydro) ?? 0;
+  const coating = getCellPercent(row, columns.coating) ?? 0;
+  const finalInspection = getCellPercent(row, columns.finalInspection) ?? 0;
+
+  const active = [columns.finalDimensional, columns.nde, columns.hydro, columns.finalInspection]
+    .filter(Boolean)
+    .find((column) => {
+      const value = getCellPercent(row, column);
+      return value != null && value > 0 && value < 100;
+    });
+  if (active) return active;
+
+  if (coating >= 100 && finalInspection < 100 && columns.finalInspection) return columns.finalInspection;
+  if ((nde != null && nde >= 100 || finalDimensional >= 100) && hydro < 100 && columns.hydro) return columns.hydro;
+  if (finalDimensional >= 100 && nde != null && nde < 100 && columns.nde) return columns.nde;
+  if (welding >= 100 && finalDimensional < 100 && columns.finalDimensional) return columns.finalDimensional;
+  return columns.finalDimensional || columns.nde || columns.hydro || columns.finalInspection || null;
+}
+
+function resolveSupplyProgressColumn(sheet, row) {
+  const columns = {
+    procurement: findColumn(sheet, 'Procuremnt Status %'),
+    materialRelease: findColumn(sheet, 'Material Release to Fabrication'),
+    materialSeparation: findColumn(sheet, 'Material Separation'),
+  };
+  const materialSeparation = getCellPercent(row, columns.materialSeparation) ?? 0;
+  const procurement = getCellPercent(row, columns.procurement) ?? 0;
+  const materialRelease = getCellPercent(row, columns.materialRelease) ?? 0;
+
+  if (materialSeparation > 0 && materialSeparation < 100 && columns.materialSeparation) return columns.materialSeparation;
+  if ((procurement >= 100 || materialRelease >= 100) && columns.materialSeparation) return columns.materialSeparation;
+  if (procurement > 0 && procurement < 100 && columns.procurement) return columns.procurement;
+  if (materialRelease > 0 && materialRelease < 100 && columns.materialRelease) return columns.materialRelease;
+  return columns.procurement || columns.materialRelease || columns.materialSeparation || null;
+}
+
+function resolveProgressColumn(sheet, update, referenceRow) {
+  const explicit = String(update?.trackingColumn || update?.progressColumn || '').trim();
+  if (explicit) return findColumn(sheet, explicit);
+  const sector = normalizeSectorValue(update?.sector);
+  if (sector === 'inspecao') return resolveInspectionProgressColumn(sheet, referenceRow);
+  if (sector === 'suprimento') return resolveSupplyProgressColumn(sheet, referenceRow);
+  const canonical = TRACKING_PROGRESS_BY_SECTOR[sector];
+  return canonical ? findColumn(sheet, canonical) : null;
+}
+
+function getDateColumnNameForProgressColumn(progressColumnTitle) {
+  const normalized = normalizeColumnTitle(progressColumnTitle);
+  const key = Object.keys(TRACKING_DATE_BY_PROGRESS_COLUMN).find((candidate) => normalizeColumnTitle(candidate) === normalized);
+  return key ? TRACKING_DATE_BY_PROGRESS_COLUMN[key] : '';
+}
+
+function getUpdateDate(update) {
+  const raw = String(update?.completionDate || update?.completion_date || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
+    const [d, m, y] = raw.split('/');
+    return `${y}-${m}-${d}`;
+  }
+  if (raw) {
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  }
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' });
+  return formatter.format(now);
+}
+
+function isAdvanceUpdate(update) {
+  const status = String(update?.status || '').trim().toLowerCase();
+  return !status.includes('review');
+}
+
+function summarizeRowsProgress(rows, column) {
+  const values = rows.map((row) => getCellPercent(row, column)).filter((value) => value != null);
+  if (!values.length) return null;
+  return Math.max(...values);
+}
+
+function buildStageUpdatePlan(sheet, update, options = {}) {
+  const progress = Number(update?.progress || 0);
+  const forceRewrite = Boolean(options.forceRewrite || update?.forceRewrite);
+  const dateOnly = Boolean(options.dateOnly || update?.dateOnly);
+  const rowChangesMap = options.rowChangesMap || new Map();
+  const result = {
+    id: update?.id || '',
+    ok: false,
+    success: false,
+    trackingOk: false,
+    needsTrackingUpdate: false,
+    missingDate: false,
+    specialNeedsUpdate: false,
+    rowCount: 0,
+    changedRows: 0,
+    progressColumn: '',
+    dateColumn: '',
+    currentProgress: null,
+    message: '',
+  };
+
+  if (!isAdvanceUpdate(update)) {
+    result.message = 'Revisões devem ser tratadas manualmente pelo PCP.';
+    return result;
+  }
+  if (![25, 50, 75, 100].includes(progress)) {
+    result.message = 'Percentual inválido para atualização do Tracking.';
+    return result;
+  }
+
+  const matchingRows = getMatchingTrackingRows(sheet, update);
+  result.rowCount = matchingRows.length;
+  if (!matchingRows.length) {
+    result.message = 'Spool/drawing não localizado no Tracking.';
+    return result;
+  }
+
+  const progressColumn = resolveProgressColumn(sheet, update, matchingRows[0]);
+  if (!progressColumn) {
+    result.message = 'Coluna de avanço não localizada no Tracking para este setor.';
+    return result;
+  }
+  result.progressColumn = progressColumn.title;
+  const desiredDecimal = progress / 100;
+  const desiredPercent = progress;
+  const currentProgress = summarizeRowsProgress(matchingRows, progressColumn);
+  result.currentProgress = currentProgress == null ? null : Number(currentProgress.toFixed(2));
+  const dateColumnName = getDateColumnNameForProgressColumn(progressColumn.title);
+  const dateColumn = progress === 100 && dateColumnName ? findColumn(sheet, dateColumnName) : null;
+  result.dateColumn = dateColumn?.title || dateColumnName || '';
+
+  if (progress === 100 && dateColumnName && !dateColumn) {
+    result.message = `Coluna de data "${dateColumnName}" não localizada no Tracking.`;
+    return result;
+  }
+
+  const updateDate = getUpdateDate(update);
+  let rowChangeCount = 0;
+  let rowsWithDateMissing = 0;
+  let rowsNeedingProgress = 0;
+  let specialNeeds = 0;
+
+  const isPainting100 = normalizeColumnTitle(progressColumn.title) === normalizeColumnTitle('Surface preparation and/or coating') && progress === 100;
+  const finalInspectionColumn = isPainting100 ? findColumn(sheet, 'Final Inspection') : null;
+  const packageColumn = isPainting100 ? findColumn(sheet, 'Package and Delivered') : null;
+  if (isPainting100 && (!finalInspectionColumn || !packageColumn)) {
+    result.message = !finalInspectionColumn
+      ? 'Coluna Final Inspection não localizada para alimentar a próxima etapa.'
+      : 'Coluna Package and Delivered não localizada para alimentar 25% após Pintura 100%.';
+    return result;
+  }
+
+  for (const row of matchingRows) {
+    let changedThisRow = false;
+    const current = getCellPercent(row, progressColumn);
+    const currentSafe = current == null ? 0 : current;
+    const canWriteProgress = current == null || currentSafe < desiredPercent || (forceRewrite && currentSafe <= desiredPercent);
+    if (!dateOnly && canWriteProgress) {
+      addCellChange(rowChangesMap, row.id, progressColumn, desiredDecimal);
+      rowsNeedingProgress += 1;
+      changedThisRow = true;
+    }
+
+    if (progress === 100 && dateColumn && !getCellHasValue(row, dateColumn)) {
+      rowsWithDateMissing += 1;
+      addCellChange(rowChangesMap, row.id, dateColumn, updateDate);
+      changedThisRow = true;
+    }
+
+    if (isPainting100) {
+      if (finalInspectionColumn) {
+        const finalCurrent = getCellPercent(row, finalInspectionColumn);
+        if (finalCurrent == null || finalCurrent < 25) {
+          addCellChange(rowChangesMap, row.id, finalInspectionColumn, 0.25);
+          specialNeeds += 1;
+          changedThisRow = true;
+        }
+      }
+      if (packageColumn) {
+        const packageCurrent = getCellPercent(row, packageColumn);
+        if (packageCurrent == null || packageCurrent < 25) {
+          addCellChange(rowChangesMap, row.id, packageColumn, 0.25);
+          specialNeeds += 1;
+          changedThisRow = true;
+        }
+      }
+    }
+
+    if (changedThisRow) rowChangeCount += 1;
+  }
+
+  result.needsTrackingUpdate = rowsNeedingProgress > 0;
+  result.missingDate = rowsWithDateMissing > 0;
+  result.specialNeedsUpdate = specialNeeds > 0;
+  result.changedRows = rowChangeCount;
+
+  const alreadyAbove = currentProgress != null && currentProgress > desiredPercent;
+  const alreadyEqual = currentProgress != null && Math.abs(currentProgress - desiredPercent) < 0.01;
+  const progressOk = currentProgress != null && currentProgress >= desiredPercent && (!forceRewrite || alreadyAbove || alreadyEqual);
+  result.trackingOk = progressOk && !result.missingDate && !result.specialNeedsUpdate;
+  result.ok = true;
+  result.success = true;
+  if (rowChangeCount > 0) result.message = `Tracking atualizado em ${rowChangeCount} linha(s).`;
+  else if (alreadyAbove) result.message = `Tracking já estava superior (${currentProgress.toFixed(0)}%).`;
+  else if (alreadyEqual) result.message = 'Tracking já estava no mesmo avanço.';
+  else result.message = 'Tracking conferido.';
+  return result;
+}
+
+async function applyStageUpdatesToTracking(updates, options = {}) {
+  const list = Array.isArray(updates) ? updates : [];
+  if (!list.length) return { ok: false, results: [], errors: [], message: 'Nenhum apontamento informado.' };
+  const { sheetId, sheet } = await fetchTrackingSheet({ force: Boolean(options.forceFreshSheet || options.forceSheet) });
+  const rowChangesMap = new Map();
+  const results = list.map((update) => buildStageUpdatePlan(sheet, update, { ...options, rowChangesMap }));
+  const errors = results.filter((item) => !item.success).map((item) => ({ id: item.id, error: item.message }));
+
+  if (!options.dryRun && rowChangesMap.size) {
+    await updateRows(sheetId, rowChangesMap);
+  }
+
+  return {
+    ok: errors.length === 0,
+    sheetId,
+    results,
+    errors,
+    changedRows: Array.from(rowChangesMap.values()).length,
+    dryRun: Boolean(options.dryRun),
+  };
+}
+
+async function inspectStageUpdatesInTracking(updates, options = {}) {
+  const list = Array.isArray(updates) ? updates : [];
+  if (!list.length) return { ok: true, results: [], errors: [], changedRows: 0, dryRun: true };
+  return applyStageUpdatesToTracking(list, { dryRun: true, forceFreshSheet: Boolean(options.forceFreshSheet || options.forceSheet) });
+}
+
+async function listHistoryDatePendencies(updates) {
+  const source = Array.isArray(updates) ? updates : [];
+  const history100 = source.filter((item) => {
+    const status = String(item?.status || '').trim().toLowerCase();
+    return isAdvanceUpdate(item)
+      && ['resolved', 'resolved_advance'].includes(status)
+      && Number(item?.progress || 0) === 100;
+  });
+  if (!history100.length) return [];
+
+  const { sheet } = await fetchTrackingSheet();
+  const pendencies = [];
+
+  for (const update of history100) {
+    const rows = getMatchingTrackingRows(sheet, update);
+    if (!rows.length) continue;
+    const progressColumn = resolveProgressColumn(sheet, update, rows[0]);
+    if (!progressColumn) continue;
+    const dateColumnName = getDateColumnNameForProgressColumn(progressColumn.title);
+    const dateColumn = dateColumnName ? findColumn(sheet, dateColumnName) : null;
+    if (!dateColumn) continue;
+
+    const isPainting100 = normalizeColumnTitle(progressColumn.title) === normalizeColumnTitle('Surface preparation and/or coating');
+    const finalInspectionColumn = isPainting100 ? findColumn(sheet, 'Final Inspection') : null;
+    const packageColumn = isPainting100 ? findColumn(sheet, 'Package and Delivered') : null;
+
+    const missingRows = rows.filter((row) => {
+      const dateMissing = !getCellHasValue(row, dateColumn);
+      const finalNeeds = isPainting100 && finalInspectionColumn && ((getCellPercent(row, finalInspectionColumn) ?? 0) < 25);
+      const packageNeeds = isPainting100 && packageColumn && ((getCellPercent(row, packageColumn) ?? 0) < 25);
+      return dateMissing || finalNeeds || packageNeeds;
+    });
+    if (!missingRows.length) continue;
+
+    pendencies.push({
+      id: String(update.id || ''),
+      projectRowId: update.projectRowId,
+      projectDisplay: update.projectDisplay || update.projectNumber || '',
+      projectNumber: update.projectNumber || '',
+      spoolIso: update.spoolIso || '',
+      sector: update.sector || '',
+      progress: Number(update.progress || 0),
+      process: progressColumn.title,
+      missingDateColumn: dateColumn.title,
+      applyDate: getUpdateDate(update),
+      rowCount: rows.length,
+      affectedRows: missingRows.length,
+      needsPaintingNextSteps: isPainting100,
+      createdAt: update.createdAt || '',
+      resolvedAt: update.resolvedAt || '',
+    });
+  }
+  return pendencies;
+}
+
+module.exports = {
+  TRACKING_PROGRESS_BY_SECTOR,
+  TRACKING_DATE_BY_PROGRESS_COLUMN,
+  normalizeColumnTitle,
+  normalizeSpoolIdentity,
+  parsePercentValue,
+  fetchTrackingSheet,
+  applyStageUpdatesToTracking,
+  inspectStageUpdatesInTracking,
+  listHistoryDatePendencies,
+};

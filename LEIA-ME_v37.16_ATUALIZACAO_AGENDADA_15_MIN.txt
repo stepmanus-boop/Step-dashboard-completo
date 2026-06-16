@@ -1,0 +1,44 @@
+v37.16 - Atualização agendada independente do usuário
+
+Base: v37.15 Supabase First + Lock 15 minutos.
+
+Objetivo:
+- O painel abre direto pela última base válida no Supabase.
+- A atualização pesada do Smartsheet deixa de depender do login do usuário.
+- Uma Scheduled Function do Netlify atualiza o cache automaticamente a cada 15 minutos.
+- O botão Atualizar continua opcional para cliente/admin, usando o mesmo lock do Supabase.
+
+Arquivos alterados:
+- netlify.toml
+  - adiciona schedule para scheduled-sync-tracking-cache a cada 15 minutos.
+
+- netlify/functions/scheduled-sync-tracking-cache.js
+  - nova rotina agendada independente do usuário.
+  - verifica se o cache tem mais de 15 minutos.
+  - se estiver fresco, não chama Smartsheet.
+  - se estiver vencido, adquire lock e atualiza.
+
+- netlify/functions/sync-tracking-cache.js
+  - continua servindo o botão manual.
+  - agora diferencia modo manual.
+  - usa proteção mínima contra cliques repetidos muito próximos.
+
+- site/js/app-02-client-portal.js
+  - botão Atualizar do cliente chama a sincronização manual controlada.
+
+- site/js/app-04-data-auth-admin.js
+  - atualização em background não chama mais Smartsheet por usuário.
+  - botão Atualizar agora também usa o lock/sync controlado.
+
+- site/sw.js, site/index.html, site/app.js
+  - versão/cache PWA atualizados para forçar navegador a buscar arquivos novos.
+
+ENV opcionais:
+TRACKING_CACHE_SCHEDULE_ENABLED=1
+TRACKING_CACHE_AUTO_REFRESH_AFTER_MS=900000
+TRACKING_CACHE_REFRESH_LOCK_TTL_MS=300000
+TRACKING_CACHE_MANUAL_REFRESH_MIN_AGE_MS=120000
+
+SQL:
+- Não precisa SQL novo se o SQL v37.15 já foi executado.
+- Se ainda não executou, rode supabase/SQL-ALTER-TRACKING-CACHE-LOCK-v37.15.sql.

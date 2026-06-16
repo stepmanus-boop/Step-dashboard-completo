@@ -1,0 +1,16 @@
+STEP Track v37.12 - Correção segura da busca por Focal Point no Portal do Cliente
+
+Base usada: v37.11 enviada pelo Douglas como versão estável/rápida.
+
+Alterações aplicadas:
+- Mantida a arquitetura/cache/performance da v37.11.
+- Removidas as alterações problemáticas da tentativa anterior que deixaram o portal do cliente sem dados.
+- Backend agora preserva Focal Point já existente no tracking principal.
+- Backend não sobrescreve Focal Point existente com vazio quando a WIP/PO não retorna esse campo.
+- Ampliados aliases seguros para localizar Focal Point/Ponto Focal/Contato Cliente/Responsável Cliente.
+- Nenhuma alteração de SQL ou ENV necessária.
+
+Após deploy:
+1. Usar Clear cache and deploy site no Netlify.
+2. Entrar como admin/PM e clicar Atualizar uma vez para regravar a base no Supabase com o Focal Point.
+3. Testar no Portal do Cliente a busca por BSP, PO e Focal Point.

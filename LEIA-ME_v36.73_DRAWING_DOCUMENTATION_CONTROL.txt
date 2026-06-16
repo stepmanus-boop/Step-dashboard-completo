@@ -1,0 +1,24 @@
+VERSÃO v36.73 - DRAWING DOCUMENTATION CONTROL NO PAINEL DO CLIENTE
+
+Alteração criada:
+- Ao clicar em uma TAG/ISO no Painel do Cliente, a nova aba individual agora consulta /api/drawing-detail.
+- O endpoint busca a planilha Smartsheet "DRAWING DOCUMENTATION CONTROL" e cruza pela coluna "Drawing Number (Rev. A)".
+- Mostra início e fim do desenho por item, começando em Drawings start date (Rev. A) e Approval Date.
+- Mostra Reviewer approval, Approver approval, Internally approved & sent to PM e PM approval da Rev. A.
+- Mostra revisões B, C, D, E e F somente quando houver campos preenchidos.
+- A busca é sob demanda: só carrega o detalhe quando o usuário clica na TAG/ISO.
+- Não cria tabela nova no Supabase e não pesa o banco.
+
+Arquivos alterados:
+- site/app.js
+- site/sw.js
+- netlify/functions/drawing-detail.js
+
+Variáveis opcionais no Netlify:
+- SMARTSHEET_DRAWING_CONTROL_SHEET_ID: ID da planilha Drawing Documentation Control, recomendado se houver mais de uma planilha com nome parecido.
+- SMARTSHEET_DRAWING_CONTROL_SHEET_NAME: nome da planilha, padrão: DRAWING DOCUMENTATION CONTROL.
+- DRAWING_CONTROL_CACHE_MS: cache em memória da função, padrão 10 minutos.
+
+Observação:
+- O sistema usa o SMARTSHEET_TOKEN já configurado no Netlify.
+- Se a planilha não for encontrada pelo nome, cadastre o ID dela em SMARTSHEET_DRAWING_CONTROL_SHEET_ID.

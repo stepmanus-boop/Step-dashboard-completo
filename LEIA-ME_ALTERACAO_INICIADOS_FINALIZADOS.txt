@@ -1,0 +1,11 @@
+Correção aplicada nesta versão:
+
+1. Projetos finalizados saem do montante Total de projetos.
+   A validação considera Project Finished?, Project Finish Date, PROJECT STATUS finalizado/concluído/finished/completed/delivered, uiState/operationalState completed e também todos os spools finalizados.
+
+2. Criado novo card no painel: Projetos Iniciados.
+   Ele mostra apenas projetos ativos que já entraram em Produção, Qualidade, Pintura ou Logística, excluindo On Hold, Pending e Finalizados.
+
+3. Atualizado o cache do PWA para forçar carregamento dos arquivos novos.
+
+Após publicar, use CTRL + F5 ou limpe/reinstale o PWA se o navegador ainda mostrar a versão antiga.

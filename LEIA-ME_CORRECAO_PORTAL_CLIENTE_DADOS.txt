@@ -1,0 +1,29 @@
+Correção aplicada nesta versão
+
+Base utilizada:
+- step_dashboard_tracking_CLIENTE_RESTAURADO_base_rapida.zip
+
+Problema observado:
+- O Portal do Cliente aparecia, mas os cards ficavam zerados/-- e a carteira não carregava.
+- Isso acontecia principalmente quando o navegador ainda tinha sessão/cache de uma versão anterior. O frontend mostrava o usuário PRIO via /api/auth-me, porém /api/projects filtrava a carteira usando apenas os dados gravados no cookie da sessão. Quando esse cookie antigo não trazia clientKey/clientName/allowedClients, o backend filtrava tudo e retornava carteira vazia.
+
+Correções feitas:
+1. netlify/functions/projects.js
+   - Reidratação de sessão cliente pelo Supabase antes de filtrar a carteira.
+   - Se o cookie estiver antigo, /api/projects busca o usuário atualizado pelo ID e recupera clientKey, clientName, logo, imagens e allowedClients.
+   - Mantido o cache rápido da base completa para não perder performance.
+
+2. site/app.js
+   - Cache local atualizado para v4_client_scope, evitando reaproveitar cache vazio gerado por versão anterior.
+   - O Portal do Cliente ignora cache vazio e força nova leitura da API.
+   - Textos do rodapé ajustados para não mostrar referência interna no Portal do Cliente.
+
+3. netlify/functions/auth-login.js
+   - Presença do usuário voltou a ser assíncrona, sem bloquear a resposta de login.
+
+4. site/sw.js
+   - Cache do PWA atualizado para v23-cliente-dados-scope-fix.
+
+Orientação após publicar:
+- Fazer Ctrl + F5 uma vez.
+- Se algum navegador estiver preso com sessão antiga, sair e entrar novamente no usuário cliente.

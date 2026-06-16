@@ -1,0 +1,11 @@
+STEP Track v37.24
+
+Correção aplicada:
+- O botão Atualizar não exibe mais popup de falha quando já existe cache operacional válido.
+- Se Smartsheet/Supabase não concluir a sincronização manual, o painel mantém a última base válida e informa inline.
+- O login continua cache-only pelo Supabase.
+- Mantém o agendador de 15 minutos e o lock do Supabase.
+- Service Worker e query strings atualizados para forçar carregamento dos JS novos.
+
+Não requer SQL novo.
+Não requer ENV nova.

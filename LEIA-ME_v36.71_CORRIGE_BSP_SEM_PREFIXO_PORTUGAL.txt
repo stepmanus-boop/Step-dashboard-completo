@@ -1,0 +1,13 @@
+STEP Dashboard Brasil v36.71
+
+Correção aplicada:
+- Corrige leitura de BSPs no Smartsheet quando o campo Project vem sem prefixo BSP, exemplo: 26-7001.
+- Antes o parser só reconhecia linha-mãe quando vinha como BSP 26-7000.
+- Agora uma linha como 26-7001 também abre uma BSP quando possui Cliente/Unidade e dados operacionais.
+- Linhas seguintes com o mesmo número entram como itens/tags da mesma BSP, evitando duplicidade.
+- Atualizado cache local e service worker para v36.71.
+
+Após subir:
+1. Netlify > Deploys > Trigger deploy > Clear cache and deploy site.
+2. No navegador, CTRL + F5.
+3. No painel do cliente, clicar no botão Atualizar.

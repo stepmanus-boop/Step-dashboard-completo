@@ -1,0 +1,18 @@
+v37.15 - Supabase first + atualização controlada a cada 15 minutos
+
+Base: v37.14.
+
+Objetivo:
+- O painel abre diretamente com a última base válida salva no Supabase.
+- Se o cache tiver menos de 15 minutos, nenhum usuário chama Smartsheet.
+- Se o cache passar de 15 minutos, a tela continua abrindo rápida e dispara sincronização em segundo plano.
+- O endpoint /api/sync-tracking-cache usa lock no Supabase para impedir que vários usuários atualizem ao mesmo tempo.
+- Clientes não forçam Smartsheet ao clicar em Atualizar; entram no fluxo controlado.
+- Admin ainda pode usar Atualizar agora para atualização manual quando necessário.
+
+SQL necessário:
+- Executar supabase/SQL-ALTER-TRACKING-CACHE-LOCK-v37.15.sql para adicionar colunas de lock.
+
+ENV opcional:
+TRACKING_CACHE_AUTO_REFRESH_AFTER_MS=900000
+TRACKING_CACHE_REFRESH_LOCK_TTL_MS=300000

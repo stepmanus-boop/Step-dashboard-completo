@@ -1,0 +1,26 @@
+Versão v36.45 - Correção do carregamento inicial das POs no Portal do Cliente
+
+Objetivo
+- Evitar que, ao abrir o site em guia anônima ou navegador limpo, o Portal do Cliente seja liberado com BSPs sem PO.
+- Corrigir o cenário em que era necessário apertar F5 várias vezes para as POs aparecerem.
+- Manter os painéis abertos, sem refresh automático da página.
+
+Alterações aplicadas
+1. Frontend/site/app.js
+- Criada validação para identificar payload de cliente sem PO carregada.
+- Cache local do Portal do Cliente agora ignora dados antigos/snapshots em que todas as BSPs aparecem como "Aguardando PO".
+- Dados sem PO não são mais salvos no localStorage do cliente.
+- A validação final do login agora exige BSPs + cards de unidade + PO pronta.
+- Caso as BSPs carreguem antes das POs, o sistema faz revalidação silenciosa dos dados, sem location.reload() e sem fechar painéis.
+
+2. Backend/netlify/functions/projects.js
+- Snapshot/fallback em disco sem PO deixou de ser usado como resposta rápida final.
+- Cache em memória sem PO também é ignorado para forçar leitura completa do Smartsheet/base complementar.
+- Se a versão principal do Smartsheet não mudou, mas o payload anterior não tem PO, o sistema tenta buscar novamente a base complementar de POs.
+
+3. Service Worker/site/sw.js
+- Versão do cache alterada para step-dashboard-v36.45-br-client-po-safe-load para liberar app.js corrigido imediatamente.
+
+Comportamento esperado
+- Em guia anônima, o portal pode demorar um pouco mais no primeiro carregamento, mas não deve abrir com todas as POs vazias.
+- O sistema atualiza os dados internamente, sem atualizar a página e sem fechar modais, filtros ou painéis abertos.

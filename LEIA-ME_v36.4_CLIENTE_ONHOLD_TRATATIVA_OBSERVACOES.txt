@@ -1,0 +1,31 @@
+# v36.4 - Painel do Cliente: ON HOLD e Em Tratativa por Observações
+
+Alterações aplicadas:
+
+1. Visão executiva da BSP no painel do cliente
+- Ao dar 2 cliques em uma BSP, o sistema agora exibe um aviso ON HOLD somente quando a BSP estiver em On Hold.
+- Quando não houver On Hold, nenhum aviso extra é exibido.
+
+2. Regra automática de Em Tratativa por observação
+- Se a observação da BSP ou de qualquer Tag/ISO contiver um dos textos abaixo, a BSP passa a ser exibida como Em tratativa:
+  - Revisão de P.O
+  - Aguardando liberação para envio
+  - Entrega parcial
+- A BSP permanece Em tratativa enquanto a observação existir.
+- Ao remover a observação da planilha, o status volta a obedecer o fluxo operacional normal.
+
+3. Detalhamento da BSP
+- O detalhamento da BSP passou a exibir um aviso com o motivo da tratativa e a origem da observação.
+- A tabela de Tags/ISOs no painel do cliente passou a mostrar a coluna Observação para facilitar a auditoria do motivo.
+
+Arquivos alterados:
+- site/app.js
+- site/app.css
+- netlify/functions/projects.js
+
+Validações executadas:
+- node --check site/app.js
+- npm run lint
+
+Observação:
+- npm run validate foi executado, mas depende das variáveis SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY no ambiente. No container local essas variáveis não existem, por isso o validate acusa ausência de configuração. Isso não indica erro de sintaxe nas alterações.

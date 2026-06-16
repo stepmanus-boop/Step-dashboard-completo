@@ -1,0 +1,28 @@
+v37.10 - Correção de base antiga, detalhe BSP e imagens
+
+Problema observado na v37.09:
+- O login abriu rápido, mas exibiu a base fallback empacotada antiga de 08/04/2026.
+- Essa base tinha rowIds antigos; por isso as etapas apareciam erradas, o clique na BSP falhava e o carregamento de imagens também falhava.
+- A tabela step_tracking_cache do Supabase ainda estava vazia, então a API caiu no fallback empacotado.
+
+Correções:
+1. O fallback empacotado foi bloqueado por padrão em produção.
+2. Os arquivos fallback-projects.json foram saneados para não carregar base operacional antiga.
+3. O cache local do navegador mudou de chave para evitar reaproveitar a base errada salva pela v37.09.
+4. O frontend agora rejeita payload com servedFromBundledFallback/cacheReason bundled-fallback e não salva isso no localStorage.
+5. Se o Supabase estiver vazio, a API busca a base real do Smartsheet. Após a primeira leitura correta, grava a linha projects:BR:current no Supabase.
+6. O app.js continua modularizado em site/js/app-01..05, mantendo o carregamento mais leve.
+
+Importante:
+- No primeiro acesso após deploy, se o Supabase cache estiver vazio, a primeira sincronização pode demorar um pouco mais porque agora ela busca Smartsheet real em vez de mostrar base antiga.
+- Depois que a linha projects:BR:current for gravada no Supabase, os próximos logins abrem rápido e com dados corretos.
+- Não usar ALLOW_BUNDLED_FALLBACK=1 em produção.
+
+Variáveis recomendadas:
+TRACKING_CACHE_ENABLED=1
+PERSISTENT_TRACKING_CACHE_MAX_AGE_MS=43200000
+TRACKING_CACHE_MIN_WRITE_INTERVAL_MS=900000
+TRACKING_CACHE_MAX_PAYLOAD_BYTES=25165824
+SMARTSHEET_FETCH_TIMEOUT_MS=8500
+SMARTSHEET_FETCH_RETRIES=1
+ALLOW_BUNDLED_FALLBACK=0

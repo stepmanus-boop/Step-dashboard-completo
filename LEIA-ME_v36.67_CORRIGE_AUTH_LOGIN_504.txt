@@ -1,0 +1,26 @@
+STEP Dashboard Brasil - v36.67
+
+Correção aplicada:
+- Arquivo alterado: netlify/functions/_supabase.js
+- Corrige travamento do login em /api/auth-login com erro 504.
+- Adiciona timeout e retry controlado nas chamadas ao Supabase.
+- Otimiza a busca do usuário para reduzir chamadas ao Supabase no login.
+
+Não altera:
+- Não cria rota nova.
+- Não cria cache Supabase.
+- Não cria tabelas no Supabase.
+- Não altera Smartsheet.
+- Não altera variáveis .env.
+
+Variáveis mínimas usadas no Netlify, conforme versão original:
+GITHUB_REPO
+GITHUB_TOKEN
+SESSION_SECRET
+SUPABASE_URL
+SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+
+Após subir no Netlify:
+Deploys > Trigger deploy > Clear cache and deploy site
+Depois abrir o navegador com CTRL + F5.

@@ -1,0 +1,28 @@
+Versão v33.0 - Logo do cliente ampliada e redimensionamento automático
+
+Alteração aplicada:
+- Ampliado o quadro da logo no Portal do Cliente, dando mais destaque à imagem dentro do card principal.
+- Reduzido o padding interno da imagem para aproveitar melhor a área do quadro.
+- Adicionado fundo claro e bordas arredondadas na imagem da logo para manter aparência elegante.
+- A importação de logo do cliente agora padroniza automaticamente a imagem em um quadro 560x320, centralizando e redimensionando sem distorcer.
+- Se a imagem enviada estiver fora de proporção, muito larga, muito alta ou pequena, o sistema encaixa no quadro automaticamente com proporção preservada.
+
+Arquivos alterados:
+- site/app.css
+- site/app.js
+- site/index.html
+
+Não foi alterado:
+- Supabase
+- Smartsheet
+- API de projetos
+- Login
+- Cache quente
+- Regras de status
+- Gráficos
+- PDF
+
+Validações:
+- node --check site/app.js: OK
+- node --check netlify/functions/projects.js: OK
+- npm run lint: OK

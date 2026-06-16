@@ -1,0 +1,10 @@
+STEP Track v37.18 - Idade da última atualização do cache visível
+
+Base: v37.17 login cache-only + agendador/manual.
+
+Alterações:
+- O painel passa a mostrar a última atualização do cache Supabase com tempo relativo, exemplo: há 8 min.
+- Se passar de 15 minutos, mostra aguardando rotina de atualização.
+- A atualização continua independente do login: login lê cache; agendador ou botão Atualizar fazem a sincronização.
+- Nenhum SQL novo.
+- Nenhuma ENV nova.

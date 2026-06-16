@@ -1,0 +1,30 @@
+Alteração aplicada nesta versão:
+
+1. Reorganização dos cards principais na ordem solicitada:
+   1 Total de projetos
+   2 Projetos iniciados
+   3 Projetos não iniciados
+   4 Projetos em On Hold
+   5 Projetos em produção
+   6 Projetos em qualidade
+   7 Projetos em pintura
+   8 Projetos preparados para envio
+
+2. O card "Projetos preparados para envio" substitui o texto antigo de "Projetos Concluídos preparados para envio".
+
+3. O card "Projetos preparados para envio" agora considera somente projetos em "Aguardando envio".
+   Não entra mais item apenas "Preparado para envio" sem estar na janela de aguardando envio.
+
+4. O card "Projetos preparados para envio" agora é clicável, igual ao card Total de projetos:
+   - primeiro mostra os clientes;
+   - ao clicar no cliente, mostra os projetos aguardando envio daquele cliente;
+   - duplo clique na BSP abre o detalhamento completo.
+
+5. Mantidas as regras anteriores:
+   - finalizados fora do Total de projetos;
+   - PENDING fora do Total de projetos;
+   - ON HOLD fora do Total de projetos;
+   - observações contendo on hold fora do Total de projetos;
+   - sem criação de projetos virtuais.
+
+6. Cache do PWA atualizado para forçar carregamento da versão nova.

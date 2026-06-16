@@ -1,0 +1,38 @@
+Versão v36.30 - PM/Admin editam datas executivas do Painel do Cliente
+
+Base: v36.26 enviada pelo usuário.
+
+O que foi criado:
+- Botão "Painel do Cliente" dentro do detalhamento da BSP para PM e Administrador.
+- O botão abre a mesma visão executiva que o cliente vê ao dar 2 cliques na BSP.
+- Na visão executiva, PM/Admin veem o botão "Editar informações do cliente".
+- Os ajustes são salvos na tabela Supabase public.client_bsp_overrides.
+- Cliente não vê botão de edição; apenas visualiza os ajustes aplicados.
+- API do cliente continua sem editar essas informações; edição ocorre apenas via sessão PM/Admin.
+
+Campos editáveis:
+- Fabrication Start Date
+- Boilermaker Finish Date
+- Welding Finish Date
+- Inspection Finish Date (QC)
+- TH Finish Date, somente quando TH for aplicável
+- Coating Finish Date
+- Project Finish / Envio
+- Status executivo
+- Motivo do desvio
+- Observação para o cliente
+- 1 campo adicional customizado
+
+Regra de prioridade na tela do cliente:
+1. Data ajustada pelo PM/Admin no Supabase
+2. Data real do Tracking
+3. Data planejada calculada pelo painel
+
+Segurança:
+- Admin edita qualquer BSP.
+- PM/Projetos edita apenas BSP vinculada ao nome/alias dele na coluna PM.
+- Cliente não edita.
+- A tabela fica fechada para acesso direto por RLS; somente Netlify Functions com SERVICE_ROLE_KEY acessam.
+
+SQL necessário:
+Execute supabase/SQL-CRIAR-CLIENT-BSP-OVERRIDES.sql no Supabase.

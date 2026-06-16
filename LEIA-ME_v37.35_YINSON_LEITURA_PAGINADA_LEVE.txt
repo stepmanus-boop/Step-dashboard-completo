@@ -1,0 +1,22 @@
+STEP Track v37.35 - Correção Yinson com leitura paginada leve
+
+Base: v37.34, mantendo:
+- cards PCP e popup por clientes expansíveis;
+- alerta PCP 7 dias;
+- exportação Excel/Imagens do Yinson;
+- cache/login rápido e agendador.
+
+Correção:
+- A API /api/client-under-dev agora tenta primeiro ler a sheet Yinson em modo paginado básico, sem include=attachments/objectValue.
+- Isso evita o erro Smartsheet HTTP 500 que ocorria em sheets grandes/instáveis ao solicitar a planilha completa com anexos.
+- Se a leitura paginada falhar, a API ainda tenta os modos anteriores como fallback.
+- O debug agora mostra as tentativas detalhadas em err.payload.attempts.
+
+Sheet Yinson priorizada:
+7523600180400004
+
+Recomendado no Netlify:
+SMARTSHEET_YINSON_UNDER_DEV_SHEET_ID=7523600180400004
+
+Após deploy:
+Netlify -> Deploys -> Clear cache and deploy site

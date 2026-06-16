@@ -1,0 +1,14 @@
+Correção PO Work in Progress - STEP
+
+Ajustes aplicados:
+- O cruzamento BSP x PO agora aceita BSP sem prefixo, como 25-732-03.
+- Também aceita BSP com prefixo: BSP 25-732-03, BPP 25-732-03 e B3D 25-732-03.
+- A busca de coluna ficou mais robusta para o cabeçalho Project BSP/BPP/B3D* mesmo quando o Smartsheet retorna variações de espaços, quebra de linha ou asterisco.
+- A busca da coluna Customer PO* também ficou mais robusta.
+- Exemplo esperado: Project BSP/BPP/B3D* = 25-732-03 e Customer PO* = 4500121163 passa a aparecer como BSP 25-732-03 - PO 4500121163.
+- Quando não localizar a PO, continua aparecendo Aguardando PO.
+
+Atenção:
+- A fonte correta é Work in Progress - STEP.
+- Não utilizar Work in Progress - STEP Portugal.
+- Recomenda-se configurar no Netlify: SMARTSHEET_WIP_STEP_SHEET_ID com o ID da planilha Work in Progress - STEP.

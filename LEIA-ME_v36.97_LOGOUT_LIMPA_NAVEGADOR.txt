@@ -1,0 +1,31 @@
+STEP Dashboard Brasil - v36.97 - Logout com limpeza completa do navegador
+
+Objetivo:
+- Ao clicar em Sair, o painel deve encerrar a sessão e limpar os dados locais do navegador, funcionando de forma semelhante a um Ctrl+F5/abertura limpa.
+
+Arquivos alterados:
+- site/app.js
+- site/sw.js
+- netlify/functions/auth-logout.js
+
+O que foi implementado:
+1. Logout chama /api/auth-logout com cache no-store.
+2. Backend limpa o cookie de sessão e envia Clear-Site-Data para cache/cookies/storage.
+3. Frontend executa limpeza local como fallback e reforço:
+   - localStorage
+   - sessionStorage
+   - cookies visíveis via JavaScript
+   - Cache Storage do PWA
+   - IndexedDB, quando disponível no navegador
+   - registros de Service Worker
+4. Após a limpeza, a página é recarregada com parâmetro anti-cache:
+   - /?logout=1&clean=<timestamp>
+
+Observação importante:
+- A limpeza remove também preferências salvas localmente, como idioma escolhido, filtros locais, rascunhos e cache rápido de projetos. Isso é intencional para garantir que o próximo login abra totalmente limpo.
+- O Service Worker será registrado novamente automaticamente no próximo carregamento do app.
+
+Validações realizadas:
+- node --check site/app.js
+- node --check site/sw.js
+- node --check netlify/functions/auth-logout.js

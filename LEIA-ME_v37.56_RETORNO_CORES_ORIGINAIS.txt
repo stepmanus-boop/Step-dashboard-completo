@@ -1,0 +1,15 @@
+Versao v37.56 - Retorno das cores originais
+
+O que foi ajustado:
+- O arquivo site/app.css foi restaurado para o padrao visual anterior as alteracoes de identidade visual.
+- O manifest voltou a usar as cores originais do painel.
+- O index.html voltou ao theme-color original e recebeu nova versao de cache do CSS.
+
+O que foi preservado:
+- Correcao para buscar novas BSPs no cache/tracking.
+- Correcao para replicar progresso de etapas no painel do cliente quando o tracking ja tiver avanco, mesmo sem data de referencia.
+
+Arquivos visuais restaurados:
+- site/app.css
+- site/manifest.webmanifest
+- site/index.html

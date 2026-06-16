@@ -1,0 +1,57 @@
+STEP Dashboard Brasil – v37.02
+
+Revisão de performance e apontamentos após a versão v37.01.
+
+Objetivo:
+- garantir que a alteração da tela Yinson não gere lentidão;
+- preservar o login rápido;
+- conferir se Validação PCP / Apontamentos continuam funcionando no fluxo rápido;
+- reduzir trabalho pesado do tradutor dinâmico quando o painel estiver em inglês/espanhol.
+
+Ajustes aplicados:
+
+1. Projetos em Desenvolvimento – Yinson
+- A API não busca mais a URL temporária de cada imagem durante a abertura da tabela.
+- Agora a listagem traz apenas metadados dos anexos: id, nome, tipo, rowId e sheetId.
+- A URL da imagem continua sendo buscada somente quando o usuário clica em "Ver imagem".
+- Isso evita muitas chamadas extras ao Smartsheet e melhora a abertura da tela.
+- Criado cache em memória de curta duração na função Netlify, com TTL padrão de 60 segundos.
+- O fallback de anexos por linha ficou limitado para não gerar uma chamada Smartsheet por linha em listas grandes.
+
+2. Tradução dinâmica PT/EN/ES
+- O MutationObserver do i18n.js foi otimizado.
+- Antes, em inglês/espanhol, qualquer novo texto podia disparar uma nova varredura no body inteiro.
+- Agora ele traduz somente os nós adicionados/alterados.
+- Isso reduz custo em tabelas grandes, modais e telas renderizadas dinamicamente.
+
+3. Validação PCP / Apontamentos
+- Mantida a regra importante: a abertura dos apontamentos é rápida e não depende do Smartsheet.
+- A validação do Tracking continua separada em /api/stage-updates?mode=tracking-check.
+- Adicionado cooldown de 120 segundos para evitar validações repetidas do Tracking em segundo plano.
+- Envio de apontamento por setor continua via POST /api/stage-updates.
+- Validação/conclusão PCP continua via PUT/PATCH /api/stage-updates.
+
+4. Cache/PWA
+- Service Worker atualizado para step-dashboard-37.02-revisao-performance-apontamentos.
+- Registro do sw.js atualizado para v=36.
+- Preservado o cache operacional que acelera login e portal do cliente.
+
+Arquivos alterados:
+- site/app.js
+- site/i18n.js
+- site/sw.js
+- netlify/functions/client-under-dev.js
+
+Validação técnica:
+- node --check site/app.js
+- node --check site/i18n.js
+- node --check site/sw.js
+- node --check netlify/functions/client-under-dev.js
+- node --check netlify/functions/stage-updates.js
+- node --check netlify/functions/client-under-dev-image.js
+- node --check netlify/functions/auth-login.js
+- node --check netlify/functions/auth-logout.js
+- npm run lint
+
+Observação:
+- npm run validate em ambiente local pode acusar ausência de SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY porque essas variáveis existem no Netlify, não no sandbox.

@@ -1,0 +1,19 @@
+VERSÃO v36.58 - CORREÇÃO DOS FILTROS DOS CARDS OPERACIONAIS
+
+Problema identificado:
+- Após ativar o fallback de segurança, alguns cards detalhados passaram a usar setor genérico vindo do cache/fallback.
+- Em alguns casos, a BSP aparecia dentro de Produção, Qualidade, Pintura ou Envio mesmo quando o status real textual indicava "Emissão de detalhamento", "Fabrication Not Started" ou etapa de pré-início.
+- Exemplo observado: card Produção mostrando uma BSP com status "Emissão de detalhamento".
+
+Correção aplicada:
+1. Criado classificador operacional por texto de etapa/status.
+2. A etapa/status textual agora tem prioridade sobre setor genérico do fallback.
+3. "Emissão de detalhamento", "Drawing Execution" e "Fabrication Not Started" voltam para Engenharia/Não iniciado.
+4. Procurement/material volta para Suprimento.
+5. Spool Assemble, tack weld, boilermaker, solda, inspeção, pintura e envio agora são classificados no card correto.
+6. O cálculo dos cards e o detalhamento aberto ao clicar neles passam a usar a mesma regra.
+7. Atualizado Service Worker para v36.58 para limpar cache antigo do app.
+
+Após subir:
+- Fazer CTRL + F5 no navegador.
+- Se estiver usando PWA/app instalado, remover e instalar novamente para garantir que o Service Worker antigo não mantenha a v36.57 em cache.

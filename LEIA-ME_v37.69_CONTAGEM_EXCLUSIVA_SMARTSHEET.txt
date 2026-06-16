@@ -1,0 +1,31 @@
+v37.69 - Correção de contagem exclusiva dos cards baseada no Smartsheet
+
+Base usada: exportação Progress Tracking Sheet - Piping Fabrication(3).xlsx.
+
+Regras aplicadas nos cards principais:
+1. Total de projetos = linhas raiz do Smartsheet visíveis na tabela/exportação.
+2. On Hold = PROJECT STATUS = ON HOLD, prioridade na classificação.
+3. Enviado/Finalizado = Job Process Status Package and Delivered ou Project Finished, somente quando não estiver On Hold.
+4. Não iniciado = Job Process Status Fabrication Not Started, somente quando não estiver On Hold.
+5. Iniciado = demais projetos abertos, sem duplicar BSP com ISO misto.
+
+Contagem validada na exportação enviada:
+Total raiz: 136
+On Hold: 22
+Enviado/Finalizado: 57
+Não iniciado: 16
+Iniciado/Em andamento: 41
+Fechamento: 22 + 57 + 16 + 41 = 136
+
+Sobreposições encontradas quando a contagem olha ISOs filhos em vez da linha raiz:
+- BSP 25-482
+- BEP 25-709
+- BSP 26-339
+- BSP 25-732-03
+- BSP 25-481
+- BSP 25-1165-53
+
+Também existe uma BSP duplicada como linha raiz no Smartsheet:
+- BSP 25-454-03 aparece em duas linhas raiz; por isso 136 linhas raiz e 135 projetos únicos por código.
+
+Após deploy, usar Ctrl+F5 para carregar o Service Worker v37.69.

@@ -1,0 +1,43 @@
+VERSÃO v33.3 - CORREÇÃO OVERALL PROGRESS x FABRICATION / FINALIZADO
+
+Objetivo:
+Corrigir casos onde uma BSP aparecia como Finalizada/100% no Overall Progress mesmo ainda existindo etapas produtivas ou logísticas com progresso abaixo de 100%.
+
+Alterações realizadas:
+1. Portal do Cliente / Visão Executiva
+   - Overall Progress não usa mais cegamente o percentual direto da planilha quando existem etapas produtivas carregadas.
+   - Quando houver dados de Engineering, Procurement, Fabrication ou Package/Delivery, o Overall Progress passa a ser calculado de forma ponderada pelas etapas:
+     * Engineering / Drawing: 15%
+     * Procurement: 15%
+     * Fabrication: 65%
+     * Package / Delivery: 5%
+   - Com isso, se Fabrication estiver em 96%, o Overall não poderá aparecer como 100%.
+
+2. Status Finalizado
+   - Projeto/BSP não será tratado visualmente como Finalizado quando houver etapa com evidência de progresso abaixo de 100%.
+   - Se houver etapa em aberto, o status passa a refletir andamento operacional, como Em produção, Engenharia em andamento, Suprimento em andamento ou Aguardando envio.
+
+3. Tags/Spools
+   - Tags com etapas produtivas em aberto não são mais contadas como concluídas apenas por possuir Project Finish Date ou indicador geral igual a 100%.
+
+4. Backend / API
+   - A API também passa a evitar forçar projeto e spools para 100% quando existem evidências de etapas em aberto.
+   - Mantida a regra de finalização somente quando não há inconsistência nas etapas.
+
+Arquivos alterados:
+- site/app.js
+- netlify/functions/projects.js
+
+Validações:
+- node --check site/app.js: OK
+- node --check netlify/functions/projects.js: OK
+- npm run lint: OK
+
+Não foi alterado:
+- Supabase
+- SQL
+- Smartsheet credentials
+- Login
+- Cache warmup
+- Exportação PDF
+- Layout de logo

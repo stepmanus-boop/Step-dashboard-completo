@@ -1,0 +1,1055 @@
+const { normalizeSectorList, normalizeText, normalizeSectorValue, hashPassword, verifyPassword } = require('./_auth');
+
+function cleanEnvSecret(value = '') {
+  return String(value || '')
+    .trim()
+    .replace(/^Bearer\s+/i, '')
+    .replace(/^['"]|['"]$/g, '')
+    .trim();
+}
+
+const SUPABASE_URL = String(
+  process.env.SUPABASE_URL ||
+  process.env.VITE_SUPABASE_URL ||
+  ''
+).trim().replace(/\/$/, '');
+
+const SUPABASE_SERVICE_ROLE_KEY = cleanEnvSecret(
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SECRET_KEY ||
+  process.env.SB_SECRET_KEY ||
+  process.env.SUPABASE_SECRET ||
+  ''
+);
+
+const SUPABASE_ANON_KEY = cleanEnvSecret(
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  process.env.SUPABASE_PUBLISHABLE_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  ''
+);
+
+
+const SUPABASE_FETCH_TIMEOUT_MS = Math.max(1500, Number(process.env.SUPABASE_FETCH_TIMEOUT_MS || 6500));
+const SUPABASE_FETCH_RETRIES = Math.max(1, Number(process.env.SUPABASE_FETCH_RETRIES || 1));
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientFetchError(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  return error?.name === 'AbortError'
+    || message.includes('fetch failed')
+    || message.includes('terminated')
+    || message.includes('timeout')
+    || message.includes('econnreset')
+    || message.includes('socket')
+    || message.includes('network');
+}
+
+function getSupabaseApiKey() {
+  return SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
+}
+
+function isSupabaseConfigured() {
+  return Boolean(SUPABASE_URL && getSupabaseApiKey());
+}
+
+function getSupabaseHeaders(prefer = '') {
+  const key = getSupabaseApiKey();
+  const headers = {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+    'Content-Type': 'application/json',
+  };
+  if (prefer) headers.Prefer = prefer;
+  return headers;
+}
+
+async function supabaseFetch(path, options = {}) {
+  if (!isSupabaseConfigured()) {
+    throw new Error('Supabase não configurado. Defina SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY no Netlify.');
+  }
+
+  const url = `${SUPABASE_URL}${path}`;
+  const timeoutMs = Math.max(1500, Number(options.timeoutMs || SUPABASE_FETCH_TIMEOUT_MS));
+  const attempts = Math.max(1, Number(options.retries || SUPABASE_FETCH_RETRIES));
+  const externalSignal = options.signal;
+
+  const { timeoutMs: _ignoredTimeout, retries: _ignoredRetries, signal: _ignoredSignal, ...fetchOptions } = options;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    const onAbort = () => controller.abort();
+    if (externalSignal) {
+      if (externalSignal.aborted) controller.abort();
+      else externalSignal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    try {
+      const response = await fetch(url, {
+        ...fetchOptions,
+        signal: controller.signal,
+        headers: {
+          ...getSupabaseHeaders(),
+          ...(fetchOptions.headers || {}),
+        },
+      });
+
+      clearTimeout(timer);
+      if (externalSignal) externalSignal.removeEventListener('abort', onAbort);
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Supabase ${response.status}: ${text}`);
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) return response.json();
+      return response.text();
+    } catch (error) {
+      clearTimeout(timer);
+      if (externalSignal) externalSignal.removeEventListener('abort', onAbort);
+
+      lastError = error;
+      const transient = isTransientFetchError(error);
+      const isLastAttempt = attempt >= attempts;
+
+      if (!transient || isLastAttempt) {
+        const reason = error?.name === 'AbortError'
+          ? `timeout após ${timeoutMs}ms`
+          : (error?.message || String(error));
+        throw new Error(`Supabase falhou em ${path}: ${reason}`);
+      }
+
+      await wait(350 * attempt);
+    }
+  }
+
+  throw lastError || new Error(`Supabase falhou em ${path}`);
+}
+
+function parseClientPlatformImagesFallback(value) {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  const text = String(value || '').trim();
+  if (!text) return {};
+  const jsonText = text.startsWith('json:') ? text.slice(5) : text;
+  if (jsonText.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(jsonText);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (_) {}
+  }
+  return {};
+}
+
+function makeClientPlatformImagesFallback(images) {
+  if (!images || typeof images !== 'object' || Array.isArray(images) || !Object.keys(images).length) return '';
+  return `json:${JSON.stringify(images)}`;
+}
+
+function isMissingClientPlatformImagesColumn(error) {
+  const message = String(error?.message || error || '');
+  return message.includes('client_platform_images') && (message.includes('PGRST204') || message.includes('schema cache') || message.includes('Could not find'));
+}
+
+function isMissingCanViewClientPanelColumn(error) {
+  const message = String(error?.message || error || '');
+  return message.includes('can_view_client_panel') && (message.includes('PGRST204') || message.includes('schema cache') || message.includes('Could not find'));
+}
+
+async function supabaseWriteWithClientPlatformFallback(path, options, payload, fallbackImages) {
+  let retryPayload = { ...(payload || {}) };
+  let platformFallbackApplied = false;
+  let canViewFallbackApplied = false;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await supabaseFetch(path, {
+        ...options,
+        body: JSON.stringify(retryPayload),
+      });
+    } catch (error) {
+      if (isMissingClientPlatformImagesColumn(error) && !platformFallbackApplied) {
+        platformFallbackApplied = true;
+        delete retryPayload.client_platform_images;
+        const fallback = makeClientPlatformImagesFallback(fallbackImages);
+        if (fallback) retryPayload.client_platform_image_url = fallback;
+        continue;
+      }
+      if (isMissingCanViewClientPanelColumn(error) && !canViewFallbackApplied) {
+        canViewFallbackApplied = true;
+        delete retryPayload.can_view_client_panel;
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  return supabaseFetch(path, {
+    ...options,
+    body: JSON.stringify(retryPayload),
+  });
+}
+
+function stripHiddenRegionSuffix(username = '') {
+  return String(username || '').replace(/__(BR|PT)$/i, '');
+}
+
+function buildHiddenRegionUsername(username = '', region = 'BR') {
+  const clean = stripHiddenRegionSuffix(username).trim();
+  const reg = String(region || 'BR').trim().toUpperCase() === 'BR' ? 'BR' : 'PT';
+  return clean ? `${clean}__${reg}` : '';
+}
+
+function mapUser(row) {
+  if (!row) return null;
+  const platformImages = row.client_platform_images && typeof row.client_platform_images === 'object'
+    ? row.client_platform_images
+    : parseClientPlatformImagesFallback(row.client_platform_image_url);
+  const platformImageUrl = String(row.client_platform_image_url || '').startsWith('json:') ? '' : (row.client_platform_image_url || '');
+  return {
+    id: row.id,
+    name: row.name,
+    username: stripHiddenRegionSuffix(row.username),
+    rawUsername: row.username,
+    passwordHash: row.password_hash,
+    role: row.role === 'admin' ? 'admin' : (row.role === 'client' ? 'client' : 'sector'),
+    sector: normalizeSectorValue(row.sector || (row.role === 'admin' ? 'all' : '')), 
+    alertSectors: normalizeSectorList(row.sector || '', Array.isArray(row.alert_sectors) ? row.alert_sectors : []),
+    projectPmAliases: Array.isArray(row.project_pm_aliases) ? row.project_pm_aliases.filter(Boolean) : [],
+    qualityCompetencies: Array.isArray(row.quality_competencies) ? row.quality_competencies.filter(Boolean) : [],
+    canViewClientPanel: row.can_view_client_panel === true,
+    clientKey: row.client_key || '',
+    operationRegion: ['BR','PT'].includes(String(row.operation_region || '').toUpperCase()) ? String(row.operation_region).toUpperCase() : 'BR',
+    siteKey: ['BR','PT'].includes(String(row.site_key || row.operation_region || '').toUpperCase()) ? String(row.site_key || row.operation_region).toUpperCase() : 'BR',
+    portalSite: ['BR','PT'].includes(String(row.portal_site || row.operation_region || '').toUpperCase()) ? String(row.portal_site || row.operation_region).toUpperCase() : 'BR',
+    clientName: row.client_name || row.client_key || '',
+    clientLogoUrl: row.client_logo_url || '',
+    clientPlatformImageUrl: platformImageUrl,
+    clientPlatformImages: platformImages,
+    allowedClients: Array.isArray(row.allowed_clients) ? row.allowed_clients.filter(Boolean) : [],
+    active: row.active !== false,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+
+const PRESENCE_ONLINE_WINDOW_MS = Number(process.env.PRESENCE_ONLINE_WINDOW_MS || 2 * 60 * 1000);
+
+function mapPresence(row) {
+  if (!row) return null;
+  const lastSeenAt = row.last_seen_at || null;
+  const lastSeenTime = lastSeenAt ? new Date(lastSeenAt).getTime() : 0;
+  const isFresh = Boolean(lastSeenTime && (Date.now() - lastSeenTime) <= PRESENCE_ONLINE_WINDOW_MS);
+  const online = row.status === 'online' && isFresh;
+  return {
+    userId: row.user_id,
+    username: row.username || '',
+    name: row.name || '',
+    role: row.role === 'admin' ? 'admin' : (row.role === 'client' ? 'client' : 'sector'),
+    sector: normalizeSectorValue(row.sector || ''),
+    alertSectors: normalizeSectorList(row.sector || '', Array.isArray(row.alert_sectors) ? row.alert_sectors : []),
+    status: online ? 'online' : 'offline',
+    online,
+    lastSeenAt,
+    lastLoginAt: row.last_login_at || null,
+    lastLogoutAt: row.last_logout_at || null,
+    lastViewAt: row.last_view_at || null,
+    lastViewName: row.last_view_name || '',
+    lastViewUrl: row.last_view_url || '',
+    lastViewTitle: row.last_view_title || '',
+    userAgent: row.user_agent || '',
+    ipAddress: row.ip_address || '',
+    updatedAt: row.updated_at || null,
+  };
+}
+
+function mapAlert(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    title: row.title,
+    message: row.message,
+    sector: normalizeSectorValue(row.sector),
+    priority: row.priority || 'normal',
+    requiresAck: row.require_ack !== false,
+    createdBy: row.created_by || '',
+    createdAt: row.created_at || null,
+    active: row.active !== false,
+    expiresAfterReadHours: Number(row.expires_after_read_hours || 24),
+    readExpiresAt: row.read_expires_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+function mapAck(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    alertId: row.alert_id,
+    userId: row.user_id,
+    username: row.username,
+    sector: normalizeSectorValue(row.sector),
+    acknowledgedAt: row.read_at || row.acknowledged_at || row.created_at || null,
+  };
+}
+
+
+function mapStageUpdate(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    projectRowId: Number(row.project_row_id || 0),
+    projectNumber: row.project_number || '',
+    projectDisplay: row.project_display || '',
+    client: row.client || '',
+    spoolIso: row.spool_iso || '',
+    spoolDescription: row.spool_description || '',
+    sector: normalizeSectorValue(row.sector),
+    progress: Number(row.progress || 0),
+    completionDate: row.completion_date || '',
+    note: row.note || '',
+    status: row.status || 'pending',
+    createdBy: row.created_by || '',
+    createdByName: row.created_by_name || '',
+    createdAt: row.created_at || null,
+    resolvedBy: row.resolved_by || '',
+    resolvedByName: row.resolved_by_name || '',
+    resolvedAt: row.resolved_at || null,
+    resolutionNote: row.resolution_note || '',
+    updatedAt: row.updated_at || null,
+  };
+}
+
+function mapResponse(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    alertId: row.alert_id,
+    userId: row.user_id,
+    username: row.username,
+    userEmail: row.user_email || '',
+    sector: normalizeSectorValue(row.sector),
+    responseText: row.response_text || '',
+    adminReply: row.admin_reply || '',
+    status: row.status || 'enviado',
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+async function listUsers() {
+  const rows = await supabaseFetch('/rest/v1/users?select=*&order=created_at.desc');
+  return (Array.isArray(rows) ? rows : []).map(mapUser);
+}
+
+function isUniversalAccessRow(row = {}) {
+  const role = String(row.role || '').trim().toLowerCase();
+  const sector = normalizeSectorValue(row.sector || '');
+  return role === 'admin' || sector === 'pcp';
+}
+
+async function getUserByUsername(username, options = {}) {
+  const cleanUsername = stripHiddenRegionSuffix(String(username || '').trim());
+  if (!cleanUsername) return null;
+
+  const region = String(options.operationRegion || options.region || options.siteKey || '').trim().toUpperCase();
+  const hiddenUsername = region ? buildHiddenRegionUsername(cleanUsername, region) : '';
+
+  const candidates = Array.from(new Set([cleanUsername, hiddenUsername].filter(Boolean)));
+  const rows = [];
+
+  // Busca exata em uma única chamada para evitar timeout no login.
+  const exactFilter = candidates
+    .map((candidate) => `username.eq.${encodeURIComponent(candidate)}`)
+    .join(',');
+
+  if (exactFilter) {
+    const result = await supabaseFetch(`/rest/v1/users?select=*&or=(${exactFilter})&limit=10`, {
+      timeoutMs: 6500,
+      retries: 1,
+    });
+    if (Array.isArray(result)) rows.push(...result);
+  }
+
+  // Fallback legado: só roda se não achou nada na busca exata.
+  if (!rows.length) {
+    const prefix = encodeURIComponent(`${cleanUsername}%`);
+    const fallback = await supabaseFetch(`/rest/v1/users?select=*&username=ilike.${prefix}&limit=10`, {
+      timeoutMs: 6500,
+      retries: 1,
+    });
+    if (Array.isArray(fallback)) rows.push(...fallback);
+  }
+
+  // Admin e PCP são universais pela regra de acesso.
+  const universal = rows.find((row) => isUniversalAccessRow(row) && row.active !== false);
+  if (universal) return mapUser(universal);
+
+  if (region) {
+    const regional = rows.find((row) => {
+      const raw = String(row.username || '');
+      const rowRegion = String(row.operation_region || row.site_key || row.portal_site || '').trim().toUpperCase()
+        || (raw.toUpperCase().endsWith('__BR') ? 'BR' : '')
+        || (raw.toUpperCase().endsWith('__PT') ? 'PT' : '')
+        || (String(row.client_key || '').trim().toUpperCase().endsWith('_BR') ? 'BR' : '')
+        || (String(row.client_key || '').trim().toUpperCase().endsWith('_PT') ? 'PT' : '')
+        || 'BR';
+      return rowRegion === region && row.active !== false;
+    });
+    if (regional) return mapUser(regional);
+    return null;
+  }
+
+  return mapUser(rows.find((row) => row.active !== false) || rows[0] || null);
+}
+
+async function getUserById(userId) {
+  const q = encodeURIComponent(String(userId || '').trim());
+  const rows = await supabaseFetch(`/rest/v1/users?select=*&id=eq.${q}&limit=1`);
+  return mapUser(Array.isArray(rows) ? rows[0] : null);
+}
+
+async function insertUser(input) {
+  const payload = {
+    name: input.name,
+    username: input.username,
+    password_hash: input.passwordHash,
+    role: input.role,
+    sector: input.sector,
+    alert_sectors: input.alertSectors || [],
+    project_pm_aliases: Array.isArray(input.projectPmAliases) ? input.projectPmAliases : [],
+    quality_competencies: Array.isArray(input.qualityCompetencies) ? input.qualityCompetencies : [],
+    can_view_client_panel: input.canViewClientPanel === true,
+    client_key: input.clientKey || '',
+    operation_region: String(input.operationRegion || 'BR').toUpperCase() === 'BR' ? 'BR' : 'BR',
+    site_key: String(input.siteKey || input.operationRegion || 'BR').toUpperCase() === 'BR' ? 'BR' : 'BR',
+    portal_site: String(input.portalSite || input.siteKey || input.operationRegion || 'BR').toUpperCase() === 'BR' ? 'BR' : 'BR',
+    client_name: input.clientName || input.clientKey || '',
+    client_logo_url: input.clientLogoUrl || '',
+    client_platform_image_url: input.clientPlatformImageUrl || '',
+    client_platform_images: input.clientPlatformImages && typeof input.clientPlatformImages === 'object' ? input.clientPlatformImages : {},
+    allowed_clients: Array.isArray(input.allowedClients) ? input.allowedClients : [],
+    active: input.active !== false,
+  };
+  const rows = await supabaseWriteWithClientPlatformFallback('/rest/v1/users?select=*', {
+    method: 'POST',
+    headers: getSupabaseHeaders('return=representation'),
+    body: JSON.stringify(payload),
+  }, payload, payload.client_platform_images);
+  return mapUser(Array.isArray(rows) ? rows[0] : null);
+}
+
+async function updateUser(userId, updates) {
+  const q = encodeURIComponent(String(userId || '').trim());
+  const payload = {};
+  if ('name' in updates) payload.name = updates.name;
+  if ('username' in updates) payload.username = updates.username;
+  if ('passwordHash' in updates) payload.password_hash = updates.passwordHash;
+  if ('role' in updates) payload.role = updates.role;
+  if ('sector' in updates) payload.sector = updates.sector;
+  if ('alertSectors' in updates) payload.alert_sectors = updates.alertSectors || [];
+  if ('projectPmAliases' in updates) payload.project_pm_aliases = Array.isArray(updates.projectPmAliases) ? updates.projectPmAliases : [];
+  if ('qualityCompetencies' in updates) payload.quality_competencies = Array.isArray(updates.qualityCompetencies) ? updates.qualityCompetencies : [];
+  if ('canViewClientPanel' in updates) payload.can_view_client_panel = updates.canViewClientPanel === true;
+  if ('clientKey' in updates) payload.client_key = updates.clientKey || '';
+  if ('operationRegion' in updates) payload.operation_region = String(updates.operationRegion || 'BR').toUpperCase() === 'BR' ? 'BR' : 'BR';
+  if ('siteKey' in updates) payload.site_key = String(updates.siteKey || updates.operationRegion || 'BR').toUpperCase() === 'BR' ? 'BR' : 'BR';
+  if ('portalSite' in updates || 'operationRegion' in updates || 'siteKey' in updates) payload.portal_site = String(updates.portalSite || updates.siteKey || updates.operationRegion || 'BR').toUpperCase() === 'BR' ? 'BR' : 'BR';
+  if ('clientName' in updates) payload.client_name = updates.clientName || updates.clientKey || '';
+  if ('clientLogoUrl' in updates) payload.client_logo_url = updates.clientLogoUrl || '';
+  if ('clientPlatformImageUrl' in updates) payload.client_platform_image_url = updates.clientPlatformImageUrl || '';
+  if ('clientPlatformImages' in updates) payload.client_platform_images = updates.clientPlatformImages && typeof updates.clientPlatformImages === 'object' ? updates.clientPlatformImages : {};
+  if ('allowedClients' in updates) payload.allowed_clients = Array.isArray(updates.allowedClients) ? updates.allowedClients : [];
+  if ('active' in updates) payload.active = updates.active !== false;
+  const rows = await supabaseWriteWithClientPlatformFallback(`/rest/v1/users?id=eq.${q}&select=*`, {
+    method: 'PATCH',
+    headers: getSupabaseHeaders('return=representation'),
+    body: JSON.stringify(payload),
+  }, payload, payload.client_platform_images);
+  return mapUser(Array.isArray(rows) ? rows[0] : null);
+}
+
+
+async function listUserPresence() {
+  try {
+    const rows = await supabaseFetch('/rest/v1/user_presence?select=*&order=last_seen_at.desc.nullslast');
+    return (Array.isArray(rows) ? rows : []).map(mapPresence).filter(Boolean);
+  } catch (error) {
+    if (String(error.message || '').includes('user_presence')) return [];
+    throw error;
+  }
+}
+
+async function upsertUserPresence(input = {}) {
+  const now = input.now || new Date().toISOString();
+  const payload = {
+    user_id: String(input.userId || '').trim(),
+    username: input.username || '',
+    name: input.name || '',
+    role: input.role === 'admin' ? 'admin' : (input.role === 'client' ? 'client' : 'sector'),
+    sector: normalizeSectorValue(input.sector || ''),
+    alert_sectors: normalizeSectorList(input.sector || '', Array.isArray(input.alertSectors) ? input.alertSectors : []),
+    status: input.status === 'offline' ? 'offline' : 'online',
+    last_seen_at: input.status === 'offline' ? (input.lastSeenAt || now) : now,
+    updated_at: now,
+    user_agent: String(input.userAgent || '').slice(0, 500),
+    ip_address: String(input.ipAddress || '').slice(0, 120),
+  };
+
+  if (input.markLogin) payload.last_login_at = now;
+  if (input.status === 'offline') payload.last_logout_at = now;
+
+  if ('lastViewName' in input) payload.last_view_name = String(input.lastViewName || '').slice(0, 160);
+  if ('lastViewUrl' in input) payload.last_view_url = String(input.lastViewUrl || '').slice(0, 700);
+  if ('lastViewTitle' in input) payload.last_view_title = String(input.lastViewTitle || '').slice(0, 200);
+  if (input.lastViewName || input.lastViewUrl || input.lastViewTitle) payload.last_view_at = now;
+
+  if (!payload.user_id) return null;
+
+  try {
+    const rows = await supabaseFetch('/rest/v1/user_presence?on_conflict=user_id&select=*', {
+      method: 'POST',
+      headers: getSupabaseHeaders('resolution=merge-duplicates,return=representation'),
+      body: JSON.stringify(payload),
+    });
+    return mapPresence(Array.isArray(rows) ? rows[0] : null);
+  } catch (error) {
+    if (String(error.message || '').includes('user_presence')) return null;
+    throw error;
+  }
+}
+
+async function markUserPresenceOffline(userId, input = {}) {
+  const q = encodeURIComponent(String(userId || '').trim());
+  if (!q) return null;
+  const now = new Date().toISOString();
+  const payload = {
+    status: 'offline',
+    last_seen_at: now,
+    last_logout_at: now,
+    updated_at: now,
+  };
+  if (input.lastViewName) payload.last_view_name = String(input.lastViewName || '').slice(0, 160);
+  if (input.lastViewUrl) payload.last_view_url = String(input.lastViewUrl || '').slice(0, 700);
+  if (input.lastViewTitle) payload.last_view_title = String(input.lastViewTitle || '').slice(0, 200);
+  if (input.lastViewName || input.lastViewUrl || input.lastViewTitle) payload.last_view_at = now;
+
+  try {
+    const rows = await supabaseFetch(`/rest/v1/user_presence?user_id=eq.${q}&select=*`, {
+      method: 'PATCH',
+      headers: getSupabaseHeaders('return=representation'),
+      body: JSON.stringify(payload),
+    });
+    return mapPresence(Array.isArray(rows) ? rows[0] : null);
+  } catch (error) {
+    if (String(error.message || '').includes('user_presence')) return null;
+    throw error;
+  }
+}
+
+async function listManualAlerts() {
+  const rows = await supabaseFetch('/rest/v1/manual_alerts?select=*&order=created_at.desc');
+  return (Array.isArray(rows) ? rows : []).map(mapAlert);
+}
+
+async function createManualAlert(input) {
+  const payload = {
+    title: input.title,
+    message: input.message,
+    sector: input.sector,
+    priority: input.priority || 'normal',
+    require_ack: input.requiresAck !== false,
+    created_by: input.createdBy || '',
+    active: input.active !== false,
+    expires_after_read_hours: Number(input.expiresAfterReadHours || 24),
+  };
+  const rows = await supabaseFetch('/rest/v1/manual_alerts?select=*', {
+    method: 'POST',
+    headers: getSupabaseHeaders('return=representation'),
+    body: JSON.stringify(payload),
+  });
+  return mapAlert(Array.isArray(rows) ? rows[0] : null);
+}
+
+const ACK_TABLES = ['alert_acknowledgements', 'alert_acknowledgments'];
+
+function isMissingSupabaseRelation(error, tableName = '') {
+  const message = String(error?.message || error || '');
+  return message.includes(tableName)
+    || message.includes('PGRST205')
+    || message.includes('PGRST204')
+    || message.includes('Could not find')
+    || message.includes('schema cache')
+    || message.includes('does not exist')
+    || message.includes('42P01');
+}
+
+async function supabaseFetchAckTable(pathBuilder, options = {}) {
+  let lastError = null;
+  for (const table of ACK_TABLES) {
+    try {
+      return await supabaseFetch(pathBuilder(table), options);
+    } catch (error) {
+      lastError = error;
+      if (!isMissingSupabaseRelation(error, table)) throw error;
+    }
+  }
+  throw lastError || new Error('Tabela de confirmação de alertas não encontrada.');
+}
+
+async function listAcknowledgements() {
+  const rows = await supabaseFetchAckTable((table) => `/rest/v1/${table}?select=*&order=read_at.desc`);
+  return (Array.isArray(rows) ? rows : []).map(mapAck);
+}
+
+async function addAcknowledgement(input) {
+  const payload = {
+    alert_id: input.alertId,
+    user_id: input.userId || null,
+    username: input.username || '',
+    sector: input.sector || '',
+    read_at: new Date().toISOString(),
+  };
+  const rows = await supabaseFetchAckTable((table) => `/rest/v1/${table}?select=*`, {
+    method: 'POST',
+    headers: getSupabaseHeaders('return=representation'),
+    body: JSON.stringify(payload),
+  });
+  return mapAck(Array.isArray(rows) ? rows[0] : null);
+}
+
+async function findAcknowledgement(alertId, userId) {
+  const a = encodeURIComponent(String(alertId || '').trim());
+  const u = encodeURIComponent(String(userId || '').trim());
+  const rows = await supabaseFetchAckTable((table) => `/rest/v1/${table}?select=*&alert_id=eq.${a}&user_id=eq.${u}&limit=1`);
+  return mapAck(Array.isArray(rows) ? rows[0] : null);
+}
+
+
+async function listAlertResponses(alertId = '') {
+  const filter = String(alertId || '').trim()
+    ? `&alert_id=eq.${encodeURIComponent(String(alertId || '').trim())}`
+    : '';
+  try {
+    const rows = await supabaseFetch(`/rest/v1/alert_responses?select=*&order=created_at.desc${filter}`);
+    return (Array.isArray(rows) ? rows : []).map(mapResponse);
+  } catch (error) {
+    if (String(error.message || '').includes('alert_responses')) return [];
+    throw error;
+  }
+}
+
+async function createAlertResponse(input) {
+  const payload = {
+    alert_id: input.alertId,
+    user_id: input.userId || null,
+    username: input.username || '',
+    user_email: input.userEmail || '',
+    sector: input.sector || '',
+    response_text: input.responseText || '',
+    status: input.status || 'enviado',
+  };
+  const rows = await supabaseFetch('/rest/v1/alert_responses?select=*', {
+    method: 'POST',
+    headers: getSupabaseHeaders('return=representation'),
+    body: JSON.stringify(payload),
+  });
+  return mapResponse(Array.isArray(rows) ? rows[0] : null);
+}
+
+async function updateAlertResponse(responseId, updates) {
+  const q = encodeURIComponent(String(responseId || '').trim());
+  const payload = {};
+  if ('adminReply' in updates) payload.admin_reply = updates.adminReply || '';
+  if ('status' in updates) payload.status = updates.status || 'enviado';
+  const rows = await supabaseFetch(`/rest/v1/alert_responses?id=eq.${q}&select=*`, {
+    method: 'PATCH',
+    headers: getSupabaseHeaders('return=representation'),
+    body: JSON.stringify(payload),
+  });
+  return mapResponse(Array.isArray(rows) ? rows[0] : null);
+}
+
+function userPasswordMatches(password, stored) {
+  if (!stored) return false;
+  const raw = String(stored);
+  if (raw.startsWith('scrypt$')) return verifyPassword(password, raw);
+  return String(password) === raw;
+}
+
+async function listPushSubscriptions(userId = '') {
+  const filter = String(userId || '').trim()
+    ? `&user_id=eq.${encodeURIComponent(String(userId || '').trim())}`
+    : '';
+  try {
+    const rows = await supabaseFetch(`/rest/v1/push_subscriptions?select=*&active=is.true&order=updated_at.desc${filter}`);
+    return Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    if (String(error.message || '').includes('push_subscriptions')) return [];
+    throw error;
+  }
+}
+
+async function upsertPushSubscription(input) {
+  const payload = {
+    user_id: input.userId,
+    username: input.username || '',
+    sector: input.sector || '',
+    endpoint: input.endpoint,
+    subscription_json: input.subscription,
+    active: input.active !== false,
+  };
+  const rows = await supabaseFetch('/rest/v1/push_subscriptions?on_conflict=endpoint&select=*', {
+    method: 'POST',
+    headers: getSupabaseHeaders('resolution=merge-duplicates,return=representation'),
+    body: JSON.stringify(payload),
+  });
+  return Array.isArray(rows) ? rows[0] : null;
+}
+
+async function removePushSubscription(endpoint) {
+  const q = encodeURIComponent(String(endpoint || '').trim());
+  await supabaseFetch(`/rest/v1/push_subscriptions?endpoint=eq.${q}`, {
+    method: 'DELETE',
+    headers: getSupabaseHeaders(),
+  });
+  return true;
+}
+
+
+async function listStageUpdates() {
+  try {
+    const rows = await supabaseFetch('/rest/v1/stage_updates?select=*&order=created_at.desc');
+    return (Array.isArray(rows) ? rows : []).map(mapStageUpdate);
+  } catch (error) {
+    if (String(error.message || '').includes('stage_updates')) return [];
+    throw error;
+  }
+}
+
+async function createStageUpdate(input) {
+  const payload = {
+    id: input.id,
+    project_row_id: Number(input.projectRowId || 0),
+    project_number: input.projectNumber || '',
+    project_display: input.projectDisplay || '',
+    client: input.client || '',
+    spool_iso: input.spoolIso || '',
+    spool_description: input.spoolDescription || '',
+    sector: input.sector || '',
+    progress: Number(input.progress || 0),
+    completion_date: input.completionDate || null,
+    note: input.note || '',
+    status: input.status || 'pending',
+    created_by: input.createdBy || '',
+    created_by_name: input.createdByName || '',
+    resolved_by: input.resolvedBy || null,
+    resolved_by_name: input.resolvedByName || null,
+    resolved_at: input.resolvedAt || null,
+    resolution_note: input.resolutionNote || '',
+  };
+  const rows = await supabaseFetch('/rest/v1/stage_updates?select=*', {
+    method: 'POST',
+    headers: getSupabaseHeaders('return=representation'),
+    body: JSON.stringify(payload),
+  });
+  return mapStageUpdate(Array.isArray(rows) ? rows[0] : null);
+}
+
+
+async function deleteStageUpdates(updateIds = []) {
+  const ids = Array.from(new Set((Array.isArray(updateIds) ? updateIds : [updateIds])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean)));
+  for (const id of ids) {
+    const q = encodeURIComponent(id);
+    await supabaseFetch(`/rest/v1/stage_updates?id=eq.${q}`, {
+      method: 'DELETE',
+      headers: getSupabaseHeaders(),
+    });
+  }
+  return ids.length;
+}
+
+async function updateStageUpdate(updateId, updates) {
+  const q = encodeURIComponent(String(updateId || '').trim());
+  const payload = {};
+  if ('status' in updates) payload.status = updates.status || 'pending';
+  if ('resolvedBy' in updates) payload.resolved_by = updates.resolvedBy || '';
+  if ('resolvedByName' in updates) payload.resolved_by_name = updates.resolvedByName || '';
+  if ('resolvedAt' in updates) payload.resolved_at = updates.resolvedAt || null;
+  if ('resolutionNote' in updates) payload.resolution_note = updates.resolutionNote || '';
+  const rows = await supabaseFetch(`/rest/v1/stage_updates?id=eq.${q}&select=*`, {
+    method: 'PATCH',
+    headers: getSupabaseHeaders('return=representation'),
+    body: JSON.stringify(payload),
+  });
+  return mapStageUpdate(Array.isArray(rows) ? rows[0] : null);
+}
+
+
+
+function mapClientApiKey(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id || '',
+    username: row.username || '',
+    clientKey: row.client_key || '',
+    clientName: row.client_name || row.client_key || '',
+    tokenPrefix: row.token_prefix || '',
+    tokenLast4: row.token_last4 || '',
+    name: row.name || 'API do cliente',
+    scopes: Array.isArray(row.scopes) ? row.scopes.filter(Boolean) : ['read:projects'],
+    allowedClients: Array.isArray(row.allowed_clients) ? row.allowed_clients.filter(Boolean) : [],
+    active: row.active !== false,
+    expiresAt: row.expires_at || null,
+    lastUsedAt: row.last_used_at || null,
+    createdBy: row.created_by || '',
+    createdByName: row.created_by_name || '',
+    createdAt: row.created_at || null,
+    revokedAt: row.revoked_at || null,
+  };
+}
+
+async function listClientApiKeysForUser(userId) {
+  const q = encodeURIComponent(String(userId || '').trim());
+  if (!q) return [];
+  try {
+    const rows = await supabaseFetch(`/rest/v1/client_api_keys?select=*&user_id=eq.${q}&order=created_at.desc`);
+    return (Array.isArray(rows) ? rows : []).map(mapClientApiKey).filter(Boolean);
+  } catch (error) {
+    if (String(error.message || '').includes('client_api_keys')) return [];
+    throw error;
+  }
+}
+
+async function createClientApiKey(input = {}) {
+  const payload = {
+    user_id: String(input.userId || '').trim(),
+    username: input.username || '',
+    client_key: input.clientKey || '',
+    client_name: input.clientName || input.clientKey || '',
+    allowed_clients: Array.isArray(input.allowedClients) ? input.allowedClients : [],
+    token_hash: input.tokenHash,
+    token_prefix: input.tokenPrefix || '',
+    token_last4: input.tokenLast4 || '',
+    name: input.name || 'API do cliente',
+    scopes: Array.isArray(input.scopes) && input.scopes.length ? input.scopes : ['read:projects'],
+    active: input.active !== false,
+    expires_at: input.expiresAt || null,
+    created_by: input.createdBy || input.username || '',
+    created_by_name: input.createdByName || input.clientName || '',
+  };
+  const rows = await supabaseFetch('/rest/v1/client_api_keys?select=*', {
+    method: 'POST',
+    headers: getSupabaseHeaders('return=representation'),
+    body: JSON.stringify(payload),
+  });
+  return mapClientApiKey(Array.isArray(rows) ? rows[0] : null);
+}
+
+async function revokeClientApiKey(id, userId) {
+  const keyId = encodeURIComponent(String(id || '').trim());
+  const owner = encodeURIComponent(String(userId || '').trim());
+  if (!keyId || !owner) return null;
+  const rows = await supabaseFetch(`/rest/v1/client_api_keys?id=eq.${keyId}&user_id=eq.${owner}&select=*`, {
+    method: 'PATCH',
+    headers: getSupabaseHeaders('return=representation'),
+    body: JSON.stringify({ active: false, revoked_at: new Date().toISOString() }),
+  });
+  return mapClientApiKey(Array.isArray(rows) ? rows[0] : null);
+}
+
+async function findClientApiKeyByHash(tokenHash) {
+  const q = encodeURIComponent(String(tokenHash || '').trim());
+  if (!q) return null;
+  try {
+    const rows = await supabaseFetch(`/rest/v1/client_api_keys?select=*&token_hash=eq.${q}&active=eq.true&limit=1`);
+    return mapClientApiKey(Array.isArray(rows) ? rows[0] : null);
+  } catch (error) {
+    if (String(error.message || '').includes('client_api_keys')) return null;
+    throw error;
+  }
+}
+
+async function markClientApiKeyUsed(id) {
+  const keyId = encodeURIComponent(String(id || '').trim());
+  if (!keyId) return null;
+  try {
+    const rows = await supabaseFetch(`/rest/v1/client_api_keys?id=eq.${keyId}&select=*`, {
+      method: 'PATCH',
+      headers: getSupabaseHeaders('return=representation'),
+      body: JSON.stringify({ last_used_at: new Date().toISOString() }),
+    });
+    return mapClientApiKey(Array.isArray(rows) ? rows[0] : null);
+  } catch (error) {
+    if (String(error.message || '').includes('client_api_keys')) return null;
+    throw error;
+  }
+}
+
+
+function mapClientBspOverride(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    region: row.region || '',
+    projectRowId: String(row.project_row_id || ''),
+    projectNumber: row.project_number || '',
+    projectDisplay: row.project_display || '',
+    clientKey: row.client_key || '',
+    clientName: row.client_name || '',
+    vessel: row.vessel || '',
+    pm: row.pm || '',
+    fabricationStartOverride: row.fabrication_start_override || '',
+    boilermakerFinishOverride: row.boilermaker_finish_override || '',
+    weldingFinishOverride: row.welding_finish_override || '',
+    inspectionFinishOverride: row.inspection_finish_override || '',
+    thFinishOverride: row.th_finish_override || '',
+    coatingFinishOverride: row.coating_finish_override || '',
+    projectFinishOverride: row.project_finish_override || '',
+    executiveStatus: row.executive_status || '',
+    executiveNote: row.executive_note || '',
+    delayReason: row.delay_reason || '',
+    customFields: row.custom_fields && typeof row.custom_fields === 'object' ? row.custom_fields : {},
+    visibleToClient: row.visible_to_client !== false,
+    createdBy: row.created_by || '',
+    createdByName: row.created_by_name || '',
+    createdAt: row.created_at || null,
+    updatedBy: row.updated_by || '',
+    updatedByName: row.updated_by_name || '',
+    updatedAt: row.updated_at || null,
+  };
+}
+
+async function listClientBspOverrides() {
+  try {
+    const rows = await supabaseFetch('/rest/v1/client_bsp_overrides?select=*&order=updated_at.desc');
+    return (Array.isArray(rows) ? rows : [])
+      .map(mapClientBspOverride)
+      .filter(Boolean)
+      .filter((item) => {
+        const region = String(item.region || '').trim().toUpperCase();
+        return !region || region === 'BR';
+      });
+  } catch (error) {
+    if (String(error.message || '').includes('client_bsp_overrides')) return [];
+    throw error;
+  }
+}
+
+function normalizeDateForSupabase(value) {
+  const text = String(value || '').trim();
+  return text || null;
+}
+
+async function upsertClientBspOverride(input = {}) {
+  const now = new Date().toISOString();
+  const payload = {
+    region: 'BR',
+    project_row_id: String(input.projectRowId || '').trim(),
+    project_number: input.projectNumber || '',
+    project_display: input.projectDisplay || '',
+    client_key: input.clientKey || '',
+    client_name: input.clientName || '',
+    vessel: input.vessel || '',
+    pm: input.pm || '',
+    fabrication_start_override: normalizeDateForSupabase(input.fabricationStartOverride),
+    boilermaker_finish_override: normalizeDateForSupabase(input.boilermakerFinishOverride),
+    welding_finish_override: normalizeDateForSupabase(input.weldingFinishOverride),
+    inspection_finish_override: normalizeDateForSupabase(input.inspectionFinishOverride),
+    th_finish_override: normalizeDateForSupabase(input.thFinishOverride),
+    coating_finish_override: normalizeDateForSupabase(input.coatingFinishOverride),
+    project_finish_override: normalizeDateForSupabase(input.projectFinishOverride),
+    executive_status: input.executiveStatus || '',
+    executive_note: input.executiveNote || '',
+    delay_reason: input.delayReason || '',
+    custom_fields: input.customFields && typeof input.customFields === 'object' ? input.customFields : {},
+    visible_to_client: input.visibleToClient !== false,
+    updated_by: input.updatedBy || '',
+    updated_by_name: input.updatedByName || '',
+    updated_at: now,
+  };
+  if (!payload.project_row_id) throw new Error('BSP sem identificador de linha.');
+  if (input.createdBy) payload.created_by = input.createdBy;
+  if (input.createdByName) payload.created_by_name = input.createdByName;
+  const rows = await supabaseFetch('/rest/v1/client_bsp_overrides?on_conflict=project_row_id&select=*', {
+    method: 'POST',
+    headers: getSupabaseHeaders('resolution=merge-duplicates,return=representation'),
+    body: JSON.stringify(payload),
+  });
+  return mapClientBspOverride(Array.isArray(rows) ? rows[0] : null);
+}
+
+async function deleteClientBspOverride(id) {
+  const q = encodeURIComponent(String(id || '').trim());
+  if (!q) return true;
+  await supabaseFetch(`/rest/v1/client_bsp_overrides?id=eq.${q}`, {
+    method: 'DELETE',
+    headers: getSupabaseHeaders(),
+  });
+  return true;
+}
+
+
+module.exports = {
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY,
+  SUPABASE_SERVICE_ROLE_KEY,
+  isSupabaseConfigured,
+  getSupabaseHeaders,
+  supabaseFetch,
+  listUsers,
+  getUserByUsername,
+  getUserById,
+  insertUser,
+  updateUser,
+  listManualAlerts,
+  markUserPresenceOffline,
+  upsertUserPresence,
+  listUserPresence,
+  createManualAlert,
+  listAcknowledgements,
+  addAcknowledgement,
+  findAcknowledgement,
+  listAlertResponses,
+  createAlertResponse,
+  updateAlertResponse,
+  userPasswordMatches,
+  mapUser,
+  mapAlert,
+  mapAck,
+  mapResponse,
+  mapStageUpdate,
+  mapPresence,
+  mapClientApiKey,
+  mapClientBspOverride,
+  listClientBspOverrides,
+  upsertClientBspOverride,
+  deleteClientBspOverride,
+  listClientApiKeysForUser,
+  createClientApiKey,
+  revokeClientApiKey,
+  findClientApiKeyByHash,
+  markClientApiKeyUsed,
+  hashPassword,
+  normalizeSectorList,
+  normalizeText,
+  listPushSubscriptions,
+  upsertPushSubscription,
+  removePushSubscription,
+  listStageUpdates,
+  createStageUpdate,
+  updateStageUpdate,
+  deleteStageUpdates,
+};

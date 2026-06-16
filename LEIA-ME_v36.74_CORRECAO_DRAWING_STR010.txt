@@ -1,0 +1,10 @@
+v36.74 - Correção Drawing Documentation Control
+
+Correções aplicadas:
+- Aceita SMARTSHEET_DRAWING_CONTROL_SHEET_URL com link do Smartsheet, como https://app.smartsheet.com/sheets/VR7wQWfHW6vPWG6VV7W8QVHx9p2WQ8c7Q3vM2gC1
+- Resolve automaticamente o ID numérico da planilha pela listagem do Smartsheet.
+- Corrige variação/erro de escrita da coluna Rev. B: Last client comments recieved via PM (Rev. B).
+- Melhora busca do detalhe por TAG/ISO e diagnóstico quando não encontra.
+
+Variável recomendada no Netlify:
+SMARTSHEET_DRAWING_CONTROL_SHEET_URL=https://app.smartsheet.com/sheets/VR7wQWfHW6vPWG6VV7W8QVHx9p2WQ8c7Q3vM2gC1

@@ -1,0 +1,36 @@
+Correção v36.9 — Hydro Testing apenas para Spool no painel do cliente
+
+Objetivo
+- Remover Hydro Testing/TH do painel do cliente quando a BSP/BEP for estrutura, frame, support ou suporte.
+- Manter Hydro Testing visível e calculado somente quando o material for do tipo Spool.
+
+Arquivos alterados
+1) site/app.js
+- Criada a regra isClientSpoolMaterial(project).
+- Criada a lista dinâmica getClientDetailStageKeys(project), que remove Hydro Test Pressure (QC) quando não for Spool.
+- O card de etapas do cliente, a visão executiva, o schedule executivo e o PDF do cliente agora respeitam essa regra.
+- O cálculo visual de Fabrication Progress também remove o peso do Hydro Testing em Support/Structure/Frame.
+- A competência/roteamento de TH no front-end também foi protegido para não tratar suporte/estrutura como TH.
+
+2) netlify/functions/projects.js
+- Criada a regra isSpoolMaterialType(projectType, fallbackText).
+- O cálculo backend de fabricação agora considera Hydro Test Pressure (QC) somente para Spool.
+- O fluxo operacional foi ajustado: se Final Dimensional estiver 100% em Support/Structure/Frame, o próximo setor vira Pintura, não TH.
+- As tags filhas herdam o Project Type da linha pai quando necessário.
+
+3) site/sw.js
+- Cache do service worker atualizado para step-gerencia-pwa-v36-9-hydro-spool-only, forçando o navegador/PWA a buscar o app.js novo.
+
+Validação executada
+- node --check site/app.js
+- node --check netlify/functions/projects.js
+- node --check site/sw.js
+- Teste lógico no backend:
+  - Support com Final Dimensional 100% => Pintura
+  - Spool com Final Dimensional 100% => TH
+  - Support/Structure não recebe Hydro no cálculo ponderado de fabricação
+  - Spool mantém Hydro no cálculo ponderado de fabricação
+
+Regra final aplicada
+- Tipo Spool: Hydro Testing aparece nos gráficos, detalhes, schedule e PDF.
+- Tipo Support/Suporte/Structure/Estrutura/Frame: Hydro Testing não aparece e não interfere no progresso.

@@ -1,0 +1,30 @@
+v36.84 - Portal do Cliente com carga otimizada por cliente
+
+Objetivo:
+- Reduzir consumo e acelerar o login do Portal do Cliente sem mexer no Supabase.
+- Quando o usuário logado for CLIENTE, a função /api/projects não monta mais a planilha inteira primeiro.
+
+O que foi alterado:
+1. netlify/functions/projects.js
+   - Para role=client, o backend lê primeiro somente as colunas Project e Client da planilha principal.
+   - Identifica quais linhas pertencem ao cliente logado.
+   - Busca no Smartsheet somente essas linhas e seus filhos/itens.
+   - Depois busca a base de PO em modo leve, somente com colunas necessárias e somente para as BSPs do cliente.
+   - Admin e setores continuam com comportamento completo.
+
+2. site/sw.js
+   - Cache atualizado para step-dashboard-36.84.
+
+Sem alteração no Supabase:
+- Não cria tabelas.
+- Não grava cache no banco.
+- Não muda estrutura dos usuários.
+
+Variáveis opcionais:
+CLIENT_PROJECTS_FAST_CACHE_MS=300000
+CLIENT_SMARTSHEET_ROW_CHUNK_SIZE=300
+WIP_PO_FAST_CACHE_MS=900000
+
+Depois de subir:
+Deploys > Trigger deploy > Clear cache and deploy site
+CTRL + F5 no navegador

@@ -1,0 +1,33 @@
+STEP Dashboard Brasil – v37.00
+
+Ajustes aplicados no painel da Yinson:
+
+1. Botão "Projetos em desenvolvimento"
+- Botão recebeu destaque visual no Portal do Cliente Yinson.
+- Nova cor em gradiente laranja/dourado.
+- Borda, sombra e ícone visual para ficar mais evidente.
+- Continua aparecendo apenas quando o cliente do portal contém Yinson.
+
+2. Tela interna de Projetos em Desenvolvimento
+- Removidas as colunas Localização e Tipo.
+- Nova estrutura de colunas:
+  VESSEL + WORK ORDER + ID REPAIR + TAG NUMBER + SOB + DESCRIPTION + STATUS + IMAGEM
+
+3. Backend da tela interna
+- netlify/functions/client-under-dev.js agora mapeia as colunas da Smartsheet:
+  Vessel, Work Order, ID Repair, Tag Number, SOB, Description e Status.
+- As imagens continuam vindo dos anexos da linha no Smartsheet.
+
+4. Busca
+- A busca da tela interna agora procura por Vessel, Work Order, ID Repair, Tag Number, SOB, Description e Status.
+
+Arquivos alterados:
+- site/app.css
+- site/app.js
+- site/sw.js
+- site/client-under-development.html
+- netlify/functions/client-under-dev.js
+
+5. Segurança
+- As funções de imagem/projetos agora leem chaves Smartsheet apenas das variáveis de ambiente do Netlify.
+- Não manter token sensível fixo no código.

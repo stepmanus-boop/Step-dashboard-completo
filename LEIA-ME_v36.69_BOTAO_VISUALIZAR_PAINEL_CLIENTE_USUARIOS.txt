@@ -1,0 +1,19 @@
+# v36.69 - Botão de permissão para visualizar Painel do Cliente
+
+Esta versão adiciona no cadastro/edição de usuários do Admin a opção:
+
+**Visualizar Painel do Cliente ao abrir uma BSP**
+
+Quando marcado, o usuário passa a ver o botão **Painel do Cliente** nas BSPs para consulta da visão executiva.
+A edição de datas/informações continua restrita ao Admin ou ao usuário de Projetos vinculado ao PM da BSP.
+
+## Antes de usar
+Execute no Supabase:
+
+`supabase/SQL-ADICIONAR-BOTAO-PAINEL-CLIENTE-USUARIOS-v36.69.sql`
+
+Depois suba o ZIP no Netlify e faça:
+
+Deploys > Trigger deploy > Clear cache and deploy site
+
+No navegador, use CTRL + F5.

@@ -1,0 +1,19 @@
+# v36.98 - Logout limpo sem travar o próximo login
+
+Correção aplicada após identificar lentidão/falha no login causada pela limpeza agressiva da v36.97.
+
+O que mudou:
+- O logout continua encerrando a sessão e limpando dados de navegação do usuário.
+- Remove sessionStorage, cookies visíveis, rascunhos/filtros/alertas/preferências locais não essenciais.
+- Não remove mais Service Worker nem Cache Storage do app.
+- Não apaga mais o cache operacional versionado de projetos (`step_dashboard_projects_cache_v12_reliable_boot:*`).
+- Remove o header `Clear-Site-Data: "cache", "cookies", "storage"`, porque ele apagava o cache local e fazia o login seguinte depender do Smartsheet/Supabase ao vivo.
+- Mantém redirecionamento com `?logout=1&clean=<timestamp>` para abrir a tela limpa, semelhante a um Ctrl+F5 visual, sem destruir o cache que acelera o painel.
+
+Motivo técnico:
+A v36.97 apagava localStorage completo, Cache Storage e Service Worker. Como o painel depende do cache operacional local para abrir rápido quando a API/Smartsheet demora, o próximo login ficava sem base de apoio e podia mostrar "Falha ao atualizar dados operacionais".
+
+Validações:
+- node --check site/app.js
+- node --check site/sw.js
+- node --check netlify/functions/auth-logout.js

@@ -1,0 +1,14 @@
+Versão v36.90 - Correção do apontamento no Netlify
+
+Correção aplicada:
+- Corrigido erro ENOENT ao enviar apontamento quando a função Netlify não encontrava netlify/data/fallback-projects.json dentro de /var/task.
+- netlify.toml agora inclui explicitamente fallback-projects.json e arquivos JSON de apontamento no bundle das functions.
+- _projectLookup.js agora procura fallback-projects.json em múltiplos caminhos possíveis no ambiente Netlify e não derruba o envio se o arquivo não existir.
+- _auth.js agora retorna fallback seguro quando readLocalJson encontra ENOENT.
+
+Objetivo:
+- O apontamento não deve mais exibir erro técnico de arquivo inexistente.
+- A consulta ao Tracking continua preferindo dados reais/cache, mas o fallback operacional fica disponível quando a função estiver fria ou quando o Smartsheet demorar.
+
+Validação:
+- node --check executado em _auth.js, _projectLookup.js e stage-updates.js.

@@ -1,0 +1,11 @@
+v37.45 - PCP rolagem e validação Tracking
+
+Alterações:
+1. Corrige rolagem definitiva do popup PCP de BSPs vencidas/a vencer.
+2. O modal agora usa área interna rolável, mantendo o cabeçalho e botão fechar fixos.
+3. Tabelas expandidas de clientes também têm área rolável controlada.
+4. Validação PCP: quando a checagem do Tracking encontra avanço igual/superior, a pendência é concluída automaticamente e sai da fila.
+5. A resolução automática é persistida no Supabase/JSON, evitando que o item volte como pendente no próximo carregamento.
+6. Mantidas as correções de Yinson, imagens lazy, cache Supabase e i18n da v37.44.
+
+Sem SQL novo e sem ENV nova.

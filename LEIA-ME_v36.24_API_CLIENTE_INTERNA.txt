@@ -1,0 +1,37 @@
+VERSÃO v36.24 — API interna para o Portal do Cliente
+
+Base utilizada:
+- v36.23_LOGO_CLIENTE_SEM_DISTORCAO
+
+O que foi criado:
+1. Botão no Portal do Cliente: "Gerar API".
+2. Modal para o cliente gerar, visualizar e revogar API keys.
+3. Endpoint autenticado para gerenciar chaves:
+   - GET    /api/client-api-keys
+   - POST   /api/client-api-keys
+   - DELETE /api/client-api-keys
+4. Endpoint externo para consumo dos dados do painel:
+   - GET /api/client-data
+5. Autenticação da API por header:
+   - Authorization: Bearer <token>
+   - ou X-Step-Api-Key: <token>
+6. Escopo automático por cliente:
+   - A API só retorna as BSPs que já aparecem no Portal do Cliente daquele usuário.
+7. Não foi alterado o fluxo principal de carregamento do painel.
+
+Antes de usar:
+- Execute no Supabase o arquivo:
+  supabase/SQL-CRIAR-CLIENT-API-KEYS.sql
+
+Exemplos:
+GET /api/client-data?format=summary
+GET /api/client-data?format=full
+GET /api/client-data?includeSpools=1
+GET /api/client-data?unit=FORTE
+GET /api/client-data?bsp=25-1165-38
+
+Segurança:
+- O token completo só aparece uma vez, na hora da criação.
+- No Supabase é salvo apenas o hash SHA-256 da chave.
+- A chave pode ser revogada pelo cliente no painel.
+- O endpoint usa cache operacional do sistema para não pesar a plataforma.

@@ -1,0 +1,57 @@
+V37.07 - PERFORMANCE, LOGIN CONFIÁVEL E CACHE PERSISTENTE
+
+Objetivo
+- Reduzir lentidão no login e evitar falhas estruturais quando Smartsheet/Netlify estiverem frios ou lentos.
+- Remover o fallback inseguro admin/admin123.
+- Manter o Portal do Cliente com a última base válida enquanto a sincronização real roda em segundo plano.
+
+Principais alterações
+1) Removido login fallback admin/admin123
+- auth-login.js agora autentica somente usuários existentes/ativos no Supabase.
+- README atualizado para remover credencial padrão.
+
+2) SESSION_SECRET obrigatório em produção
+- _auth.js não usa mais segredo padrão em produção.
+- Cookie de sessão agora recebe Secure em ambiente Netlify/produção.
+
+3) Cache persistente no Supabase
+- Novo helper: netlify/functions/_trackingCache.js
+- Nova tabela SQL: supabase/SQL-CRIAR-TRACKING-CACHE-PERFORMANCE-v37.07.sql
+- projects.js grava a última base válida completa em Supabase.
+- Para usuário cliente, grava também a carteira filtrada por escopo.
+- Em cold start, /api/projects?preferCache=1 tenta Supabase antes de chamar Smartsheet.
+- Se Smartsheet falhar/oscilar, usa a última base válida persistida em vez de deixar o painel branco.
+
+4) Timeouts para Smartsheet
+- apiFetch agora usa AbortController.
+- Variáveis opcionais:
+  SMARTSHEET_FETCH_TIMEOUT_MS=8500
+  SMARTSHEET_FETCH_RETRIES=1
+
+5) Login menos bloqueante
+- Removido prewarm antes da autenticação.
+- Removida espera de até 2s por warmup antes de carregar projetos.
+- Quando cache persistente é usado, a tela libera e revalida em segundo plano.
+
+6) Menos chamadas repetidas ao Smartsheet
+- Cache em memória de colunas da sheet.
+- Cache em memória do índice Project/Client por versão.
+- Cache em memória da base WIP/PO por versão.
+
+Passo obrigatório recomendado no Supabase
+- Execute o arquivo:
+  supabase/SQL-CRIAR-TRACKING-CACHE-PERFORMANCE-v37.07.sql
+
+Variáveis recomendadas no Netlify
+- SESSION_SECRET = valor forte e aleatório
+- SUPABASE_URL
+- SUPABASE_SERVICE_ROLE_KEY
+- SMARTSHEET_TOKEN ou alias já usado no projeto
+- TRACKING_CACHE_ENABLED=1
+- PERSISTENT_TRACKING_CACHE_MAX_AGE_MS=43200000
+- SMARTSHEET_FETCH_TIMEOUT_MS=8500
+- SMARTSHEET_FETCH_RETRIES=1
+
+Observação importante
+- No primeiro acesso logo após criar a tabela, o cache persistente ainda estará vazio.
+- Depois que uma leitura bem-sucedida do Smartsheet acontecer, o sistema passa a ter uma base segura para abrir rápido em cold start ou em oscilação do Smartsheet.

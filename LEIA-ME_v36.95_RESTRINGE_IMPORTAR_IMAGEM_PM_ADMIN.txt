@@ -1,0 +1,14 @@
+Versão v36.95 - Restrição do botão Importar imagem
+
+Alteração aplicada:
+- No painel executivo da BSP, o botão "Importar imagem" agora só é renderizado para administrador ou PM vinculado à BSP.
+- Usuário cliente continua visualizando o botão "Imagens", mas não visualiza nem acessa "Importar imagem".
+- Foi adicionada validação no clique do frontend para bloquear tentativa indevida.
+- Foi adicionada validação no backend da função client-bsp-upload-image.js para impedir upload direto por cliente via API.
+- Cache do service worker atualizado para step-dashboard-36.95 para forçar atualização do app.js no navegador/PWA.
+
+Validações executadas:
+- node --check site/app.js
+- node --check netlify/functions/client-bsp-upload-image.js
+- node --check netlify/functions/client-bsp-overrides.js
+- node --check site/sw.js

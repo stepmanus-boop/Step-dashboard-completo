@@ -1,0 +1,12 @@
+STEP Track v37.14 - Escopo exato sem perder performance
+
+Base: v37.11 estável + correções posteriores mínimas.
+
+Correções:
+1. Mantém BW ENERGY separado de BW LNG por comparação exata de cliente.
+2. Se o cache persistente do Supabase já existe e o cliente filtrado fica com zero BSPs, o backend responde rápido com carteira vazia em vez de consultar Smartsheet ao vivo.
+3. Preserva a busca por Focal Point quando o campo vier do Tracking/WIP.
+4. Mantém o login rápido e o cache único do Supabase Free.
+
+Sem SQL novo. Sem ENV nova.
+Depois do deploy: Clear cache and deploy site.

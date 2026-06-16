@@ -1,0 +1,18 @@
+STEP Dashboard v37.73
+
+Correções aplicadas:
+1. Ocultado do painel do cliente:
+   - bloco S-Curve | Attention Points;
+   - mensagem técnica client_bsp_overrides;
+   - cronograma/manual de ISO para usuário cliente.
+2. A data individual de término da ISO agora alimenta o card Término do painel individual.
+3. Impressão QR Code ajustada para Zebra em layout fixo de 3 quadros:
+   - 1 selecionado: primeiro quadro preenchido, 2 em branco;
+   - 2 selecionados: dois quadros preenchidos, 1 em branco;
+   - 3 selecionados: três quadros preenchidos;
+   - mais de 3: quebra em novas etiquetas/faixas de 3 em 3.
+4. Mantida etiqueta minimalista: QR Code + nome completo do ISO.
+
+Importante:
+Se a alteração individual de data não salvar, execute no Supabase:
+supabase/SQL-v37.73-CLIENT-BSP-OVERRIDES-ISO-DATES.sql

@@ -1,0 +1,222 @@
+
+const crypto = require("crypto");
+const fs = require("fs/promises");
+const path = require("path");
+
+const SESSION_COOKIE_NAME = "step_session";
+const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 1000 * 60 * 60 * 24 * 7);
+const SESSION_SECRET = process.env.SESSION_SECRET || '';
+const IS_PRODUCTION_RUNTIME = ['production', 'prod'].includes(String(process.env.NODE_ENV || process.env.CONTEXT || '').toLowerCase()) || Boolean(process.env.NETLIFY);
+
+function getSessionSecret() {
+  if (SESSION_SECRET) return SESSION_SECRET;
+  if (IS_PRODUCTION_RUNTIME) {
+    throw new Error('SESSION_SECRET obrigatório em produção. Configure a variável no Netlify.');
+  }
+  return 'step-local-dev-secret-change-me';
+}
+
+function resolveProjectPath(relativePath) {
+  return path.resolve(__dirname, "..", "..", relativePath);
+}
+
+function jsonResponse(statusCode, data, extra = {}) {
+  const headers = {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    "access-control-allow-origin": "*",
+    "access-control-allow-credentials": "true",
+    ...extra.headers,
+  };
+
+  return {
+    statusCode,
+    headers,
+    body: JSON.stringify(data),
+  };
+}
+
+function toBase64Url(input) {
+  return Buffer.from(input)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function fromBase64Url(input) {
+  let value = String(input || "").replace(/-/g, "+").replace(/_/g, "/");
+  while (value.length % 4) value += "=";
+  return Buffer.from(value, "base64").toString("utf8");
+}
+
+function signToken(payload) {
+  const json = JSON.stringify(payload);
+  const encoded = toBase64Url(json);
+  const signature = crypto.createHmac("sha256", getSessionSecret()).update(encoded).digest("hex");
+  return `${encoded}.${signature}`;
+}
+
+function verifyToken(token) {
+  if (!token || !String(token).includes(".")) return null;
+  const [encoded, signature] = String(token).split(".");
+  const expected = crypto.createHmac("sha256", getSessionSecret()).update(encoded).digest("hex");
+  if (!crypto.timingSafeEqual(Buffer.from(signature || ""), Buffer.from(expected))) return null;
+  try {
+    const payload = JSON.parse(fromBase64Url(encoded));
+    if (!payload || !payload.exp || payload.exp < Date.now()) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function createSessionCookie(user) {
+  const payload = {
+    sub: user.id,
+    username: user.username,
+    role: user.role,
+    sector: user.sector,
+    alertSectors: normalizeSectorList(user.sector, user.alertSectors),
+    projectPmAliases: Array.isArray(user.projectPmAliases) ? user.projectPmAliases : [],
+    qualityCompetencies: Array.isArray(user.qualityCompetencies) ? user.qualityCompetencies : [],
+    canViewClientPanel: user.canViewClientPanel === true,
+    clientKey: user.clientKey || '',
+    clientName: user.clientName || '',
+    clientLogoUrl: String(user.clientLogoUrl || '').startsWith('data:') ? '' : (user.clientLogoUrl || ''),
+    clientPlatformImageUrl: String(user.clientPlatformImageUrl || '').startsWith('data:') ? '' : (user.clientPlatformImageUrl || ''),
+    clientPlatformImages: {},
+    allowedClients: Array.isArray(user.allowedClients) ? user.allowedClients : [],
+    name: user.name,
+    exp: Date.now() + SESSION_TTL_MS,
+  };
+  const token = signToken(payload);
+  const secureFlag = IS_PRODUCTION_RUNTIME ? '; Secure' : '';
+  return `${SESSION_COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax${secureFlag}; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`;
+}
+
+function clearSessionCookie() {
+  const secureFlag = IS_PRODUCTION_RUNTIME ? '; Secure' : '';
+  return `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax${secureFlag}; Max-Age=0`;
+}
+
+function parseCookies(headers = {}) {
+  const raw = headers.cookie || headers.Cookie || "";
+  return raw.split(";").reduce((acc, part) => {
+    const [key, ...rest] = part.trim().split("=");
+    if (!key) return acc;
+    acc[key] = rest.join("=");
+    return acc;
+  }, {});
+}
+
+function getSession(event) {
+  const cookies = parseCookies(event?.headers || {});
+  const token = cookies[SESSION_COOKIE_NAME];
+  return verifyToken(token);
+}
+
+function requireSession(event) {
+  const session = getSession(event);
+  if (!session) {
+    return { ok: false, response: jsonResponse(401, { ok: false, error: "Sessão expirada." }) };
+  }
+  return { ok: true, session };
+}
+
+function requireAdmin(event) {
+  const result = requireSession(event);
+  if (!result.ok) return result;
+  if (result.session.role !== "admin") {
+    return { ok: false, response: jsonResponse(403, { ok: false, error: "Acesso restrito ao administrador." }) };
+  }
+  return result;
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+
+function normalizeSectorValue(value) {
+  const normalized = normalizeText(value)
+    .replace(/[\s-]+/g, '_')
+    .replace(/__+/g, '_');
+
+  if (!normalized) return '';
+  if (['envio', 'pendenteenvio', 'pendente_envio', 'pendente_de_envio', 'pending_shipment', 'awaiting_shipment', 'logistica', 'logistics', 'expedicao', 'shipping'].includes(normalized)) return 'pendente_envio';
+  if (['inspecao', 'inspeção', 'inspection', 'qualidade', 'quality', 'qc'].includes(normalized)) return 'inspecao';
+  if (['engenharia', 'engineering'].includes(normalized)) return 'engenharia';
+  if (['suprimento', 'suprimentos', 'supply', 'supply_chain', 'procurement'].includes(normalized)) return 'suprimento';
+  if (['pintura', 'painting', 'coating'].includes(normalized)) return 'pintura';
+  if (['producao', 'produção', 'production'].includes(normalized)) return 'producao';
+  if (['calderaria', 'boilermaker', 'fabrication'].includes(normalized)) return 'calderaria';
+  if (['solda', 'welding'].includes(normalized)) return 'solda';
+  if (['pcp', 'planejamento', 'planejamento_controle_producao', 'planning', 'planning_control'].includes(normalized)) return 'pcp';
+  if (['projetos', 'projeto', 'project', 'projects', 'pm'].includes(normalized)) return 'projetos';
+  if (['all', 'todos', 'todo', 'geral', 'tudo'].includes(normalized)) return 'all';
+  return normalized;
+}
+
+function normalizeSectorList(primarySector, alertSectors) {
+  const seen = new Set();
+  const normalized = [];
+  const explicit = Array.isArray(alertSectors) ? alertSectors : [];
+  const values = [
+    ...(primarySector && primarySector !== "all" ? [primarySector] : []),
+    ...explicit,
+  ];
+  for (const value of values) {
+    const item = normalizeSectorValue(value);
+    if (!item || item === "all" || seen.has(item)) continue;
+    seen.add(item);
+    normalized.push(item);
+  }
+  return normalized;
+}
+
+function hashPassword(password, saltHex) {
+  const salt = saltHex ? Buffer.from(saltHex, "hex") : crypto.randomBytes(16);
+  const derived = crypto.scryptSync(String(password), salt, 32);
+  return `scrypt$${salt.toString("hex")}$${derived.toString("hex")}`;
+}
+
+function verifyPassword(password, passwordHash) {
+  const [scheme, saltHex, hashHex] = String(passwordHash || "").split("$");
+  if (scheme !== "scrypt" || !saltHex || !hashHex) return false;
+  const derived = crypto.scryptSync(String(password), Buffer.from(saltHex, "hex"), 32).toString("hex");
+  return crypto.timingSafeEqual(Buffer.from(derived, "hex"), Buffer.from(hashHex, "hex"));
+}
+
+async function readLocalJson(relativePath, fallbackValue = []) {
+  const filePath = resolveProjectPath(relativePath);
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    return JSON.parse(raw || JSON.stringify(fallbackValue));
+  } catch (error) {
+    if (String(error?.code || '') === 'ENOENT' || String(error?.message || '').includes('ENOENT')) {
+      return fallbackValue;
+    }
+    throw error;
+  }
+}
+
+module.exports = {
+  normalizeSectorList,
+  SESSION_COOKIE_NAME,
+  jsonResponse,
+  createSessionCookie,
+  clearSessionCookie,
+  getSession,
+  requireSession,
+  requireAdmin,
+  normalizeText,
+  normalizeSectorValue,
+  hashPassword,
+  verifyPassword,
+  readLocalJson,
+};

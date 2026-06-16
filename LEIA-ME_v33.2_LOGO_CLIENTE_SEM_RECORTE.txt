@@ -1,0 +1,13 @@
+Versão v33.2 - Logo do cliente sem recorte
+
+Alteração aplicada:
+- Mantém o quadro grande da logo no Portal do Cliente.
+- A logo agora fica sempre inteira dentro do quadro, sem cortar as bordas.
+- A imagem é centralizada, proporcional e ajustada automaticamente ao espaço disponível.
+- O importador de logo foi ajustado para gerar uma imagem com fundo branco, mais margem interna e melhor qualidade.
+
+Arquivos alterados:
+- site/app.css
+- site/app.js
+
+Não houve alteração em Supabase, Smartsheet, login, cache, regras de status, cálculos ou PDF.

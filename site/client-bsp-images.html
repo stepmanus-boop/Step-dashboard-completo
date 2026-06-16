@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Imagens da BSP</title>
+    <!-- Reaproveita a folha de estilos principal para manter o visual coerente -->
+    <link rel="stylesheet" href="./app.css" />
+    <style>
+      body {
+        margin: 0;
+        padding: 16px;
+        background-color: #041a2d;
+        color: #dcecf6;
+        font-family: sans-serif;
+      }
+      h1 {
+        margin: 0 0 16px;
+        font-size: 1.5rem;
+        color: #7bd5ff;
+      }
+      .progress-container {
+        width: 100%;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.1);
+        margin-bottom: 16px;
+        overflow: hidden;
+        border-radius: 2px;
+      }
+      .progress-bar {
+        width: 0%;
+        height: 100%;
+        background: #7bd5ff;
+        transition: width 0.2s ease;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th, td {
+        padding: 8px 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        text-align: left;
+      }
+      th {
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        letter-spacing: 0.05em;
+        background: rgba(4, 26, 45, 0.85);
+        color: #7bd5ff;
+      }
+      tbody tr:hover {
+        background: rgba(80, 180, 240, 0.12);
+      }
+      .placeholder {
+        padding: 16px;
+        text-align: center;
+        color: #7bd5ff;
+      }
+      .view-link {
+        color: #7bd5ff;
+        text-decoration: underline;
+        cursor: pointer;
+      }
+      /* Modal para visualização de imagem */
+      .modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.7);
+        z-index: 1000;
+      }
+      .modal.active {
+        display: flex;
+      }
+      .modal-content {
+        position: relative;
+        background: #062f4e;
+        padding: 16px;
+        border-radius: 4px;
+        max-width: 90%;
+        max-height: 90%;
+        overflow: auto;
+      }
+      .modal-content img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin: 0 auto;
+      }
+      .modal-close {
+        position: absolute;
+        top: 8px;
+        right: 12px;
+        font-size: 24px;
+        color: #7bd5ff;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 id="page-title">Imagens da BSP</h1>
+    <div class="progress-container" id="progress-container" hidden>
+      <div class="progress-bar" id="progress-bar"></div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Arquivo</th>
+          <th>Ação</th>
+        </tr>
+      </thead>
+      <tbody id="images-body">
+        <tr><td colspan="2" class="placeholder">Carregando imagens…</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Modal de visualização de imagens -->
+    <div id="image-modal" class="modal">
+      <div class="modal-content">
+        <span class="modal-close" id="modal-close">&times;</span>
+        <img id="modal-img" src="" alt="Imagem" />
+      </div>
+    </div>
+
+    <script>
+      // Exibe uma barra de progresso simples enquanto os dados são carregados
+      function startProgressBar() {
+        const container = document.getElementById('progress-container');
+        const bar = document.getElementById('progress-bar');
+        container.hidden = false;
+        bar.style.width = '0%';
+        let percent = 0;
+        const timer = setInterval(() => {
+          percent = Math.min(percent + Math.random() * 10, 90);
+          bar.style.width = percent + '%';
+        }, 200);
+        return () => {
+          clearInterval(timer);
+          bar.style.width = '100%';
+          setTimeout(() => { container.hidden = true; }, 400);
+        };
+      }
+
+      // Lê o rowId (projectId) da query string
+      function getRowId() {
+        const params = new URLSearchParams(window.location.search);
+        return params.get('projectId') || params.get('rowId');
+      }
+
+      // Carrega as imagens usando a API
+      async function loadImages() {
+        const tbody = document.getElementById('images-body');
+        const rowId = getRowId();
+        if (!rowId) {
+          tbody.innerHTML = '<tr><td colspan="2" class="placeholder">Parâmetro projectId ausente.</td></tr>';
+          return;
+        }
+        const stopProgress = startProgressBar();
+        try {
+          const res = await fetch(`/api/client-bsp-images?rowId=${encodeURIComponent(rowId)}`, { cache: 'no-store' });
+          if (!res.ok) throw new Error('Erro ao carregar imagens');
+          const json = await res.json();
+          const images = Array.isArray(json.images) ? json.images : [];
+          renderImages(images);
+        } catch (err) {
+          console.error(err);
+          tbody.innerHTML = '<tr><td colspan="2" class="placeholder">Falha ao carregar as imagens.</td></tr>';
+        } finally {
+          stopProgress();
+        }
+      }
+
+      function renderImages(images) {
+        const tbody = document.getElementById('images-body');
+        tbody.innerHTML = '';
+        if (!images.length) {
+          tbody.innerHTML = '<tr><td colspan="2" class="placeholder">Nenhuma imagem encontrada.</td></tr>';
+          return;
+        }
+        images.forEach((img, idx) => {
+          const tr = document.createElement('tr');
+          const label = img.name || `Imagem ${idx + 1}`;
+          tr.innerHTML = `
+            <td>${label}</td>
+            <td><a href="/api/client-under-dev-image?id=${img.id}" class="view-link image-link" data-img-name="${label}">Ver imagem</a></td>
+          `;
+          tbody.appendChild(tr);
+        });
+        bindImageLinkEvents();
+      }
+
+      // Associa eventos de clique para exibir a imagem em modal
+      function bindImageLinkEvents() {
+        const links = document.querySelectorAll('.image-link');
+        links.forEach((link) => {
+          link.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const href = link.getAttribute('href');
+            const name = link.dataset.imgName || 'Imagem';
+            showImageModal(href, name);
+          });
+        });
+      }
+
+      function showImageModal(src, name) {
+        const modal = document.getElementById('image-modal');
+        const imgEl = document.getElementById('modal-img');
+        const closeBtn = document.getElementById('modal-close');
+        if (!modal || !imgEl) return;
+        imgEl.src = src;
+        imgEl.alt = name;
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+        const closeHandler = () => {
+          modal.classList.remove('active');
+          imgEl.src = '';
+          document.body.style.overflow = '';
+          closeBtn.removeEventListener('click', closeHandler);
+          modal.removeEventListener('click', outsideHandler);
+        };
+        const outsideHandler = (ev) => {
+          if (ev.target === modal) closeHandler();
+        };
+        closeBtn.addEventListener('click', closeHandler);
+        modal.addEventListener('click', outsideHandler);
+      }
+
+      document.addEventListener('DOMContentLoaded', () => {
+        // Atualiza o título com o ID, se disponível
+        const rowId = getRowId();
+        if (rowId) {
+          const titleEl = document.getElementById('page-title');
+          if (titleEl) titleEl.textContent = `Imagens da BSP ${rowId}`;
+        }
+        loadImages();
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,17 @@
+Versao v37.55 - Legibilidade do painel operacional STEP
+
+O que foi ajustado:
+- Mantida a identidade visual STEP 2025 aplicada anteriormente.
+- A faixa de filtros da area "Projetos" passou para fundo claro e suave.
+- Campos de busca, selects e filtro de status agora usam fundo branco, texto escuro e borda azul suave.
+- O menu de status foi clareado para preservar leitura dos itens.
+- Cabecalho da tabela usa azul-gelo com texto azul institucional.
+- Linhas da tabela, hover e linha ativa foram ajustados para nao prejudicar a leitura.
+- Badge "Alertas de prazo", botao "Limpar", botao "Baixar Excel" e "Atualizar agora" receberam contraste mais adequado.
+
+Arquivos alterados:
+- site/app.css
+- site/index.html
+
+Observacao:
+Esta versao corrige especificamente a dificuldade de leitura vista dentro do painel operacional, principalmente na area de filtros e tabela de projetos.

@@ -1,0 +1,23 @@
+v37.39 - Yinson: correção de lock inicial/bootstrap
+
+Objetivo:
+- Corrigir a tela Projetos em Desenvolvimento - Yinson quando fica presa em:
+  lock-not-acquired / Cache aguardando carregamento.
+
+Alteração:
+- Mantém o cache Supabase próprio do Yinson: yinson:under-dev:current.
+- Mantém o lock quando já existe cache válido.
+- Quando ainda não existe cache útil e o lock está preso/indisponível, a primeira sincronização
+  tenta continuar em modo controlado sem ficar bloqueada pelo lock.
+- Se a sincronização conseguir ler o Smartsheet, grava o cache no Supabase e os próximos acessos
+  passam a abrir pelo cache.
+
+Não precisa SQL novo.
+Não precisa ENV nova.
+
+Recomendado no Netlify:
+SMARTSHEET_YINSON_UNDER_DEV_SHEET_ID=7523600180400004
+SMARTSHEET_YINSON_UNDER_DEV_SHEET_URL=https://app.smartsheet.com/sheets/Vc4FwJfQ7XMpGfWv9HvWhJC6xf743r3FM7cMjQ41
+YINSON_UNDER_DEV_CACHE_ENABLED=1
+YINSON_UNDER_DEV_SCHEDULE_ENABLED=1
+YINSON_UNDER_DEV_AUTO_REFRESH_AFTER_MS=900000

@@ -1,0 +1,15 @@
+v37.47 - Yinson Projetos em Desenvolvimento: layout e status suaves
+
+Alterações aplicadas:
+- Página site/client-under-development.html recebeu visual mais intuitivo, com fundo/toolbar/tabela em card.
+- Status agora aparecem como caixas/badges suaves na coluna STATUS:
+  * REPAIR COMPLETED = verde suave
+  * PROPOSAL UNDER APPROVAL BY CLIENT = amarelo suave
+  * ON HOLD = azul claro suave
+  * PROPOSAL APPROVED = lilás claro suave
+- Adicionado resumo visual no topo com contagem dos quatro status principais, respeitando o filtro atual da busca.
+- Tabela foi colocada dentro de card com rolagem horizontal mais organizada.
+- Atualizado cache do Service Worker para liberar a nova versão visual no navegador.
+
+Observação:
+- Não houve alteração na leitura Smartsheet/Supabase, nas APIs ou nas regras de dados. A mudança é visual/layout.

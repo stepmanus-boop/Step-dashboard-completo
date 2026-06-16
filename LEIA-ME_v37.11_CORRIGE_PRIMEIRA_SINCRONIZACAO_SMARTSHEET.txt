@@ -1,0 +1,32 @@
+STEP Dashboard Brasil - v37.11
+Correção da falha apresentada na v37.10 quando o cache Supabase ainda estava vazio.
+
+Problema identificado:
+- A v37.10 bloqueou corretamente o fallback antigo de 08/04/2026, porém manteve timeout curto para montar a primeira base real do Smartsheet.
+- Como a tabela step_tracking_cache ainda estava vazia, o painel precisava buscar o Smartsheet real no primeiro acesso.
+- A leitura completa era abortada antes de salvar a primeira base, deixando cards zerados e tabela com falha.
+
+Correções desta versão:
+1. Fallback antigo continua bloqueado por padrão.
+2. Primeira sincronização real do Smartsheet usa timeout maior e controlado.
+3. WIP/PO não bloqueia a abertura da base principal; se WIP demorar, a base operacional abre e PO atualiza depois.
+4. Frontend tenta novamente automaticamente quando a primeira sincronização ainda não terminou.
+5. Cache local foi versionado novamente para evitar reaproveitar estado ruim das versões anteriores.
+6. app.js continua dividido em módulos.
+
+Variáveis recomendadas no Netlify:
+SMARTSHEET_FETCH_TIMEOUT_MS=12000
+SMARTSHEET_FULL_SHEET_TIMEOUT_MS=28000
+SMARTSHEET_ROWS_FETCH_TIMEOUT_MS=20000
+WIP_PO_FETCH_TIMEOUT_MS=6500
+TRACKING_CACHE_ENABLED=1
+TRACKING_CACHE_MIN_WRITE_INTERVAL_MS=900000
+TRACKING_CACHE_MAX_PAYLOAD_BYTES=25165824
+PERSISTENT_TRACKING_CACHE_MAX_AGE_MS=43200000
+ALLOW_BUNDLED_FALLBACK=0
+
+Após deploy:
+- Fazer login admin.
+- Clicar uma vez em Atualizar agora.
+- A tabela public.step_tracking_cache deve preencher a linha projects:BR:current.
+- Depois disso, login e portal do cliente passam a abrir rápido usando base real, não fallback antigo.

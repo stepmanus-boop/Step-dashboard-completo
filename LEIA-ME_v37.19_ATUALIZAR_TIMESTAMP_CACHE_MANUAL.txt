@@ -1,0 +1,12 @@
+STEP Track v37.19 - Atualização manual reflete no timestamp do cache
+
+Base: v37.18
+
+Correções:
+- O botão "Atualizar agora" passa a forçar a gravação do timestamp do cache no Supabase quando a atualização manual roda com sucesso.
+- Mesmo que a versão da sheet não tenha mudado, o painel passa a mostrar que a checagem foi executada.
+- A rotina agendada de 15 minutos também confirma a checagem no timestamp quando executa atualização.
+- O lock e o intervalo mínimo manual continuam protegendo contra várias atualizações simultâneas.
+
+Sem SQL novo.
+Sem ENV nova.

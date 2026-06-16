@@ -1,0 +1,39 @@
+Versão v36.96 - Botão de idioma / tradução do painel
+
+Objetivo
+- Adicionar um seletor de idioma no topo do painel sem alterar as regras funcionais do Smartsheet, Supabase, apontamentos, permissões de PM/Admin ou portal do cliente.
+
+Arquivos alterados
+- site/index.html
+  - Incluído o carregamento de ./i18n.js após ./app.js.
+- site/i18n.js
+  - Novo módulo de internacionalização frontend.
+  - Idiomas disponíveis: Português (pt-BR), English (en-US) e Español (es-ES).
+  - O idioma escolhido fica salvo em localStorage com a chave step-dashboard-language.
+  - Usa MutationObserver para traduzir textos estáticos e textos criados dinamicamente pelo app.js.
+  - Traduz textos, placeholders, titles e aria-labels.
+  - Mantém códigos operacionais, números, URLs, tokens, BSPs, ISOs, POs e e-mails sem tradução.
+- site/app.css
+  - Estilos do seletor de idioma, responsivo para tablet/celular.
+- site/sw.js
+  - Cache atualizado para step-dashboard-36.96-idioma.
+  - Incluído /i18n.js no APP_SHELL e CORE_ASSETS para evitar cache antigo em PWA.
+
+Observações importantes
+- A tradução é aplicada no frontend. Nenhuma função Netlify ou SQL foi alterada.
+- Os dados vindos do Smartsheet/Supabase continuam íntegros; o script traduz apenas a apresentação visual quando o texto corresponde ao dicionário.
+- O português continua sendo o idioma padrão.
+- Exportações de PDF/Excel mantêm a base operacional original, salvo textos visíveis que o navegador renderize na tela. Se o objetivo for traduzir também relatórios PDF/Excel, é recomendado criar uma segunda etapa específica no app.js.
+
+Validação sugerida
+1. Fazer deploy com Clear cache no Netlify.
+2. Abrir o painel em aba anônima.
+3. Testar pt-BR, en-US e es-ES no login.
+4. Entrar como Admin/PM/Cliente e verificar:
+   - Topbar e cards principais.
+   - Filtros e tabela.
+   - Modal de detalhamento.
+   - Portal do Cliente.
+   - Apontamentos PCP.
+   - Modais de alertas e sinalizações.
+5. Recarregar a página e confirmar que o idioma escolhido permanece salvo.

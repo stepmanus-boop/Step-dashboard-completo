@@ -1,0 +1,15 @@
+Versão v36.21 - Curva S com desvio laranja sem achatar o gráfico
+
+Base: v36.20.
+
+Correção principal:
+- A Curva S agora ignora valores inválidos de data vindos do Tracking, como 0, 100%, IDs, booleanos ou textos sem formato de data.
+- Isso evita o erro em que a escala iniciava em 01/01/2000 e a curva ficava reta/vertical.
+- O desvio laranja continua aparecendo quando a data real de envio passa do término planejado, porém sem quebrar a fluidez da curva.
+
+Mantido:
+- Curva S crescente.
+- Tooltip interativo.
+- Datas reais do Tracking nos marcos.
+- Hydro Testing apenas para Spool.
+- Exclusão de TH por OBSERVATIONS com solda de campo/sem TH.

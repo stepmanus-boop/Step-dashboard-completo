@@ -1,0 +1,8 @@
+Antes de publicar o projeto, edite o arquivo github-sync.json desta pasta e preencha:
+- token
+- repo
+- branch
+
+Exemplo de repo: stepmanus-boop/Step-dashboard
+Exemplo de branch: main
+Depois faça o deploy normalmente.

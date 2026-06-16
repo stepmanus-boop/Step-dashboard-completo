@@ -1,0 +1,16 @@
+STEP Track v37.28 — Restaura carregamento de Projetos em Desenvolvimento e mantém exportação
+
+Base: v37.25 estável.
+
+Correções aplicadas:
+1. Restaurado o backend original de Projetos em Desenvolvimento (client-under-dev.js) da base v37.25, que já carregava corretamente.
+2. Mantidos os botões de exportação no HTML da tela Projetos em Desenvolvimento:
+   - Baixar Excel
+   - Baixar imagens
+3. Mantido o recurso de download direto das imagens em client-under-dev-image.js.
+4. Removida a alteração de varredura/mapeamento agressivo da v37.27 que podia fazer a API não localizar a planilha e retornar erro.
+5. Sem SQL novo.
+6. Sem ENV nova obrigatória.
+
+Observação:
+Se a tela já funcionava antes, esta versão preserva a forma antiga de localizar a sheet e adiciona apenas a exportação visual/client-side.

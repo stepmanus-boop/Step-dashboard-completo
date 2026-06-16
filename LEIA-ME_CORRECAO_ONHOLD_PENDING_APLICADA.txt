@@ -1,0 +1,16 @@
+CORRECAO APLICADA - ON HOLD / PENDING NO TOTAL DE PROJETOS
+
+Arquivos alterados:
+- netlify/functions/projects.js
+- site/app.js
+
+Regras aplicadas:
+1. PROJECT STATUS = ON HOLD, ON-HOLD, ONHOLD ou variações de hold não entram no Total de Projetos.
+2. Observações/textos contendo "on hold" continuam sendo reconhecidos como On Hold e não entram no Total de Projetos.
+3. PROJECT STATUS = PENDING não entra no Total de Projetos.
+4. Pending não é somado no card On Hold.
+5. O detalhamento aberto pelo card Total de Projetos também remove On Hold e Pending.
+6. A validação de sintaxe foi executada com node --check nos arquivos alterados.
+
+Observação:
+O sistema continua espelhando somente projetos e spools realmente cadastrados no tracking. Não foi criada regra de spool virtual.

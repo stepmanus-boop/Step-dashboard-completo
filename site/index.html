@@ -1,0 +1,833 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#041a2d" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="STEP Gerência" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <link rel="icon" type="image/x-icon" href="./assets/favicon.ico" />
+    <link rel="shortcut icon" href="./assets/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./assets/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="./assets/favicon-16x16.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
+    <title>STEP • Painel Operacional</title>
+    <link rel="stylesheet" href="./app.css?v=37.73-client-hide-zebra-iso-dates" />
+  </head>
+  <body class="auth-locked modal-open">
+    <section id="login-progress-overlay" class="login-progress-overlay hidden" aria-live="polite" aria-modal="true" role="status">
+      <div class="login-progress-card">
+        <div class="login-progress-brand">
+          <img src="./assets/step-logo.png" alt="STEP Oil &amp; Gas" />
+        </div>
+        <p class="login-progress-kicker">Preparando seu painel operacional</p>
+        <h2 id="login-progress-title">Carregando informações...</h2>
+        <p id="login-progress-message" class="login-progress-message">Estamos validando seu acesso.</p>
+        <div class="login-progress-bar" aria-label="Progresso de carregamento">
+          <div id="login-progress-fill" class="login-progress-fill" style="width: 0%"></div>
+        </div>
+        <div class="login-progress-footer">
+          <span id="login-progress-percent">0%</span>
+          <span id="login-progress-detail">Aguarde, conectando aos dados operacionais.</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="page-shell">
+      <header class="topbar">
+        <div class="brand-card">
+          <img src="./assets/step-logo.png" alt="STEP Oil &amp; Gas" class="brand-logo" />
+        </div>
+
+        <div class="title-block">
+          <p class="eyebrow">STEP OIL &amp; GAS LTDA</p>
+          <h1>PAINEL OPERACIONAL DE PROJETOS</h1>
+          <p class="subtitle">PIPING FABRICATION</p>
+        </div>
+
+        <div class="topbar-side">
+          <div class="session-card" id="session-card">
+            <div class="session-card-head">
+              <div class="session-card-head-main">
+                <span class="session-kicker">Acesso</span>
+                <button id="open-change-password-button" class="session-mini-action hidden" type="button">Alterar senha</button>
+              </div>
+              <span class="session-status" id="session-status">offline</span>
+            </div>
+            <div class="session-card-body">
+              <strong id="session-user-name">Acesso bloqueado</strong>
+              <span id="session-user-meta" class="session-user-meta">Faça login para liberar o painel, os alertas por setor e a administração.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="topbar-actions session-actions">
+          <button id="install-app-button" class="ghost-button ghost-button--compact hidden" type="button">Instalar app</button>
+          <button id="open-client-api-button" class="ghost-button ghost-button--compact hidden" type="button">Gerar API</button>
+          <button id="open-login-button" class="ghost-button ghost-button--compact" type="button">Login</button>
+          <button id="open-sector-alerts" class="ghost-button ghost-button--compact" type="button">Meus alertas</button>
+          <button id="open-my-project-signals" class="ghost-button ghost-button--compact hidden" type="button">Minhas sinalizações</button>
+          <button id="open-project-signals" class="ghost-button ghost-button--compact hidden" type="button">Alertas Projetos</button>
+          <button id="open-stage-updates" class="ghost-button ghost-button--compact hidden" type="button">Apontamentos</button>
+          <button id="open-iso-qr-button" class="ghost-button ghost-button--compact hidden" type="button">Pesquisar QR Code</button>
+          <button id="open-admin-panel" class="ghost-button ghost-button--compact hidden" type="button">Admin</button>
+          <button id="logout-button" class="ghost-button ghost-button--compact hidden" type="button">Sair</button>
+        </div>
+
+        <div class="clock-grid">
+          <div class="clock-card">
+            <div class="clock-head">
+              <span class="clock-flag" aria-hidden="true">🇧🇷</span>
+              <span class="clock-label">Brasil</span>
+            </div>
+            <strong id="clock-br-time" class="clock-time">--:--:--</strong>
+            <span id="clock-br-date" class="clock-date">--</span>
+          </div>
+          <div class="clock-card">
+            <div class="clock-head">
+              <span class="clock-flag" aria-hidden="true">🇵🇹</span>
+              <span class="clock-label">Portugal</span>
+            </div>
+            <strong id="clock-pt-time" class="clock-time">--:--:--</strong>
+            <span id="clock-pt-date" class="clock-date">--</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="summary-row summary-row--twelve">
+        <article class="summary-card summary-card--clickable" id="total-projects-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir o total por cliente, unidade e BSP">
+          <span class="summary-label">1. Total de projetos</span>
+          <strong id="stat-projects">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
+        </article>
+        <article class="summary-card summary-card--accent summary-card--clickable" id="started-projects-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos iniciados por cliente">
+          <span class="summary-label">2. Projetos iniciados</span>
+          <span class="summary-subtext" id="stat-started-tags">Tags --</span>
+          <strong id="stat-started-projects">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
+        </article>
+        <article class="summary-card summary-card--danger summary-card--clickable" id="not-started-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos não iniciados por cliente">
+          <span class="summary-label">3. Projetos não iniciados</span>
+          <span class="summary-subtext" id="stat-not-started-tags">Tags --</span>
+          <strong id="stat-not-started">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
+        </article>
+        <article class="summary-card summary-card--warning summary-card--clickable" id="on-hold-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos em On Hold por cliente">
+          <span class="summary-label">4. Projetos em On Hold</span>
+          <span class="summary-subtext" id="stat-not-started-hold-tags">Tags --</span>
+          <strong id="stat-not-started-hold">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
+        </article>
+        <article class="summary-card summary-card--warning summary-card--clickable" id="production-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos em produção por cliente">
+          <span class="summary-label">5. Projetos em produção</span>
+          <span class="summary-subtext" id="stat-in-progress-tags">Tags --</span>
+          <strong id="stat-in-progress">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
+        </article>
+        <article class="summary-card summary-card--inspection summary-card--clickable" id="inspection-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos em qualidade por cliente">
+          <span class="summary-label">6. Projetos em qualidade</span>
+          <span class="summary-subtext" id="stat-inspection-tags">Tags --</span>
+          <strong id="stat-inspection">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
+        </article>
+        <article class="summary-card summary-card--warning summary-card--clickable" id="painting-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos em pintura por cliente">
+          <span class="summary-label">7. Projetos em pintura</span>
+          <span class="summary-subtext" id="stat-painting-tags">Tags --</span>
+          <strong id="stat-painting">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
+        </article>
+        <article class="summary-card summary-card--success summary-card--clickable" id="awaiting-shipment-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir os projetos preparados para envio por cliente">
+          <span class="summary-label">8. Projetos preparados para envio</span>
+          <span class="summary-subtext" id="stat-awaiting-tags">Apenas aguardando envio</span>
+          <strong id="stat-awaiting-shipment">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
+        </article>
+        <article class="summary-card summary-card--clickable" id="total-weight-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir o peso programado por cliente e BSP">
+          <span class="summary-label">Peso total programado</span>
+          <strong id="stat-total-weight">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
+        </article>
+        <article class="summary-card summary-card--clickable" id="welded-weight-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir o peso soldado por cliente e BSP">
+          <span class="summary-label">Peso total soldado</span>
+          <span class="summary-subtext" id="stat-current-week">Total enviado -- kg</span>
+          <strong id="stat-spools">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
+        </article>
+        <article class="summary-card summary-card--clickable" id="backlog-welding-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir o peso pendente de solda por cliente e BSP">
+          <span class="summary-label">Total pendente de solda</span>
+          <strong id="stat-backlog-welding">--</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
+        </article>
+        <article class="summary-card summary-card--warning summary-card--clickable" id="painting-m2-card" role="button" tabindex="0" aria-controls="project-drill-panel" aria-expanded="false" title="Clique para abrir a área operacional por cliente e BSP">
+          <span class="summary-label">(M²) Programada</span>
+          <strong id="stat-painting-m2">-- m²</strong>
+          <small class="summary-card-hint">Clique para detalhar</small>
+        </article>
+        <article class="summary-card summary-card--danger summary-card--clickable pcp-deadline-card hidden" id="pcp-overdue-card" role="button" tabindex="0" aria-controls="pcp-deadlines-modal" aria-expanded="false" title="Exclusivo PCP: abrir BSPs com término planejado vencido">
+          <span class="summary-label">PCP • Vencidas</span>
+          <span class="summary-subtext" id="stat-pcp-overdue-subtext">BSPs vencidas</span>
+          <strong id="stat-pcp-overdue">--</strong>
+          <small class="summary-card-hint">Clique para abrir</small>
+        </article>
+        <article class="summary-card summary-card--warning summary-card--clickable pcp-deadline-card hidden" id="pcp-due-soon-card" role="button" tabindex="0" aria-controls="pcp-deadlines-modal" aria-expanded="false" title="Exclusivo PCP: abrir BSPs com término planejado vencendo em até 15 dias">
+          <span class="summary-label">PCP • A vencer</span>
+          <span class="summary-subtext" id="stat-pcp-due-soon-subtext">Próximos 15 dias</span>
+          <strong id="stat-pcp-due-soon">--</strong>
+          <small class="summary-card-hint">Clique para abrir</small>
+        </article>
+      </section>
+
+      <section id="project-drill-panel" class="project-drill-panel hidden" aria-live="polite">
+        <div class="project-drill-head">
+          <div>
+            <span class="project-drill-kicker">Visão por cliente</span>
+            <h2 id="project-drill-title">Projetos por cliente</h2>
+            <p id="project-drill-subtitle">Clique em um cliente para visualizar as unidades/obras. Depois clique em uma unidade para listar as BSPs.</p>
+          </div>
+          <div class="project-drill-actions">
+            <button id="project-drill-back" class="mini-action-button hidden" type="button">Voltar</button>
+            <button id="project-drill-close" class="mini-action-button" type="button">Fechar</button>
+          </div>
+        </div>
+        <div id="project-drill-breadcrumb" class="project-drill-breadcrumb hidden"></div>
+        <div id="project-drill-content" class="project-drill-content"></div>
+      </section>
+
+      <main class="content-grid">
+        <section class="panel panel--table">
+          <div class="panel-head">
+            <div>
+              <h2>Projetos</h2>
+              <div class="inline-status-row">
+                <button id="open-alerts-button" class="alert-badge" type="button" aria-label="Abrir alertas de prazo">Alertas de prazo <strong id="alert-badge-count">0</strong></button>
+              </div>
+            </div>
+            <div class="panel-meta">
+              <span id="sheet-name">Base operacional</span>
+              <span id="last-sync">Aguardando atualização...</span>
+              <button id="refresh-projects-button" class="mini-action-button" type="button" title="Forçar atualização do Tracking">Atualizar agora</button>
+            </div>
+          </div>
+
+          <div class="search-row">
+            <label class="search-box" for="project-search">
+              <span class="search-label">Buscar projeto, cliente, item ou referência</span>
+              <input id="project-search" type="text" placeholder="Ex.: BSP 24-325-02, Prio, 2432502 ou ISO interno" autocomplete="off" />
+            </label>
+            <label class="filter-box" for="demand-filter">
+              <span class="search-label">Filtrar demanda</span>
+              <select id="demand-filter">
+                <option value="">Todas as demandas</option>
+              </select>
+            </label>
+            <label class="filter-box" for="project-type-filter">
+              <span class="search-label">Filtrar tipo</span>
+              <select id="project-type-filter">
+                <option value="">Todos os tipos</option>
+              </select>
+            </label>
+            <label class="filter-box" for="week-filter">
+              <span class="search-label">Filtrar semana</span>
+              <select id="week-filter">
+                <option value="">Todas as semanas</option>
+              </select>
+            </label>
+            <div class="filter-box filter-box--status" id="status-filter-box">
+              <span class="search-label">Filtrar status</span>
+              <button id="status-filter-toggle" class="status-filter-toggle" type="button" aria-expanded="false">Todos os status</button>
+              <div id="status-filter-menu" class="status-filter-menu hidden" aria-label="Filtro de status"></div>
+            </div>
+            <button id="clear-search" class="ghost-button" type="button">Limpar</button>
+            <button id="export-filtered-projects" class="export-excel-button" type="button" disabled>Baixar Excel</button>
+            <div class="search-count" id="search-count">-- resultado(s)</div>
+          </div>
+
+          <div id="project-view-tabs" class="project-view-tabs hidden" aria-label="Filtros de visualização de projetos"></div>
+
+          <div class="table-shell" id="table-shell">
+            <table class="projects-table">
+              <thead>
+                <tr>
+                  <th>Projeto</th>
+                  <th>Tipo</th>
+                  <th>Cliente</th>
+                  <th>Unidade</th>
+                  <th>Término planejado</th>
+                  <th>Itens</th>
+                  <th>Peso soldado (kg)</th>
+                  <th>Semana finalizado</th>
+                  <th>Peso (kg)</th>
+                  <th>Área operacional (m²)</th>
+                  <th>Etapa atual</th>
+                  <th>% Individual</th>
+                  <th>% Geral</th>
+                  <th>Status</th>
+                  <th>Fab. início</th>
+                  <th>Caldeiraria</th>
+                  <th>Solda</th>
+                  <th>Inspeção (QC)</th>
+                  <th>TH</th>
+                  <th>Data de envio</th>
+                  <th>Concluído?</th>
+                </tr>
+              </thead>
+              <tbody id="projects-body">
+                <tr>
+                  <td colspan="21" class="loading-cell">Carregando projetos...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="detail-drawer hidden" id="detail-drawer" aria-live="polite">
+            <div class="detail-drawer-head">
+              <div>
+                <h3>Detalhamento operacional</h3>
+                <p>Resumo rápido do projeto selecionado. Dê 2 cliques na linha para abrir o detalhamento completo.</p>
+              </div>
+              <button id="close-detail-drawer" class="mini-action-button" type="button" aria-label="Fechar detalhamento">Fechar</button>
+            </div>
+            <div class="detail-card detail-card--drawer" id="detail-card"></div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer-bar">
+        <span id="connection-status" class="connection-status">Online</span>
+        <span>Sistema online • sincronização operacional</span>
+        <span id="footer-version">Versão dos dados: --</span>
+      </footer>
+    </div>
+
+    <div id="project-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" data-close-modal="true"></div>
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="modal-head">
+          <div>
+            <p class="modal-eyebrow">Detalhamento operacional</p>
+            <h3 id="modal-title">Projeto</h3>
+            <p id="modal-subtitle" class="modal-subtitle">Itens internos e andamento por etapa</p>
+          </div>
+          <button id="modal-close" class="modal-close" type="button" aria-label="Fechar">×</button>
+        </div>
+
+        <div id="modal-content" class="modal-content"></div>
+      </div>
+    </div>
+
+
+
+    <div id="alert-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" data-close-alert="true"></div>
+      <div class="modal-dialog modal-dialog--alert" role="dialog" aria-modal="true" aria-labelledby="alert-modal-title">
+        <div class="modal-head modal-head--alert">
+          <div>
+            <p class="modal-eyebrow">Atenção</p>
+            <h3 id="alert-modal-title">Prazos em alerta</h3>
+            <p class="modal-subtitle">O alerta reaparece a cada 4 horas até que a planilha seja atualizada.</p>
+          </div>
+          <button id="alert-modal-close" class="modal-close" type="button" aria-label="Fechar alerta">×</button>
+        </div>
+
+        <div id="alert-modal-content" class="modal-content modal-content--alert"></div>
+      </div>
+    </div>
+
+
+<div id="login-modal" class="modal" aria-hidden="false">
+  <div class="modal-backdrop"></div>
+  <div class="modal-dialog modal-dialog--login" role="dialog" aria-modal="true" aria-labelledby="login-title">
+    <button id="login-close" class="modal-close modal-close--login" type="button" aria-label="Fechar">×</button>
+    <div class="login-layout">
+      <div class="login-panel login-panel--form">
+        <div class="login-panel-inner">
+          <div class="login-brand-row">
+            <img src="./assets/step-logo.png" alt="STEP Oil &amp; Gas" class="login-brand-logo" />
+            <div class="login-brand-copy">
+              <p class="modal-eyebrow">Acesso setorial</p>
+              <h3 id="login-title">Login</h3>
+              <p class="modal-subtitle">Entre com seu usuário e senha</p>
+            </div>
+          </div>
+          <form id="login-form" class="stack-form login-form-card">
+            <label class="stack-field">
+              <span>Usuário</span>
+              <input id="login-username" type="text" autocomplete="username" placeholder="Ex.: pintura" />
+            </label>
+            <label class="stack-field">
+              <span>Senha</span>
+              <div class="password-field">
+                <input id="login-password" type="password" autocomplete="current-password" placeholder="Digite a senha" />
+                <button id="toggle-login-password" class="ghost-button ghost-button--compact password-toggle" type="button" aria-label="Mostrar senha">Mostrar</button>
+              </div>
+            </label>
+            <div class="stack-actions login-actions">
+              <button class="primary-button" type="submit">Entrar</button>
+              
+            </div>
+            <p id="login-feedback" class="inline-feedback login-feedback">Acesse com seu usuário setorial ou admin.</p>
+          </form>
+        </div>
+      </div>
+      <aside class="login-panel login-panel--visual" aria-hidden="true">
+        <div class="login-visual-content">
+          <div class="login-visual-top login-visual-top--image">
+            <span class="login-visual-kicker">STEP Oil &amp; Gas</span>
+          </div>
+          <div class="offshore-scene offshore-scene--image"></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<div id="sector-alerts-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-backdrop" data-close-sector-alerts="true"></div>
+  <div class="modal-dialog modal-dialog--alert" role="dialog" aria-modal="true" aria-labelledby="sector-alerts-title">
+    <div class="modal-head modal-head--alert">
+      <div>
+        <p class="modal-eyebrow">Alerta Operacional</p>
+        <h3 id="sector-alerts-title">Meus alertas por setor</h3>
+        <p class="modal-subtitle">Os alertas abaixo respeitam o setor do login atual.</p>
+      </div>
+      <button id="sector-alerts-close" class="modal-close" type="button" aria-label="Fechar">×</button>
+    </div>
+    <div id="sector-alerts-content" class="modal-content modal-content--alert"></div>
+  </div>
+</div>
+
+<div id="admin-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-backdrop" data-close-admin="true"></div>
+  <div class="modal-dialog modal-dialog--admin" role="dialog" aria-modal="true" aria-labelledby="admin-title">
+    <div class="modal-head">
+      <div>
+        <p class="modal-eyebrow">Administração</p>
+        <h3 id="admin-title">Usuários e alertas setoriais</h3>
+        <p class="modal-subtitle">Crie logins por setor, edite usuários e sincronize os dados com o repositório.</p>
+      </div>
+      <button id="admin-close" class="modal-close" type="button" aria-label="Fechar">×</button>
+    </div>
+    <div class="modal-content admin-modal-shell">
+      <div class="admin-tabs" role="tablist" aria-label="Abas do admin">
+        <button class="admin-tab is-active" type="button" data-admin-tab-trigger="usuario" aria-selected="true">Novo usuário</button>
+        <button class="admin-tab" type="button" data-admin-tab-trigger="historico" aria-selected="false">Histórico operacional</button>
+        <button class="admin-tab" type="button" data-admin-tab-trigger="alerta" aria-selected="false">Novo alerta operacional</button>
+      </div>
+
+      <div class="admin-tab-panel is-active" data-admin-tab-panel="usuario">
+        <div class="admin-grid">
+      <section class="admin-card">
+        <div class="admin-card-head">
+          <h4>Novo usuário</h4>
+          <div class="admin-head-actions">
+            <span id="github-sync-badge" class="admin-badge">GitHub sync: offline</span>
+            <button id="admin-sync-button" class="ghost-button ghost-button--compact" type="button">Subir pro GitHub</button>
+          </div>
+        </div>
+        <form id="admin-user-form" class="stack-form">
+          <input id="admin-user-id" type="hidden" />
+          <label class="stack-field"><span>Nome</span><input id="admin-user-name" type="text" placeholder="Nome do setor ou responsável" /></label>
+          <label class="stack-field"><span>Usuário</span><input id="admin-user-username" type="text" placeholder="Ex.: pintura" /></label>
+          <label class="stack-field"><span>Senha</span>
+            <div class="password-inline">
+              <input id="admin-user-password" type="password" placeholder="Senha inicial" />
+              <button id="admin-user-toggle-password" class="ghost-button ghost-button--compact" type="button">Mostrar</button>
+            </div>
+          </label>
+          <div class="stack-two">
+            <label class="stack-field">
+              <span>Perfil</span>
+              <select id="admin-user-role">
+                <option value="sector">Setor</option>
+                <option value="client">Cliente</option>
+                <option value="admin">Admin</option>
+              </select>
+            </label>
+            <label class="stack-field">
+              <span>Setor</span>
+              <select id="admin-user-sector">
+                <option value="all">Todos</option>
+                <option value="engenharia">Engenharia</option>
+                <option value="suprimento">Suprimento</option>
+                <option value="pintura">Pintura</option>
+                <option value="inspecao">Qualidade</option>
+                <option value="pendente_envio">Logística</option>
+                <option value="producao">Produção</option>
+                <option value="calderaria">Calderaria</option>
+                <option value="solda">Solda</option>
+                <option value="pcp">PCP</option>
+                <option value="projetos">Projetos</option>
+              </select>
+            </label>
+            <label class="stack-field">
+              <span>Ambiente operacional</span>
+              <select id="admin-user-operation-region" disabled>
+                <option value="BR" selected>Brasil</option>
+              </select>
+              <div class="country-button-row" data-operation-region-buttons>
+                <button type="button" class="country-pill is-active" data-operation-region-option="BR" disabled>Brasil</button>
+              </div>
+              <small class="field-helper">Este é o painel Brasil. Usuários criados aqui ficam sempre vinculados ao ambiente BR.</small>
+            </label>
+          </div>
+          <label class="stack-field">
+            <span>Setores monitorados</span>
+            <div class="check-grid">
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="engenharia" /> Engenharia</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="suprimento" /> Suprimento</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="pintura" checked /> Pintura</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="inspecao" /> Qualidade</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="pendente_envio" /> Logística</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="producao" /> Produção</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="calderaria" /> Calderaria</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="solda" /> Solda</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="pcp" /> PCP</label>
+              <label class="check-row"><input type="checkbox" data-admin-alert-sector-option value="projetos" /> Projetos</label>
+            </div>
+          </label>
+          <label class="check-row check-row--feature">
+            <input id="admin-user-can-view-client-panel" type="checkbox" />
+            Visualizar Painel do Cliente ao abrir uma BSP
+          </label>
+          <small class="field-helper">Quando marcado, o usuário poderá abrir a visão executiva do cliente nas BSPs. A edição de datas/informações continua restrita ao Admin ou ao PM vinculado.</small>
+          <div class="stack-two hidden" id="admin-user-client-fields">
+            <label class="stack-field">
+              <span>Cliente vinculado</span>
+              <input id="admin-user-client-key" type="text" placeholder="Ex.: PRIO" />
+            </label>
+            <label class="stack-field">
+              <span>Nome exibido no Portal</span>
+              <input id="admin-user-client-name" type="text" placeholder="Ex.: PRIO" />
+            </label>
+            <label class="stack-field stack-field--wide">
+              <span>Logo do cliente</span>
+              <input id="admin-user-client-logo-url" type="text" placeholder="URL da logo ou ./assets/client-logos/prio.png" />
+              <div class="file-import-row">
+                <input id="admin-user-client-logo-file" type="file" accept="image/*" />
+                <button id="admin-user-client-logo-import" class="ghost-button ghost-button--compact" type="button">Importar logo do computador</button>
+              </div>
+              <small>Opcional. Você pode colar uma URL/caminho ou importar uma imagem local. Ao importar, ajuste a prévia e clique em “Aplicar ajuste”.</small>
+              <div id="admin-client-logo-editor" class="client-logo-editor hidden" aria-label="Prévia e ajuste da logo do cliente">
+                <div class="client-logo-editor__preview">
+                  <img id="admin-client-logo-preview-img" alt="Prévia da logo do cliente" />
+                </div>
+                <div class="client-logo-editor__controls">
+                  <button type="button" class="ghost-button ghost-button--compact" data-logo-adjust="zoomOut">Zoom -</button>
+                  <button type="button" class="ghost-button ghost-button--compact" data-logo-adjust="zoomIn">Zoom +</button>
+                  <button type="button" class="ghost-button ghost-button--compact" data-logo-adjust="left">←</button>
+                  <button type="button" class="ghost-button ghost-button--compact" data-logo-adjust="right">→</button>
+                  <button type="button" class="ghost-button ghost-button--compact" data-logo-adjust="up">↑</button>
+                  <button type="button" class="ghost-button ghost-button--compact" data-logo-adjust="down">↓</button>
+                  <button type="button" class="ghost-button ghost-button--compact" data-logo-adjust="reset">Resetar</button>
+                  <button type="button" class="primary-button primary-button--compact" data-logo-adjust="apply">Aplicar ajuste</button>
+                </div>
+                <small>A prévia usa o mesmo formato do Portal do Cliente. Ajuste até preencher o quadro sem excesso de branco.</small>
+              </div>
+            </label>
+            <input id="admin-user-client-platform-image-url" type="hidden" value="" />
+            <label class="stack-field stack-field--wide">
+              <span>Fotos por plataforma / vessel</span>
+              <input id="admin-user-client-platform-name" type="text" placeholder="Nome da plataforma. Ex.: FORTE, FRADE, BRAVO" />
+              <div class="file-import-row">
+                <input id="admin-user-client-platform-image-file" type="file" accept="image/*" />
+                <button id="admin-user-client-platform-image-import" class="ghost-button ghost-button--compact" type="button">Adicionar foto dessa plataforma</button>
+              </div>
+              <textarea id="admin-user-client-platform-images" rows="4" placeholder="FORTE=cole aqui a URL/base64 da imagem&#10;FRADE=cole aqui a URL/base64 da imagem"></textarea>
+              <small>Preencha uma imagem para cada Vessel/Unidade. O nome precisa ser igual ao nome que aparece no card.</small>
+            </label>
+          </div>
+          <label class="stack-field hidden" id="admin-user-project-pms-field">
+            <span>PMs adicionais para visualizar</span>
+            <div class="pm-select-box">
+              <input id="admin-user-project-pms-search" class="pm-select-search" type="search" placeholder="Buscar PM na lista..." autocomplete="off" />
+              <div id="admin-user-project-pms-options" class="pm-select-options" role="group" aria-label="PMs adicionais para visualizar">
+                <div class="pm-select-empty">Carregando nomes de PM do Tracking...</div>
+              </div>
+              <div id="admin-user-project-pms-count" class="pm-select-count">Nenhum PM adicional selecionado.</div>
+            </div>
+            <small>Selecione os nomes como aparecem na coluna PM do Tracking. A lista é montada automaticamente pelos projetos carregados.</small>
+          </label>
+          <label class="stack-field hidden" id="admin-user-quality-competencies-field">
+            <span>Competências da Qualidade</span>
+            <div class="check-grid quality-competencies-grid">
+              <label class="check-row"><input type="checkbox" data-admin-quality-competency-option value="dimensional_inicial" /> Inspeção Dimensional Inicial</label>
+              <label class="check-row"><input type="checkbox" data-admin-quality-competency-option value="dimensional_final" /> Inspeção Dimensional Final</label>
+              <label class="check-row"><input type="checkbox" data-admin-quality-competency-option value="nde" /> END / NDE</label>
+              <label class="check-row"><input type="checkbox" data-admin-quality-competency-option value="th" /> TH</label>
+              <label class="check-row"><input type="checkbox" data-admin-quality-competency-option value="final_inspection_qc" /> Final Inspection QC</label>
+            </div>
+            <small>Se nada for marcado, o usuário de Qualidade mantém acesso a todas as competências. Marcando opções, ele verá somente as demandas correspondentes.</small>
+          </label>
+          <div class="stack-actions">
+            <button class="primary-button" type="submit"><span id="admin-user-submit-label">Criar usuário</span></button>
+            <button id="admin-user-cancel-edit" class="ghost-button hidden" type="button">Cancelar edição</button>
+          </div>
+          <p id="admin-user-feedback" class="inline-feedback"></p>
+        </form>
+      
+</section>
+
+      <section class="admin-card admin-card--wide admin-presence-card">
+        <div class="admin-card-head">
+          <div>
+            <h4>Monitor de acessos ao vivo</h4>
+            <p class="admin-card-subtitle">Usuários online e última tela visualizada no sistema.</p>
+          </div>
+          <span id="admin-presence-summary" class="admin-badge">0 online</span>
+        </div>
+        <div id="admin-presence-list" class="admin-presence-list empty-state">Nenhum usuário online agora.</div>
+      </section>
+
+      <section class="admin-card admin-card--wide">
+        <div class="admin-card-head">
+          <h4>Usuários cadastrados</h4>
+        </div>
+        <div id="admin-users-list" class="admin-list empty-state">Nenhum usuário carregado.</div>
+      </section>
+
+        </div>
+      </div>
+
+      <div class="admin-tab-panel" data-admin-tab-panel="alerta" hidden>
+        <div class="admin-grid">
+      <section class="admin-card admin-card--wide">
+        <div class="admin-card-head">
+          <h4>Novo alerta operacional</h4>
+        </div>
+        <form id="admin-alert-form" class="stack-form">
+          <div class="stack-two">
+            <label class="stack-field">
+              <span>Setor</span>
+              <select id="admin-alert-sector">
+                <option value="engenharia">Engenharia</option>
+                <option value="suprimento">Suprimento</option>
+                <option value="pintura">Pintura</option>
+                <option value="inspecao">Qualidade</option>
+                <option value="pendente_envio">Logística</option>
+                <option value="producao">Produção</option>
+                <option value="calderaria">Calderaria</option>
+                <option value="solda">Solda</option>
+                <option value="pcp">PCP</option>
+              </select>
+            </label>
+            <label class="stack-field">
+              <span>Prioridade</span>
+              <select id="admin-alert-priority">
+                <option value="normal">Normal</option>
+                <option value="high">Alta</option>
+                <option value="urgent">Urgente</option>
+                <option value="low">Baixa</option>
+              </select>
+            </label>
+          </div>
+          <label class="stack-field"><span>Título</span><input id="admin-alert-title" type="text" placeholder="Ex.: BSP prioritário" /></label>
+          <label class="stack-field"><span>Mensagem</span><textarea id="admin-alert-message" rows="4" placeholder="Escreva a notificação do setor."></textarea></label>
+          <label class="check-row"><input id="admin-alert-requires-ack" type="checkbox" checked /> Exigir confirmação de leitura</label>
+          <div class="stack-actions">
+            <button class="primary-button" type="submit">Enviar alerta</button>
+          </div>
+          <p id="admin-alert-feedback" class="inline-feedback"></p>
+        </form>
+      </section>
+        </div>
+      </div>
+
+      <div class="admin-tab-panel" data-admin-tab-panel="historico" hidden>
+        <div class="admin-grid">
+      <section class="admin-card admin-card--wide">
+        <div class="admin-card-head">
+          <h4>Registro de Alertas Operacionais</h4>
+        </div>
+        <div class="stack-field admin-alert-search-field">
+          <span>Pesquisar no histórico de alertas</span>
+          <input id="admin-alert-search" type="text" placeholder="Buscar por título, mensagem, setor, usuário ou data" autocomplete="off" />
+        </div>
+        <div id="admin-alerts-list" class="admin-list empty-state">Nenhum alerta manual carregado.</div>
+      </section>
+
+      <section class="admin-card admin-card--wide">
+        <div class="admin-card-head">
+          <h4>Respostas dos alertas</h4>
+        </div>
+        <div id="admin-alert-responses-list" class="admin-list empty-state">Nenhuma resposta recebida ainda.</div>
+      </section>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="alert-response-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-backdrop" data-close-alert-response="true"></div>
+  <div class="modal-dialog glass-card response-modal-dialog">
+    <div class="modal-head">
+      <div>
+        <p class="modal-eyebrow">Resposta do alerta</p>
+        <h3 id="alert-response-title">Responder alerta</h3>
+        <p id="alert-response-subtitle" class="modal-subtitle">Escreva sua devolutiva para o administrador.</p>
+      </div>
+      <button id="alert-response-close" class="modal-close" type="button" aria-label="Fechar">×</button>
+    </div>
+    <div class="modal-content">
+      <form id="alert-response-form" class="stack-form">
+        <input id="alert-response-alert-id" type="hidden" />
+        <label class="stack-field"><span>Sua resposta</span><textarea id="alert-response-text" rows="5" placeholder="Digite a resposta para o admin."></textarea></label>
+        <div class="stack-actions">
+          <button class="primary-button" type="submit">Enviar resposta</button>
+          <button id="alert-response-cancel" class="ghost-button" type="button">Cancelar</button>
+        </div>
+        <p id="alert-response-feedback" class="inline-feedback"></p>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div id="project-signal-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-backdrop" data-close-project-signal="true"></div>
+  <div class="modal-dialog glass-card response-modal-dialog">
+    <div class="modal-head">
+      <div>
+        <p class="modal-eyebrow">Sinalização ao PCP</p>
+        <h3 id="project-signal-heading">Nova sinalização</h3>
+        <p id="project-signal-subtitle" class="modal-subtitle">A informação será enviada ao PCP.</p>
+      </div>
+      <button id="project-signal-close" class="modal-close" type="button" aria-label="Fechar">×</button>
+    </div>
+    <div class="modal-content">
+      <form id="project-signal-form" class="stack-form">
+        <input id="project-signal-project-id" type="hidden" />
+        <label class="stack-field"><span>Título</span><input id="project-signal-title" type="text" placeholder="Ex.: Projeto já enviado" /></label>
+        <label class="stack-field"><span>Descrição</span><textarea id="project-signal-description" rows="5" placeholder="Descreva a sinalização para o PCP."></textarea></label>
+        <div class="stack-actions">
+          <button class="primary-button" type="submit">Enviar ao PCP</button>
+          <button id="project-signal-cancel" class="ghost-button" type="button">Cancelar</button>
+        </div>
+        <p id="project-signal-feedback" class="inline-feedback"></p>
+      </form>
+    </div>
+  </div>
+</div>
+
+    
+
+<div id="attention-popup-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-backdrop attention-popup-backdrop"></div>
+  <div class="modal-dialog glass-card attention-popup-dialog" role="dialog" aria-modal="true" aria-labelledby="attention-popup-title">
+    <div class="modal-head attention-popup-head">
+      <div>
+        <p class="modal-eyebrow">Novo alerta recebido</p>
+        <h3 id="attention-popup-title">Novo alerta</h3>
+        <p id="attention-popup-meta" class="modal-subtitle">Atenção imediata necessária.</p>
+      </div>
+    </div>
+    <div class="modal-content attention-popup-content">
+      <div id="attention-popup-body" class="attention-popup-body">Você recebeu uma nova notificação.</div>
+      <div class="stack-actions attention-popup-actions">
+        <button id="attention-popup-action" class="primary-button" type="button">Abrir alerta</button>
+        <button id="attention-popup-close" class="ghost-button" type="button">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<div id="iso-qr-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-backdrop" data-close-iso-qr="true"></div>
+  <div class="modal-dialog modal-dialog--admin iso-qr-dialog" role="dialog" aria-modal="true" aria-labelledby="iso-qr-title">
+    <div class="modal-head">
+      <div>
+        <p class="modal-eyebrow">Rastreamento por ISO</p>
+        <h3 id="iso-qr-title">Pesquisar QR Code</h3>
+        <p class="modal-subtitle">Pesquise ISOs já criados automaticamente pelo cache e imprima etiquetas minimalistas.</p>
+      </div>
+      <button id="iso-qr-close" class="modal-close" type="button" aria-label="Fechar">×</button>
+    </div>
+    <div class="modal-content iso-qr-content">
+      <div class="iso-qr-toolbar">
+        <label class="stack-field iso-qr-search-field">
+          <span>Pesquisar ISO, BSP, Work Order, Vessel ou Tag</span>
+          <input id="iso-qr-search" type="search" placeholder="Digite o ISO completo ou parte da BSP..." autocomplete="off" />
+        </label>
+        <button id="iso-qr-search-button" class="primary-button" type="button">Pesquisar</button>
+        <button id="iso-qr-print-selected" class="ghost-button" type="button" disabled>Imprimir selecionados</button>
+        <button id="iso-qr-download-selected" class="ghost-button" type="button" disabled>Baixar selecionados</button>
+      </div>
+      <div id="iso-qr-feedback" class="inline-feedback"></div>
+      <div id="iso-qr-preview" class="iso-qr-preview hidden"></div>
+      <div id="iso-qr-results" class="iso-qr-results empty-state">Digite uma busca ou clique em pesquisar para carregar os QR Codes recentes.</div>
+    </div>
+  </div>
+</div>
+
+
+<div id="change-password-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-backdrop" data-close-change-password="true"></div>
+  <div class="modal-dialog modal-dialog--small" role="dialog" aria-modal="true" aria-labelledby="change-password-title">
+    <div class="modal-head">
+      <div>
+        <p class="modal-eyebrow">Segurança de acesso</p>
+        <h3 id="change-password-title">Alterar senha</h3>
+        <p class="modal-subtitle">Digite a senha atual e defina a nova senha de acesso.</p>
+      </div>
+      <button id="change-password-close" class="modal-close" type="button" aria-label="Fechar">×</button>
+    </div>
+    <div class="modal-content">
+      <form id="change-password-form" class="stack-form">
+        <label class="stack-field"><span>Senha atual</span><input id="change-password-current" type="password" autocomplete="current-password" /></label>
+        <label class="stack-field"><span>Nova senha</span><input id="change-password-new" type="password" autocomplete="new-password" /></label>
+        <label class="stack-field"><span>Confirmar nova senha</span><input id="change-password-confirm" type="password" autocomplete="new-password" /></label>
+        <div class="stack-actions">
+          <button class="primary-button" type="submit">Salvar nova senha</button>
+          <button class="ghost-button" type="button" id="change-password-cancel">Cancelar</button>
+        </div>
+        <div id="change-password-feedback" class="form-feedback" aria-live="polite"></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+<div id="pcp-deadlines-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-backdrop" data-close-pcp-deadlines="true"></div>
+  <div class="modal-dialog modal-dialog--admin pcp-deadlines-dialog" role="dialog" aria-modal="true" aria-labelledby="pcp-deadlines-title">
+    <div class="modal-head pcp-deadlines-head">
+      <div>
+        <p class="modal-eyebrow">Controle PCP</p>
+        <h3 id="pcp-deadlines-title">BSPs por prazo</h3>
+        <p id="pcp-deadlines-subtitle" class="modal-subtitle">Demandas agrupadas por cliente.</p>
+      </div>
+      <button id="pcp-deadlines-close" class="modal-close" type="button" aria-label="Fechar">×</button>
+    </div>
+    <div id="pcp-deadlines-content" class="modal-content pcp-deadlines-content"></div>
+  </div>
+</div>
+
+<div id="stage-updates-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-backdrop" data-close-stage-updates="true"></div>
+  <div class="modal-dialog modal-dialog--admin" role="dialog" aria-modal="true" aria-labelledby="stage-updates-title">
+    <div class="modal-head">
+      <div>
+        <p class="modal-eyebrow">Apontamentos por etapa</p>
+        <h3 id="stage-updates-title">Apontamentos setoriais</h3>
+        <p id="stage-updates-subtitle" class="modal-subtitle">Cada setor informa somente o avanço da sua própria etapa e o PCP valida.</p>
+      </div>
+      <button id="stage-updates-close" class="modal-close" type="button" aria-label="Fechar">×</button>
+    </div>
+    <div id="stage-updates-content" class="modal-content admin-modal-shell"></div>
+  </div>
+</div>
+
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+    <script src="./js/app-01-core.js?v=37.73-client-hide-zebra-iso-dates"></script>
+    <script src="./js/app-02-client-portal.js?v=37.73-client-hide-zebra-iso-dates"></script>
+    <script src="./js/app-03-dashboard-render.js?v=37.73-client-hide-zebra-iso-dates"></script>
+    <script src="./js/app-04-data-auth-admin.js?v=37.73-client-hide-zebra-iso-dates"></script>
+    <script src="./js/app-06-qr-codes.js?v=37.73-client-hide-zebra-iso-dates"></script>
+    <script src="./js/app-05-stage-login-init.js?v=37.73-client-hide-zebra-iso-dates"></script>
+    <script src="./i18n.js?v=37.73-client-hide-zebra-iso-dates"></script>
+  </body>
+</html>

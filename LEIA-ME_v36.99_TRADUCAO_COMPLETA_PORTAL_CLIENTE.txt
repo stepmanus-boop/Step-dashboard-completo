@@ -1,0 +1,28 @@
+STEP Dashboard Brasil – v36.99
+
+Ajuste principal:
+- Ampliação da tradução PT/EN/ES para o Portal do Cliente e textos dinâmicos.
+
+Correções aplicadas:
+1. Ampliado o dicionário de traduções no arquivo site/i18n.js.
+2. Incluídas traduções faltantes do Portal do Cliente, como:
+   - Portal do Cliente
+   - Peso programado
+   - Peso soldado
+   - M² programada
+   - Progresso médio
+   - Localizar BSP, PO ou Focal Point
+   - Limpar busca
+   - Vessels / Unidades
+   - Carteira por unidade
+   - Ver todas
+   - textos de atualização e instruções da unidade
+3. Melhorado o mecanismo de lookup para aceitar correspondência normalizada/case-insensitive.
+4. Atualizado o Service Worker para forçar entrega da nova versão de tradução.
+5. Versionado novamente o carregamento do i18n.js e do sw.js para evitar reaproveitamento do cache antigo.
+
+Arquivos alterados:
+- site/i18n.js
+- site/index.html
+- site/app.js
+- site/sw.js

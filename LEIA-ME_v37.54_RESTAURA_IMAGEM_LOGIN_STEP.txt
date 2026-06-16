@@ -1,0 +1,7 @@
+v37.54 - Restaura imagem do login com identidade STEP
+
+Correcoes aplicadas:
+1. Restaurada a imagem offshore-login-bg.png no painel direito do login.
+2. Mantida a linguagem visual clara do manual STEP 2025 com overlay em #e0ecf1 / #81cdf2 / #0288d1.
+3. Preservados o contraste do selo "STEP Oil & Gas" e a leitura da tela de login.
+4. Mantidas as correcoes anteriores de cache Supabase, novas BSPs, schedule do cliente e identidade visual v37.53.

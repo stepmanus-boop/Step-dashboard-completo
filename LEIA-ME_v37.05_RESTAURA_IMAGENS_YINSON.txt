@@ -1,0 +1,26 @@
+STEP Dashboard Brasil – v37.05
+
+Correção solicitada:
+- Na tela "Projetos em Desenvolvimento – Yinson", a coluna IMAGEM voltou a exibir os links das imagens.
+
+Causa identificada:
+- A otimização anterior evitou chamadas extras ao Smartsheet para não deixar a tela lenta, mas em alguns ambientes os anexos de imagem não vinham no índice geral da sheet. Com isso, a tabela carregava os dados, porém a coluna IMAGEM ficava vazia.
+
+Correções aplicadas:
+1. A API /api/client-under-dev agora tenta ler anexos já embutidos no GET da sheet usando include=attachments.
+2. Se os anexos não vierem embutidos, a API usa o índice geral de anexos da sheet.
+3. Se ainda não encontrar, a API busca os anexos da própria linha, mas somente a lista/metadados, sem baixar a URL temporária da imagem.
+4. A URL temporária da imagem continua sendo buscada apenas no clique em "Ver imagem", preservando performance.
+5. A função /api/client-under-dev-image agora também aceita rowId como fallback, além do attachment id.
+6. Incluído suporte à coluna IMAGEM quando ela existir na Smartsheet com link/URL ou objeto de imagem.
+7. Atualizado o Service Worker para forçar o navegador a receber a versão nova.
+
+Arquivos alterados:
+- netlify/functions/client-under-dev.js
+- netlify/functions/client-under-dev-image.js
+- site/client-under-development.html
+- site/app.js
+- site/sw.js
+
+Validação:
+- node --check aplicado nos arquivos JavaScript principais.

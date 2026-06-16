@@ -1,0 +1,20 @@
+Versão v36.54 - Correção timeout na Validação PCP dos apontamentos
+
+Problema observado:
+- A tela de Validação PCP retornava erro bruto de timeout do Netlify/Sandbox após 30 segundos.
+- A causa era a abertura da tela depender da validação automática com a API do Smartsheet/Tracking.
+- Quando o Smartsheet demorava para responder, a função /api/stage-updates ficava presa até estourar o limite.
+
+Correção aplicada:
+- O carregamento inicial da Validação PCP agora busca apenas os apontamentos, sem depender do Smartsheet.
+- A validação do Tracking foi separada em uma chamada própria: /api/stage-updates?mode=tracking-check.
+- O front-end abre a tela imediatamente e valida o Tracking em segundo plano, sem refresh e sem fechar a modal.
+- Adicionado timeout interno nas chamadas ao Smartsheet para evitar estouro de 30 segundos do Netlify.
+- Quando o Smartsheet demora, a tela mantém os apontamentos visíveis e mostra aviso controlado.
+- O badge deixa de afirmar falso "Tracking não localizado" no carregamento inicial e passa a exibir validação/conferência.
+
+Arquivos alterados:
+- site/app.js
+- site/sw.js
+- netlify/functions/stage-updates.js
+- netlify/functions/_smartsheetTracking.js

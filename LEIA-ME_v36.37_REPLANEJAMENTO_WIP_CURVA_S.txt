@@ -1,0 +1,27 @@
+Versão v36.37 - Replanejamento pelo Work in Progress
+
+Base: BR v36.36_EDITOR_DATAS_PM_ADMIN.
+
+Alterações principais:
+- Incluída leitura da coluna "Deadline Date as Agreeded with Client*" do Work in Progress - STEP.
+- O valor é salvo no payload do projeto como replannedFinishDate.
+- Criada coluna "Replanejado" ao lado de "Término planejado" na tabela principal.
+- Incluído "Replanejado" na visão executiva da BSP, na tabela de Schedule Executivo e nos relatórios.
+- Curva S agora mostra uma linha de replanejamento entre o término planejado original e a data replanejada.
+- O desvio/atraso passa a considerar a data replanejada quando ela existir e for posterior ao prazo original.
+- API do cliente passa a devolver replannedFinishDate e replannedFinishSource como leitura.
+
+Regra:
+1. Término planejado continua vindo do Tracking / Finish Date.
+2. Replanejado vem do Work in Progress / Deadline Date as Agreeded with Client*.
+3. A Curva S mantém a linha planejada original.
+4. A linha de replanejamento aparece apenas se a data replanejada for maior que o término planejado.
+5. Se a BSP passar da data replanejada sem envio, o desvio laranja passa a contar a partir do replanejado.
+
+Validação realizada:
+- node --check site/app.js
+- node --check site/sw.js
+- node --check netlify/functions/projects.js
+- node --check netlify/functions/client-data.js
+- node --check netlify/functions/client-bsp-overrides.js
+- node --check netlify/functions/_supabase.js

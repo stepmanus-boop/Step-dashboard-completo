@@ -1,0 +1,14 @@
+STEP Track v37.20 - Correção do botão Atualizar e timestamp do cache
+
+Base: v37.19.
+
+Correções:
+1. /api/projects com preferCache agora prioriza sempre a linha persistente do Supabase antes do cache em memória da Function.
+2. Após clicar em Atualizar, o frontend usa cacheUpdatedAt retornado pelo sincronizador e relê o Supabase, evitando mostrar horário antigo/local.
+3. Portal do Cliente e painel admin foram ajustados.
+4. Sem SQL novo e sem ENV nova.
+
+Fluxo preservado:
+- Login lê Supabase/cache.
+- Smartsheet só é chamado pelo agendador ou botão Atualizar.
+- Lock do Supabase continua evitando atualização simultânea.

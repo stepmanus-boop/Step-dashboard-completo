@@ -1,0 +1,36 @@
+VERSÃO v36.57 - CORREÇÃO DA FALHA "Falha ao atualizar dados operacionais"
+
+Problema encontrado:
+- A tela continuava vazia com a mensagem "Falha ao atualizar dados operacionais".
+- Essa mensagem aparece quando o front chama /api/projects e recebe algo que não é JSON válido, normalmente:
+  1) HTML de erro/timeout da função Netlify;
+  2) HTML do index.html por falha de redirect /api;
+  3) falha de runtime na função antes da resposta JSON.
+
+Correções aplicadas:
+1) site/_redirects criado
+   - Garante que /api/* seja roteado para /.netlify/functions/:splat mesmo se o netlify.toml não for aplicado corretamente.
+
+2) Fallback estático no front
+   - Copiado fallback-projects.json para site/data/fallback-projects.json.
+   - Se /api/projects falhar ou voltar HTML, o painel ADMIN abre com o snapshot local de segurança.
+   - O Portal do Cliente NÃO usa esse fallback, para não abrir dados sem escopo/PO.
+
+3) Fallback final no server
+   - projects.js agora, no catch final, retorna o snapshot local para ADMIN em vez de devolver 500 quando o Smartsheet/função falhar.
+   - Cliente externo continua protegido.
+
+4) Mensagem técnica melhorada
+   - Se /api/projects retornar HTML, o app agora registra/usa uma mensagem mais clara.
+
+5) Service Worker atualizado
+   - CACHE_NAME alterado para step-dashboard-v36.57 para forçar atualização do app.js corrigido.
+
+Resultado esperado:
+- Mesmo que o Smartsheet esteja lento, token esteja com problema ou /api/projects volte HTML/timeout, o painel operacional ADMIN deve carregar a base snapshot local e parar de ficar com os cards em "--".
+- Ao normalizar o Smartsheet, o botão "Atualizar agora" volta a tentar a base online.
+
+IMPORTANTE:
+Após subir no Netlify, faça hard refresh no navegador:
+CTRL + F5
+ou limpe cache do site/PWA se ainda aparecer a versão antiga.

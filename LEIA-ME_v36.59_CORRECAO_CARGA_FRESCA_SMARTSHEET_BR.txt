@@ -1,0 +1,30 @@
+CORREÇÃO v36.59 - PAINEL BRASIL
+
+Correção feita com base no painel Portugal v38.8 que estava carregando corretamente.
+
+DIAGNÓSTICO
+1. A versão anterior do Brasil passou a aceitar fallback/snapshot antigo para não deixar o painel vazio.
+2. Esse fallback era de 08/04/2026 e podia ficar salvo no navegador/localStorage.
+3. Por isso o painel voltava a abrir com dados antigos e mostrava: exibindo cache local enquanto atualiza.
+4. Também havia timeout/fallback no projects.js que mascarava erro de Smartsheet e devolvia snapshot antigo em vez de forçar a base real.
+
+O QUE FOI ALTERADO
+1. O app.js foi realinhado com a lógica estável do painel Portugal.
+2. Removido o fallback estático do navegador (/site/data/fallback-projects.json).
+3. Removido o fallback final que devolvia snapshot antigo dentro de /api/projects.
+4. /api/projects voltou a buscar a base real do Smartsheet como o painel Portugal faz.
+5. O cache local foi renomeado para step_dashboard_projects_cache_v36_59_fresh_br, forçando o navegador a abandonar caches antigos.
+6. Mesmo que algum cache antigo ainda exista, o app ignora snapshots/fallbacks marcados como snapshot/static-fallback.
+7. Mantida a separação Brasil: login, cadastro e Supabase continuam travados em BR.
+8. Atualizado service worker para v36.59.
+
+VARIÁVEIS NETLIFY RECOMENDADAS PARA BRASIL
+SMARTSHEET_TOKEN
+SMARTSHEET_SHEET_ID ou SMARTSHEET_SHEET_ID_BR
+SMARTSHEET_SHEET_NAME ou SMARTSHEET_SHEET_NAME_BR
+SMARTSHEET_WIP_STEP_SHEET_ID ou SMARTSHEET_WIP_STEP_SHEET_ID_BR
+SMARTSHEET_WIP_STEP_SHEET_NAME ou SMARTSHEET_WIP_STEP_SHEET_NAME_BR
+
+IMPORTANTE
+Depois de subir, faça CTRL+F5.
+Se estiver instalado como PWA/app, remova e instale novamente para garantir que o service worker v36.59 substitua a versão anterior.

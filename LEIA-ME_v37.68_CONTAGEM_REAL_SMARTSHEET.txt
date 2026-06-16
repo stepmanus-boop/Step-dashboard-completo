@@ -1,0 +1,14 @@
+v37.68 - Correção de contagem real dos cards
+
+Base conferida na exportação atual do Smartsheet Progress Tracking Sheet - Piping Fabrication:
+- 136 linhas raiz/projetos no Tracking.
+- O erro ocorria porque o card Total de Projetos usava uma base operacional ativa, excluindo/alterando recortes como On Hold, Finalizados/Pendentes e outros estados.
+- O botão Baixar Excel usava a base filtrada real da tabela.
+
+Correção aplicada:
+1. Os cards agora usam a mesma base filtrada real exibida na tabela/exportação.
+2. Total de Projetos passa a contar todos os projetos raiz visíveis da base Smartsheet.
+3. On Hold, Não iniciados, Produção, Qualidade, Pintura e Envio permanecem como recortes operacionais.
+4. Backend buildStats também foi alinhado para não reduzir o Total com activeProjects.
+
+Observação: após deploy, usar Ctrl+F5 ou limpar cache para garantir carregamento do Service Worker v37.68.

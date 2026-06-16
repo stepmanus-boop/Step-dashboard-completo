@@ -1,0 +1,11 @@
+v37.33 - Corrige Yinson / Projetos em Desenvolvimento
+
+Correções:
+- Mantém base v37.32 com cards PCP funcionando.
+- Força o frontend a chamar /api/client-under-dev?sheetId=7523600180400004.
+- Backend passa a aceitar a estrutura real da sheet: Client WO number, Class, Project, Vessel, Line Nº, OBSERVATIONS etc.
+- Project passa a alimentar ID REPAIR quando a coluna ID REPAIR não existir.
+- Line Nº passa a alimentar TAG NUMBER.
+- OBSERVATIONS passa a alimentar DESCRIPTION.
+- Class passa a alimentar STATUS quando a coluna Status não existir.
+- Sem SQL novo e sem ENV obrigatória.

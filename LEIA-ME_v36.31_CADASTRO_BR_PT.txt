@@ -1,0 +1,20 @@
+v36.31 - Cadastro Brasil/Portugal no painel do Brasil
+
+Base usada:
+- step_dashboard_tracking_CLIENTE_v36.30_PM_EDITA_PAINEL_CLIENTE.zip
+
+Objetivo:
+- Trazer para o painel do Brasil a mesma lógica de cadastro BR/PT já existente no painel de Portugal.
+
+Correções aplicadas:
+- Campo País / Ambiente operacional no cadastro de usuários.
+- Botões Brasil / Portugal sincronizados com o select real.
+- Cadastro envia operationRegion, siteKey e portalSite sempre como BR ou PT.
+- Backend admin-users grava operation_region, site_key e portal_site.
+- Login passa a considerar a região/ambiente.
+- Lista de usuários exibe o ambiente do cadastro.
+- Mantida a versão v36.30 com PM/Admin editando o Painel do Cliente.
+
+Observação:
+- Não foi criado novo SQL porque as regras já estão no Supabase.
+- Para o site Brasil, o padrão visual/cadastro é BR, mas o admin pode selecionar PT se necessário.

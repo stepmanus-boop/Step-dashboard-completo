@@ -1,0 +1,11 @@
+Correção aplicada:
+
+1. O ajuste visual do topo e o tom mais claro agora só são aplicados em body.client-mode, ou seja, somente no login do cliente.
+2. O painel geral/admin não recebe mais alteração de cor, margem, topbar, logo ou tamanho de cabeçalho.
+3. A imagem da plataforma/vessel não usa mais fallback da logo do cliente nem da STEP. Se a plataforma não tiver foto cadastrada, o card fica sem imagem.
+4. A importação de imagem foi mantida separada: logo do cliente em um campo, foto por plataforma em outro campo.
+5. As imagens importadas foram reduzidas para ficarem mais leves antes de salvar no Supabase.
+6. Para perfil Cliente, o setor enviado ao backend fica como Todos/all.
+7. Cache do PWA atualizado.
+
+Se ainda aparecer erro de schema no Supabase, rode novamente supabase/SQL-PORTAL-CLIENTE-USERS.sql e publique a nova versão.

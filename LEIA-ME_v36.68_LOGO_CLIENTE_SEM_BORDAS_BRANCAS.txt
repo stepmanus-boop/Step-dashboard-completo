@@ -1,0 +1,16 @@
+VERSÃO v36.68 - AJUSTE VISUAL DA LOGO DO PORTAL DO CLIENTE
+
+Correção aplicada:
+- Remove padding/fundo branco do quadro da logo do cliente.
+- Força a imagem da logo a ocupar 100% do card.
+- Usa object-fit: cover e leve scale para cortar respiros brancos internos de imagens importadas com borda.
+- Atualiza o service worker para step-dashboard-36.68, evitando cache antigo do CSS.
+
+Arquivo alterado:
+- site/app.css
+- site/sw.js
+
+Após subir no Netlify:
+1. Deploys > Trigger deploy > Clear cache and deploy site
+2. No navegador: CTRL + F5
+3. Se estiver instalado como PWA, remover e instalar novamente se ainda mostrar o visual antigo.

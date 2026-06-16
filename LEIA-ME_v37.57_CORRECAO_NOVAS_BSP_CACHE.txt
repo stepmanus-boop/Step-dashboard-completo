@@ -1,0 +1,26 @@
+Versao v37.57 - Correcao de novas BSPs no cache
+
+Problema identificado:
+- Algumas BSPs novas do Smartsheet entram como linha-mae com Project preenchido, por exemplo "BSP 26-535-01", mas sem os campos classicos usados pelo painel para reconhecer uma BSP:
+  - Quantity Spools
+  - Drawing = ISO
+  - Project Type
+  - Client/Vessel
+- Como a linha nova tinha dados operacionais em Item, Line No, Size, Kilos e Quantity Juntas, mas nao tinha os campos classicos, ela podia ser descartada antes de entrar no payload do cache Supabase.
+
+Correcoes aplicadas:
+- O parser agora reconhece linha-mae com prefixo BSP/BPP/B3D quando houver evidencia operacional, mesmo sem Client/Vessel.
+- Foram adicionados como sinais validos:
+  - Item
+  - Kilos
+  - Quantity Juntas
+  - Quant. Juntas
+  - Line No / Line Number
+  - Size
+- A sincronizacao manual e agendada deixou de depender do atalho "versao igual" para manter payload antigo.
+- O cache nao deve mais atualizar o horario antes de reconstruir e gravar o payload completo.
+- O timeout padrao da leitura completa foi ampliado para 20s.
+
+Preservado:
+- Cores originais do dashboard restauradas.
+- Correcao anterior do andamento/schedule do cliente mantida.

@@ -1,0 +1,6 @@
+v37.52 - Paleta corporativa STEP
+
+Status:
+Esta tentativa foi substituida pela v37.53, que usa o PDF "_Aplicacao da Identidade Visual STEP 2025 1.pdf" como fonte real das regras.
+
+Nao usar esta versao como referencia final de identidade visual.

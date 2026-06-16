@@ -1,0 +1,14 @@
+STEP Track v37.13 - Escopo de cliente exato
+
+Base: v37.12 segura sobre v37.11.
+
+Correção aplicada:
+- O Portal do Cliente não usa mais comparação pela primeira palavra do cliente.
+- BW ENERGY não enxerga BW LNG apenas por ambos começarem com BW.
+- Comparação de carteira do cliente passa a ser exata por Client da planilha principal.
+- Agrupamentos continuam possíveis apenas quando cadastrados explicitamente em allowed_clients no Supabase.
+- Mantida exceção explícita legada para SBM/STEP PORTUGAL.
+
+Sem SQL novo.
+Sem ENV nova obrigatória.
+Após deploy, recomenda-se Clear cache and deploy site no Netlify e Atualizar no painel para regravar cache já filtrado com a regra nova.

@@ -1,0 +1,12 @@
+{
+  "ok": false,
+  "meta": {
+    "source": "disabled-bundled-fallback",
+    "version": "disabled-v37.10",
+    "lastSync": "2026-05-27T14:54:09.192777Z",
+    "disabledReason": "Fallback empacotado desativado para evitar base operacional antiga."
+  },
+  "stats": {},
+  "alerts": [],
+  "projects": []
+}

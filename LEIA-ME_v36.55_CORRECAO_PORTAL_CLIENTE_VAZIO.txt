@@ -1,0 +1,9 @@
+v36.55 - Correção Portal do Cliente vazio após ajustes nos apontamentos
+
+Correções aplicadas:
+- O Portal do Cliente não é mais liberado com cards em '--' quando a sessão já está autenticada e a primeira carga recebe cache/snapshot vazio ou incompleto.
+- O init agora usa a mesma validação de segurança do login: exige carteira válida e PO carregada antes de liberar o painel do cliente.
+- Se a primeira chamada falhar, o sistema revalida os dados em segundo plano sem refresh da página.
+- A API de projetos passou a usar name/username como fallback de escopo somente para usuário cliente, evitando carteira zerada quando o cookie antigo não traz clientKey/clientName.
+- Mantidas as correções dos apontamentos PCP sem afetar o cronograma/report.
+- Atualizado cache do service worker para v36.55.

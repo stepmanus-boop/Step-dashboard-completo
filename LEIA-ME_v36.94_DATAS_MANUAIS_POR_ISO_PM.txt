@@ -1,0 +1,21 @@
+STEP Dashboard Brasil | v36.94 | Datas manuais por ISO no painel individual
+
+Alteração aplicada:
+- Ao clicar em uma ISO/Tag no detalhamento da BSP, o painel individual agora exibe a seção "Cronograma da ISO".
+- PM vinculado à BSP e usuário admin visualizam o botão "Editar início/fim da ISO".
+- Cliente não visualiza o botão de edição; ele apenas enxerga o cronograma já calculado com as datas salvas.
+- As datas de início e término são salvas manualmente por ISO no Supabase, dentro do campo JSON custom_fields da tabela client_bsp_overrides.
+- O salvamento não altera Smartsheet/Tracking e não altera as datas gerais da BSP.
+- A edição por ISO preserva os ajustes executivos já existentes da BSP e preserva outras ISOs cadastradas.
+
+Supabase:
+- Não é necessário criar uma nova tabela se a tabela public.client_bsp_overrides já existir com a coluna custom_fields jsonb.
+- O sistema grava as datas por ISO em custom_fields.__isoDateOverrides.
+
+Validações executadas:
+- node --check site/app.js
+- node --check netlify/functions/client-bsp-overrides.js
+- node --check netlify/functions/_supabase.js
+
+Observação:
+- npm run validate foi executado, mas depende das variáveis SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY no ambiente local. No Netlify, usar as variáveis reais já cadastradas.

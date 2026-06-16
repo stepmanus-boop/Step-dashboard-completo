@@ -1,0 +1,12 @@
+v36.79
+
+Correção aplicada:
+- Restaura site/app.js da versão estável v36.76, que carregava o Portal do Cliente corretamente.
+- Mantém netlify/functions/projects.js operacional com fallback de escopo para SBM -> STEP PORTUGAL, evitando carteira zerada se a sessão vier sem allowed_clients.
+- Mantém a função netlify/functions/drawing-detail.js em modo leve por colunas, isolada do painel principal.
+- Atualiza service worker para step-dashboard-36.79 para limpar app.js antigo do navegador.
+
+Depois de subir:
+1. Netlify > Deploys > Trigger deploy > Clear cache and deploy site
+2. No navegador: CTRL + F5
+3. Se ainda aparecer vazio, sair e entrar novamente para renovar o cookie da sessão.

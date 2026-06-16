@@ -1,0 +1,71 @@
+STEP Dashboard Brasil – v37.01
+
+Correção aplicada na tela:
+- Projetos em Desenvolvimento – Yinson
+
+Problema identificado:
+- A tela falhava ao carregar dados porque a função netlify/functions/client-under-dev.js dependia de um Sheet ID padrão e de nomes de colunas muito rígidos.
+- Em alguns ambientes o token Smartsheet está como SMARTSHEET_TOKEN, SMARTSHEET_ACCESS_TOKEN ou variações, mas a função aceitava apenas SMARTSHEET_API_KEY.
+- Se o Sheet ID não fosse exatamente o esperado, a tela abria mas a API retornava erro.
+
+Correções realizadas:
+1. A API agora aceita os mesmos nomes de token usados no restante do painel:
+   - SMARTSHEET_API_KEY
+   - SMARTSHEET_TOKEN
+   - SMARTSHEET_ACCESS_TOKEN
+   - SMARTSHEET_API_TOKEN
+   - SMARTSHEET_BEARER_TOKEN
+   - SMARTSHEET_PAT
+   - SMARTSHEET_PERSONAL_ACCESS_TOKEN
+
+2. A API agora procura a sheet correta por múltiplas variáveis:
+   - SMARTSHEET_YINSON_UNDER_DEV_SHEET_ID
+   - SMARTSHEET_UNDER_DEV_SHEET_ID
+   - SMARTSHEET_CLIENT_UNDER_DEV_SHEET_ID
+   - SMARTSHEET_YINSON_SHEET_ID
+   - SMARTSHEET_SHEET_ID_YINSON
+   - SMARTSHEET_SHEET_IDS_LIST
+   - SMARTSHEET_SHEET_ID_BR
+   - SMARTSHEET_SHEET_ID
+   - fallback para os IDs históricos: 3612820139992964 e 7523600180400004
+
+3. Se os IDs configurados não localizarem a sheet correta, a função lista as sheets acessíveis pela API e tenta identificar por nome:
+   - Yinson
+   - Projetos em Desenvolvimento
+   - Projects under development
+   - Repair/Reparo
+
+4. O mapeamento das colunas agora é flexível, aceitando variações de nome, acento, caixa, espaços e símbolos:
+   - VESSEL
+   - WORK ORDER / WO
+   - ID REPAIR / REPAIR ID
+   - TAG NUMBER / TAG
+   - SOB / S.O.B.
+   - DESCRIPTION / DESCRIÇÃO / DESC
+   - STATUS / SITUAÇÃO / ESTADO
+
+5. A tela não mostra mais apenas erro genérico. Em caso de falha, exibe a mensagem retornada pela API.
+
+6. Foi adicionado diagnóstico seguro:
+   - abrir /api/client-under-dev?debug=1 no domínio do Netlify mostra o mapeamento das colunas, sheet usada, colunas disponíveis e sheets testadas.
+   - não expõe token.
+
+7. A função de imagem também foi ajustada para aceitar os mesmos nomes de token e os mesmos IDs de sheet da tela de desenvolvimento.
+
+Arquivos alterados:
+- netlify/functions/client-under-dev.js
+- netlify/functions/client-under-dev-image.js
+- site/client-under-development.html
+- site/app.js
+- site/sw.js
+
+Validações realizadas:
+- node --check netlify/functions/client-under-dev.js: OK
+- node --check netlify/functions/client-under-dev-image.js: OK
+- node --check site/app.js: OK
+- node --check site/sw.js: OK
+- validação do JavaScript embutido em client-under-development.html: OK
+- npm run lint: OK
+
+Observação:
+- npm run validate acusa ausência de SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY no sandbox local, o que é esperado fora do Netlify.

@@ -1,0 +1,26 @@
+v37.53 - Identidade Visual STEP 2025 aplicada pelo PDF
+
+Fonte usada:
+_Aplicacao da Identidade Visual STEP 2025 1.pdf
+
+Regras extraidas do manual:
+1. Base visual clara, com fundo branco predominante.
+2. Blocos institucionais em cinza claro/gelo com cantos amplos.
+3. Logo STEP em destaque, sem tratamentos escuros ou brilho excessivo.
+4. Titulos em peso alto, com familia Just Sans quando disponivel.
+5. Texto comum em Just Sans Light/Regular quando disponivel, com fallback sistemico.
+6. Paleta oficial:
+   - #e0ecf1
+   - #81cdf2
+   - #049ce6
+   - #0288d1
+   - #2a4f89
+
+Alteracoes aplicadas:
+1. Adicionada camada v37.53 no final de site/app.css para sobrepor a estetica dark anterior.
+2. Reestilizados topo, cards, paineis, tabelas, botoes, modais, login, portal do cliente e visao executiva.
+3. Atualizado theme-color do HTML/PWA para #0288d1 e background PWA para branco.
+4. Mantidas as correcoes funcionais v37.51 de cache Supabase, novas BSPs e schedule do cliente.
+
+Observacao:
+A fonte Just Sans foi referenciada no CSS, mas nenhum arquivo de fonte estava presente no pacote. O navegador usara Just Sans se instalada/disponivel; caso contrario, usa Inter/system-ui como fallback.

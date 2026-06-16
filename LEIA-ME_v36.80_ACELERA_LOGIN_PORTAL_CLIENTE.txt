@@ -1,0 +1,13 @@
+v36.80 - Acelera carregamento do Portal do Cliente
+
+Correção aplicada:
+- O Portal do Cliente não fica mais preso em "Carregando POs" até 96%.
+- O painel abre assim que as BSPs e cards do cliente aparecem.
+- POs, demandas e referências continuam atualizando em segundo plano.
+- Se a base de PO demorar por internet/Smartsheet, o usuário não fica bloqueado.
+- Mantido Drawing Detail isolado, sem interferir no /api/projects.
+
+Após subir no Netlify:
+1. Deploys > Trigger deploy > Clear cache and deploy site
+2. No navegador: CTRL + F5
+3. Entrar novamente no painel

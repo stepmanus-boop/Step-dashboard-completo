@@ -1,0 +1,17 @@
+STEP Track v37.32 - Correção Projetos em Desenvolvimento / Yinson
+
+Base: v37.31.
+
+Alterações:
+1. Mantidos os cards PCP e o popup expansível por cliente da v37.31.
+2. Corrigido Projetos em Desenvolvimento - Yinson para priorizar a sheet informada:
+   7523600180400004
+3. Atualizado o endpoint de imagens para procurar primeiro na mesma sheet.
+4. Ampliados aliases de colunas para variações como Client WO Number, Line Nº, Observations, Repair, etc.
+5. Sem SQL novo.
+6. Sem ENV obrigatória nova.
+
+Opcional recomendado no Netlify para deixar explícito:
+SMARTSHEET_YINSON_UNDER_DEV_SHEET_ID=7523600180400004
+
+Depois do deploy: Netlify > Deploys > Clear cache and deploy site.

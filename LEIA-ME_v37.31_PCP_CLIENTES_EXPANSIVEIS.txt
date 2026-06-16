@@ -1,0 +1,11 @@
+v37.31 - PCP: clientes expansíveis no popup de prazos
+
+Base: v37.30.
+
+Alterações:
+- Popup de BSPs vencidas/a vencer agora exibe primeiro apenas os clientes.
+- Clique no cliente expande/recolhe a lista de BSPs daquele cliente.
+- Layout do popup foi refinado com resumo por cliente: total de BSPs, vencidas/hoje/em 7 dias, PM principal e primeira data crítica.
+- Ao clicar em uma BSP, seleciona no painel; com 2 cliques abre o detalhamento completo.
+- Mantido alerta PCP de 7 dias.
+- Sem SQL novo e sem ENV nova.

@@ -1,0 +1,30 @@
+STEP Track v37.38 - Correção Yinson / cache / lock
+
+Base: v37.37
+
+Objetivo:
+- Corrigir o estado em que Projetos em Desenvolvimento - Yinson ficava parado em "lock-not-acquired" antes de criar a primeira base válida no Supabase.
+- Não mexer nos cards PCP, popup de clientes expansíveis, alerta de 7 dias, cache principal, login rápido ou escopo BW ENERGY/BW LNG.
+
+Correções:
+1. A linha bootstrap do cache Yinson não é mais tratada como cache válido.
+2. Se não existir cache útil e uma tentativa manual/agendada encontrar lock preso, o sistema limpa o lock da chave yinson:under-dev:current e tenta adquirir novamente uma única vez.
+3. Novo helper clearTrackingRefreshLock em _trackingCache.js.
+4. Endpoint de diagnóstico para limpar lock manualmente, se necessário:
+   /api/client-under-dev?clearLock=1
+5. PWA versionado para forçar atualização dos arquivos.
+
+SQL:
+- Não precisa SQL novo se o SQL v37.15 do lock já foi executado.
+
+ENV recomendadas:
+SMARTSHEET_YINSON_UNDER_DEV_SHEET_ID=7523600180400004
+SMARTSHEET_YINSON_UNDER_DEV_SHEET_URL=https://app.smartsheet.com/sheets/Vc4FwJfQ7XMpGfWv9HvWhJC6xf743r3FM7cMjQ41
+YINSON_UNDER_DEV_CACHE_ENABLED=1
+YINSON_UNDER_DEV_SCHEDULE_ENABLED=1
+YINSON_UNDER_DEV_AUTO_REFRESH_AFTER_MS=900000
+
+Após deploy:
+1. Netlify > Deploys > Clear cache and deploy site.
+2. Abrir /api/client-under-dev?clearLock=1 uma vez se ainda houver lock antigo preso.
+3. Abrir Projetos em Desenvolvimento e clicar em Atualizar dados.

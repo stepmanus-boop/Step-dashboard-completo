@@ -1,0 +1,37 @@
+ALTERAÇÃO v32.7 - PRÉ-AQUECIMENTO SEGURO DO CACHE SMARTSHEET ANTES DO LOGIN
+
+Objetivo:
+- Quando o usuário digitar/acessar o site, o sistema já inicia uma chamada segura para preparar o cache da API de projetos.
+- Assim, enquanto o usuário está na tela de login, o backend já pode buscar/validar os dados do Smartsheet.
+- Após o login, o carregamento do painel tende a ser mais rápido porque /api/projects já encontra o cache aquecido.
+
+Arquivos alterados:
+1) netlify/functions/projects.js
+   - Criado suporte seguro para GET /api/projects?warmup=1.
+   - Essa chamada roda antes da autenticação somente para aquecer o cache.
+   - Não retorna projetos, estatísticas, alertas, clientes, BSPs, pesos ou qualquer dado operacional.
+   - O fluxo normal de /api/projects continua protegido por login.
+
+2) site/app.js
+   - Criada função prewarmProjectsApi().
+   - Ao iniciar o site, antes do bootstrap/login, o frontend chama /api/projects?warmup=1.
+   - No envio do login, a função também garante que o warmup esteja iniciado.
+   - Se não houver cache local do usuário, o login aguarda até 2 segundos pelo warmup antes de chamar /api/projects normal.
+   - Caso o warmup falhe ou demore, o login continua funcionando normalmente.
+
+Segurança:
+- A rota /api/projects?warmup=1 não libera os dados antes do login.
+- A rota normal /api/projects sem login continua retornando 401.
+- O warmup aceita apenas GET.
+- Erros do warmup não travam a tela de login.
+
+Validações realizadas:
+- node --check site/app.js: OK
+- node --check netlify/functions/projects.js: OK
+- npm run lint: OK
+- Teste de proteção:
+  - POST /api/projects?warmup=1 retorna 405.
+  - GET /api/projects sem sessão continua retornando 401.
+
+Observação:
+- npm run validate não foi aprovado no ambiente local apenas porque as variáveis SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY não existem aqui. Isso não tem relação com a alteração aplicada.
