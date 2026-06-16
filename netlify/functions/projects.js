@@ -1494,6 +1494,15 @@ function applyProjectSpoolRollup(project) {
   project.finished = finalFinished;
   project.uiState = uiStateFromFlow(finalFlow, finalFinished);
 
+  // v37.75: se a linha raiz/BSP estiver sinalizada como ON HOLD no Smartsheet,
+  // a etapa atual enviada para o painel deve ser On Hold. O status real do Tracking
+  // continua preservado nos campos de status para detalhamento.
+  if (isProjectOnHold(project)) {
+    project.currentStageGroup = "On Hold";
+    project.sectorSummary = "On Hold";
+    project.operationalSector = "On Hold";
+  }
+
   // Correção v32.1/v32.2: Se o projeto está finalizado, forçamos todos os indicadores a 100%
   // Isso garante que mesmo que a planilha tenha dados parciais nas ISOs, o status "Finalizado" prevaleça.
   if (finalFinished) {

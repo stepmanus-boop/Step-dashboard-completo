@@ -2606,11 +2606,15 @@ function isProjectFinalizedForDisplay(project) {
 }
 
 function getProjectSectorSummary(project) {
+  // v37.75: quando a BSP estiver sinalizada como ON HOLD no Smartsheet,
+  // a Etapa Atual deve aparecer como On Hold, sem misturar com Produção/Qualidade/Pintura.
+  if (isProjectOnHold(project)) return 'On Hold';
   if (isProjectFinalizedForDisplay(project)) return 'Enviado';
   return project?.sectorSummary || project?.currentStageGroup || project?.currentSector || project?.operationalSector || '';
 }
 
 function getProjectCurrentStageDisplay(project) {
+  if (isProjectOnHold(project)) return 'On Hold';
   if (isProjectFinalizedForDisplay(project)) return 'Enviado';
   return project?.currentStageGroup || getProjectSectorSummary(project) || simplifyCurrentStage(project);
 }

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'step-dashboard-37.74-zd230-zpl-label-print-qr';
+const CACHE_NAME = 'step-dashboard-37.75-zebra-combined-onhold-qr';
 // - v37.02: revisa performance, otimiza i18n dinâmico/Yinson e preserva apontamentos rápidos
 // Versão v28: preserva cache local entre logouts e usa caminho rápido pós-login
 // - Mantém assets do app shell versionados para liberar app.js corrigido imediatamente
@@ -52,6 +52,7 @@ const CACHE_NAME = 'step-dashboard-37.74-zd230-zpl-label-print-qr';
 // - v37.72: amplia a tradução dinâmica PT/EN do Portal do Cliente, etapas operacionais, QR Code e relógios
 // - v37.73: oculta informações internas do cliente, corrige data ISO individual e impressão Zebra fixa 3 quadros
 // - v37.74: ajusta impressão Zebra ZD230-203dpi ZPL usando tamanho Custom do driver e espera as imagens carregarem
+// - v37.75: impressão Zebra consolidada em SVG único por faixa e Etapa Atual On Hold quando sinalizada
 const APP_SHELL = [
   "/",
   "/app.css",
